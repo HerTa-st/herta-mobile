@@ -12,7 +12,9 @@ import {
   parseNarrative,
   parseSupervisorVerdict,
   pickOpening,
+  parseImportBundle,
   pickSeeds,
+  planImport,
   retractLastTurn,
   runDreamPass,
   serializeRecord,
@@ -54,6 +56,10 @@ export function App() {
   const [memories, setMemories] = useState<MemoryRecord[]>([]);
   const [dreamState, setDreamState] = useState<DreamState | null>(null);
   const [dreaming, setDreaming] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [importNote, setImportNote] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
   const abort = useRef<AbortController | null>(null);
   const dreamingRef = useRef(false);
 
@@ -231,6 +237,30 @@ export function App() {
     [settings.apiKey, settings.baseUrl, settings.model]
   );
 
+  /** 导入：校验 → 去重 → 只写新的。永远不覆盖已有会话。 */
+  const runImport = useCallback(async () => {
+    const parsed = parseImportBundle(importText);
+    if (!parsed.ok) {
+      setImportNote("没导进来：" + parsed.error);
+      return;
+    }
+    const existing = new Set((await listSessions()).map((s) => s.id));
+    const plan = planImport(parsed.bundle, existing);
+    for (const s of plan.toWrite) await putSession(s);
+    await refreshList();
+    setImportNote(
+      plan.toWrite.length > 0
+        ? "导进来了 " + plan.toWrite.length + " 个对话" + (plan.skipped ? "，跳过 " + plan.skipped + " 个已存在的" : "")
+        : "这份包里的 " + plan.total + " 个对话都已经在库里了"
+    );
+    if (plan.toWrite.length > 0) {
+      setImportText("");
+      // 导完直接跳到最新那个，省得她自己在列表里找
+      const newest = [...plan.toWrite].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))[0];
+      setSession(newest);
+    }
+  }, [importText, refreshList]);
+
   const send = useCallback(async () => {
     const text = draft.trim();
     if (!text || busy || !session) return;
@@ -394,18 +424,26 @@ export function App() {
           <button className="new" onClick={() => void newSession()}>
             ＋ 新的对话
           </button>
+          <input
+            className="filter"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder={sessions.length > 8 ? "找对话…" : ""}
+          />
           <ul>
-            {sessions.map((s) => (
+            {sessions
+              .filter((s) => !filter.trim() || s.title.includes(filter.trim()))
+              .map((s) => (
               <li key={s.id} className={s.id === session?.id ? "on" : ""}>
-                <button className="row" onClick={() => void openSession(s.id)}>
-                  <span className="st">{s.title}</span>
-                  <span className="sm">{s.blocks} 块</span>
-                </button>
-                <button className="del" onClick={() => void removeSession(s.id)} aria-label="删除">
-                  ✕
-                </button>
-              </li>
-            ))}
+                  <button className="row" onClick={() => void openSession(s.id)}>
+                    <span className="st">{s.title}</span>
+                    <span className="sm">{s.origin === "import" ? "导入" : s.blocks + " 块"}</span>
+                  </button>
+                  <button className="del" onClick={() => void removeSession(s.id)} aria-label="删除">
+                    ✕
+                  </button>
+                </li>
+              ))}
             {sessions.length === 0 && <li className="none">还没有别的对话</li>}
           </ul>
 
@@ -426,6 +464,43 @@ export function App() {
                   <li key={m.name}>{memoryTitle(m)}</li>
                 ))}
             </ul>
+          </div>
+
+          <div className="imp">
+            <button className="impToggle" onClick={() => setShowImport((v) => !v)}>
+              {showImport ? "收起导入" : "导入 DeepSeek 对话"}
+            </button>
+            {showImport && (
+              <>
+                <p className="impHelp">
+                  在电脑上用油猴脚本导出 JSON，把内容贴进来（或选文件）。导入的是原文归档，不会直接变成她的记忆——
+                  记忆要经过做梦。
+                </p>
+                <input
+                  type="file"
+                  accept=".json,application/json"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    void file.text().then((t) => {
+                      setImportText(t);
+                      setImportNote("读到了 " + file.name + "，点下面「导进来」");
+                    });
+                  }}
+                />
+                <textarea
+                  className="impBox"
+                  value={importText}
+                  onChange={(e) => setImportText(e.target.value)}
+                  placeholder='{"format":"herta-import","version":1,...}'
+                  rows={4}
+                />
+                <button className="impGo" onClick={() => void runImport()} disabled={!importText.trim()}>
+                  导进来
+                </button>
+                {importNote && <p className="impNote">{importNote}</p>}
+              </>
+            )}
           </div>
         </div>
       )}

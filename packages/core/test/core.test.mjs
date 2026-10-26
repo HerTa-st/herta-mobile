@@ -11,6 +11,7 @@ import { listOpenings, pickOpening } from "../src/openings.ts";
 import { EMPTY_TITLE, appendBlocks, createSession, deriveTitle, retractLastTurn, trimForContext } from "../src/session.ts";
 import { MemoryInMemory, memoryFileName, memoryTitle, nextMemoryIndex } from "../src/memory.ts";
 import { extractJson, runDreamPass } from "../src/dream.ts";
+import { importSessionId, parseImportBundle, planImport, sessionFromImport } from "../src/import.ts";
 
 /** 桌面版原文抽出来的 196 个函数：复核提示词与分隔符从它注入，不在 core 里重写。 */
 import * as H from "../../../runtime/prompts-code.zh.mjs";
@@ -333,6 +334,85 @@ test("做梦：模型把 JSON 包在代码块里也认得出来", () => {
   assert.deepEqual(extractJson("```json\n{\"worthy\": true}\n```"), { worthy: true });
   assert.deepEqual(extractJson("前言\n{\"a\":1}\n后记"), { a: 1 });
   assert.equal(extractJson("没有 JSON"), null);
+});
+
+/* ---------------------------------------------------------------- 导入 */
+
+function bundleJson(overrides = {}) {
+  return JSON.stringify({
+    format: "herta-import",
+    version: 1,
+    source: "deepseek-web",
+    exportedAt: "2026-10-20T10:00:00.000Z",
+    collector: { name: "herta-export", version: "0.1.0" },
+    sessions: [
+      {
+        id: "site-1",
+        title: "关于模拟宇宙",
+        startedAt: "2026-10-19T08:00:00.000Z",
+        messages: [
+          { role: "user", text: "模拟宇宙到底是什么", at: "2026-10-19T08:00:00.000Z" },
+          { role: "assistant", text: "一个被我自己推翻过很多次的东西。", at: "2026-10-19T08:00:05.000Z" },
+        ],
+      },
+    ],
+    ...overrides,
+  });
+}
+
+test("导入：正常包能解析，空会话被丢掉", () => {
+  const r = parseImportBundle(bundleJson());
+  assert.equal(r.ok, true);
+  assert.equal(r.bundle.sessions.length, 1);
+  assert.equal(r.bundle.sessions[0].messages.length, 2);
+});
+
+test("导入：格式/版本/结构不对时明确拒绝，并说清哪里不对", () => {
+  assert.match(parseImportBundle("不是 json").error, /JSON/);
+  assert.match(parseImportBundle(bundleJson({ format: "other" })).error, /格式/);
+  assert.match(parseImportBundle(bundleJson({ version: 9 })).error, /版本/);
+  assert.match(parseImportBundle(bundleJson({ sessions: [] })).error, /一个会话都没有/);
+  assert.match(parseImportBundle(bundleJson({ sessions: [{ title: "没有 id", messages: [] }] })).error, /没有 id/);
+});
+
+test("导入：只有空白的会话不算会话", () => {
+  const r = parseImportBundle(
+    bundleJson({ sessions: [{ id: "x", title: "空的", messages: [{ role: "user", text: "   " }] }] })
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.error, /空的/);
+});
+
+test("导入：转成会话时只保留「说」，别人那边的思维链不冒充她的内心", () => {
+  const r = parseImportBundle(bundleJson());
+  const s = sessionFromImport("deepseek-web", r.bundle.sessions[0], r.bundle.exportedAt);
+  assert.equal(s.origin, "import");
+  assert.equal(s.blocks.length, 2);
+  assert.equal(s.blocks[0].kind, "user");
+  assert.equal(s.blocks[1].kind, "herta");
+  assert.equal(s.blocks[1].surface, "speech");
+  assert.equal(s.id, importSessionId("deepseek-web", "site-1"));
+  assert.equal(s.title, "关于模拟宇宙");
+});
+
+test("导入：重复导入按稳定 id 跳过，不会长出第二份", () => {
+  const r = parseImportBundle(bundleJson());
+  const first = planImport(r.bundle, new Set());
+  assert.equal(first.toWrite.length, 1);
+  assert.equal(first.skipped, 0);
+
+  const again = planImport(r.bundle, new Set(first.toWrite.map((s) => s.id)));
+  assert.equal(again.toWrite.length, 0);
+  assert.equal(again.skipped, 1);
+});
+
+test("导入：同一份包里重复的会话也只写一次", () => {
+  const one = JSON.parse(bundleJson());
+  one.sessions.push(one.sessions[0]);
+  const r = parseImportBundle(JSON.stringify(one));
+  const plan = planImport(r.bundle, new Set());
+  assert.equal(plan.toWrite.length, 1);
+  assert.equal(plan.skipped, 1);
 });
 
 /* -------------------------------------------------------------- 标签语法 */
