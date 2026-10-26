@@ -169,6 +169,34 @@ body {
   font-size: 13px;
 }
 
+.mem {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.memHead { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--dim); }
+.memHead .sm { margin-left: auto; font-size: 12px; }
+.memNote { margin: 6px 0 0; font-size: 12px; color: var(--dim); }
+.mem .dream {
+  margin-top: 8px;
+  width: 100%;
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--fg);
+  border-radius: 8px;
+  padding: 8px;
+  font: inherit;
+}
+.mem .dream:disabled { opacity: 0.5; }
+.memList { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 3px; }
+.memList li {
+  font-size: 12px;
+  color: var(--dim);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .composer .ghost {
   background: none;
   border: 1px solid var(--line);

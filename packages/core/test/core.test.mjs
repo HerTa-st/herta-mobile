@@ -9,6 +9,8 @@ import { parseNarrative } from "../src/narrative.ts";
 import { buildReviewMessages, decideReview, vetoHints } from "../src/supervisor.ts";
 import { listOpenings, pickOpening } from "../src/openings.ts";
 import { EMPTY_TITLE, appendBlocks, createSession, deriveTitle, retractLastTurn, trimForContext } from "../src/session.ts";
+import { MemoryInMemory, memoryFileName, memoryTitle, nextMemoryIndex } from "../src/memory.ts";
+import { extractJson, runDreamPass } from "../src/dream.ts";
 
 /** 桌面版原文抽出来的 196 个函数：复核提示词与分隔符从它注入，不在 core 里重写。 */
 import * as H from "../../../runtime/prompts-code.zh.mjs";
@@ -143,6 +145,158 @@ test("上下文截断：切在整轮边界，不会从她的话中间开始", ()
   assert.deepEqual(trimForContext(blocks, 0), blocks, "maxBlocks=0 应当原样返回");
 });
 
+/* ---------------------------------------------------------------- 记忆 */
+
+test("记忆：标题从首行取，编号接着现有的往下排", () => {
+  assert.equal(memoryTitle({ name: "x.txt", body: "### 废案_07：凉掉的第三杯茶\n\n正文", createdAt: "" }), "凉掉的第三杯茶");
+  const recs = [
+    { name: "### 废案_00：甲.txt", body: "", createdAt: "" },
+    { name: "### 废案_13：乙.txt", body: "", createdAt: "" },
+  ];
+  assert.equal(nextMemoryIndex(recs), 14);
+  assert.equal(nextMemoryIndex([]), 10);
+  assert.ok(memoryFileName(14, "新 的/标题").startsWith("### 废案_14："));
+});
+
+/* ---------------------------------------------------------------- 做梦 */
+
+const SIX_BLOCKS = [
+  { kind: "user", text: "你今天怎么这么慢", at: "" },
+  { kind: "herta", surface: "speech", text: "慢是你没算过这堆数据的体量。", at: "" },
+  { kind: "user", text: "那你算出来了吗", at: "" },
+  { kind: "herta", surface: "thought", text: "他连问题都没问对。", at: "" },
+  { kind: "herta", surface: "speech", text: "算出来了。你要的那部分没用。", at: "" },
+  { kind: "user", text: "……行吧", at: "" },
+];
+
+const GOOD = "### 废案_10：慢与体量\n\n那天他嫌我慢。\n\n---\n\n（我 说）\n慢是你没算过这堆数据的体量。\n（/我 说）";
+
+function dreamHarness({ replies, seed = [] }) {
+  const store = new MemoryInMemory(seed);
+  const calls = [];
+  const prompts = {
+    buildEpisodeDigest: (blocks) => blocks.map((b) => b.text).join("\n"),
+    buildWorthinessPrompt: () => "WORTH",
+    buildGenerationPrompt: () => "GEN",
+    buildCritiquePrompt: () => "CRITIQUE",
+    buildRefinePrompt: (_draft, errors) => "REFINE:" + errors.join("|"),
+    validateFeian: (text) =>
+      text.includes("（我 说）") && text.includes("---") ? { ok: true } : { ok: false, errors: ["missing --- separator"] },
+  };
+  const deps = {
+    store,
+    prompts,
+    scene: { env: "办公室", guide: "指南", lang: "zh" },
+    chat: async ({ prompt }) => {
+      calls.push(prompt);
+      const next = replies.shift();
+      if (next === undefined) throw new Error("模型调用次数超了");
+      return next;
+    },
+    now: () => 1_800_000_000_000,
+  };
+  return { deps, store, calls };
+}
+
+test("做梦：材料不够就不做，游标不动", async () => {
+  const h = dreamHarness({ replies: [] });
+  const out = await runDreamPass(h.deps, { sessionId: "s1", blocks: SIX_BLOCKS.slice(0, 3) });
+  assert.equal(out.kind, "skipped");
+  assert.deepEqual((await h.store.state()).cursors, {});
+  assert.equal(h.calls.length, 0, "材料不够还去调模型了");
+});
+
+test("做梦：刚做过就等一会儿", async () => {
+  const h = dreamHarness({ replies: [] });
+  await h.store.saveState({ cursors: {}, made: 0, skipped: 0, lastPassAt: h.deps.now() - 1000, lastNote: null });
+  const out = await runDreamPass(h.deps, { sessionId: "s1", blocks: SIX_BLOCKS });
+  assert.equal(out.kind, "skipped");
+  assert.equal(h.calls.length, 0);
+});
+
+test("做梦：判不值得记 → 记一笔，游标前进，不会反复嚼同一段", async () => {
+  const h = dreamHarness({ replies: ['{"worthy": false, "reason": "只是进度汇报"}'] });
+  const out = await runDreamPass(h.deps, { sessionId: "s1", blocks: SIX_BLOCKS });
+  assert.equal(out.kind, "rejected");
+  const st = await h.store.state();
+  assert.equal(st.cursors.s1, SIX_BLOCKS.length);
+  assert.equal(st.skipped, 1);
+  assert.ok(st.lastNote.includes("只是进度汇报"));
+  assert.equal((await h.store.list()).length, 0);
+});
+
+test("做梦：值得记且一次过 → 落成废案，编号接着排", async () => {
+  const h = dreamHarness({
+    seed: [{ name: "### 废案_13：旧的.txt", body: "### 废案_13：旧的\n\n---\n\n（我 说）\n旧。\n（/我 说）", createdAt: "" }],
+    replies: [
+      '{"worthy": true}',
+      JSON.stringify({ feian: GOOD, situationTag: "被嫌慢" }),
+      '{"voice": 0.92, "format": 1, "faithfulness": 0.9, "fixes": []}',
+    ],
+  });
+  const out = await runDreamPass(h.deps, { sessionId: "s1", blocks: SIX_BLOCKS });
+  assert.equal(out.kind, "made");
+  const list = await h.store.list();
+  assert.equal(list.length, 2);
+  const made = list.find((r) => r.sessionId === "s1");
+  assert.ok(made.name.startsWith("### 废案_14："), "编号没接着 13 往下排：" + made.name);
+  const st = await h.store.state();
+  assert.equal(st.made, 1);
+  assert.equal(st.cursors.s1, SIX_BLOCKS.length);
+  assert.equal(st.lastPassAt, 1_800_000_000_000);
+});
+
+test("做梦：格式不合格 → 改一遍后过", async () => {
+  const BAD = "### 废案_10：没分隔线\n\n（我 说）\n少了一根线。\n（/我 说）";
+  const h = dreamHarness({
+    replies: [
+      '{"worthy": true}',
+      JSON.stringify({ feian: BAD, situationTag: "t" }),
+      '{"voice": 0.9, "faithfulness": 0.9, "fixes": []}',
+      JSON.stringify({ feian: GOOD, situationTag: "t" }),
+    ],
+  });
+  const out = await runDreamPass(h.deps, { sessionId: "s1", blocks: SIX_BLOCKS });
+  assert.equal(out.kind, "made");
+  assert.ok(h.calls[3].includes("missing --- separator"), "改写提示词里没带上具体问题");
+});
+
+test("做梦：改完还是不合格 → 记失败，游标照样前进", async () => {
+  const h = dreamHarness({
+    replies: [
+      '{"worthy": true}',
+      JSON.stringify({ feian: "### 废案_10：坏的\n\n（我 说）\n没线。\n（/我 说）" }),
+      '{"voice": 0.9, "faithfulness": 0.9, "fixes": []}',
+      JSON.stringify({ feian: "还是坏的" }),
+    ],
+  });
+  const out = await runDreamPass(h.deps, { sessionId: "s1", blocks: SIX_BLOCKS });
+  assert.equal(out.kind, "failed");
+  assert.equal((await h.store.list()).length, 0);
+  assert.equal((await h.store.state()).cursors.s1, SIX_BLOCKS.length);
+});
+
+test("做梦：语气分不够 → 带上评审意见去改", async () => {
+  const h = dreamHarness({
+    replies: [
+      '{"worthy": true}',
+      JSON.stringify({ feian: GOOD, situationTag: "t" }),
+      '{"voice": 0.4, "faithfulness": 0.9, "fixes": ["太平了，像别人说的"]}',
+      JSON.stringify({ feian: GOOD, situationTag: "t" }),
+    ],
+  });
+  const out = await runDreamPass(h.deps, { sessionId: "s1", blocks: SIX_BLOCKS });
+  assert.equal(out.kind, "made");
+  assert.ok(h.calls[3].includes("太平了"), "语气问题没进改写提示词");
+});
+
+test("做梦：模型把 JSON 包在代码块里也认得出来", () => {
+  assert.deepEqual(extractJson("```json\n{\"worthy\": true}\n```"), { worthy: true });
+  assert.deepEqual(extractJson("前言\n{\"a\":1}\n后记"), { a: 1 });
+  assert.equal(extractJson("没有 JSON"), null);
+});
+
+/* -------------------------------------------------------------- 标签语法 */
 test("标签：想与说各自成对，内容原样取出", () => {
   const raw = "（我 想）\n这段话他看不见\n（/我 想）\n\n（我 说）\n这段话他听得见\n（/我 说）";
   assert.equal(extractTagged(raw, "thought"), "这段话他看不见");

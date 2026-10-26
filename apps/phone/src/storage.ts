@@ -1,19 +1,23 @@
 /**
- * 会话落盘：IndexedDB。
+ * 落盘：IndexedDB。
  *
- * 不用 SQLite 也不用 localStorage：
- * - localStorage 只有几 MB，一条长会话就能撑爆，而且写的是同步的，会卡 UI；
- * - 手机端现在只需要"按 id 存取一份会话"，IndexedDB 的键值store 正好，
- *   等 M2 的 dream 要存记忆库时再往同一个库里加 store。
+ * 三个 store，一个库：
+ *   sessions —— 会话（键 id）
+ *   memories —— 记忆库（键 name，就是那个 `### 废案_NN：标题.txt` 文件名）
+ *   kv       —— 零散状态（做梦进度等）
  *
- * 版本号只增不减。升级时在 onupgradeneeded 里按 oldVersion 补 store。
+ * 不用 localStorage：只有几 MB，一条长会话就能撑爆，而且同步写会卡 UI。
+ * 版本号只增不减；升级时在 onupgradeneeded 里按 oldVersion 补 store。
  */
 
 import type { Session } from "@herta/protocol";
 
 const DB_NAME = "herta";
-const DB_VERSION = 1;
-const STORE = "sessions";
+const DB_VERSION = 2;
+
+export const STORE_SESSIONS = "sessions";
+export const STORE_MEMORIES = "memories";
+export const STORE_KV = "kv";
 
 export interface SessionMeta {
   id: string;
@@ -27,9 +31,16 @@ function open(): Promise<IDBDatabase> {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) {
-        const s = db.createObjectStore(STORE, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(STORE_SESSIONS)) {
+        const s = db.createObjectStore(STORE_SESSIONS, { keyPath: "id" });
         s.createIndex("updatedAt", "updatedAt");
+      }
+      // v2：记忆库与零散状态
+      if (!db.objectStoreNames.contains(STORE_MEMORIES)) {
+        db.createObjectStore(STORE_MEMORIES, { keyPath: "name" });
+      }
+      if (!db.objectStoreNames.contains(STORE_KV)) {
+        db.createObjectStore(STORE_KV, { keyPath: "key" });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -37,12 +48,13 @@ function open(): Promise<IDBDatabase> {
   });
 }
 
-function tx<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+/** 泛型事务：每次调用开一次连接。手机上这点开销可以忽略，换来的是不会持有陈连接。 */
+export function tx<T>(store: string, mode: IDBTransactionMode, run: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   return open().then(
     (db) =>
       new Promise<T>((resolve, reject) => {
-        const t = db.transaction(STORE, mode);
-        const req = run(t.objectStore(STORE));
+        const t = db.transaction(store, mode);
+        const req = run(t.objectStore(store));
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error ?? new Error("IndexedDB 操作失败"));
         t.oncomplete = () => db.close();
@@ -51,21 +63,21 @@ function tx<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequ
 }
 
 export async function listSessions(): Promise<SessionMeta[]> {
-  const all = await tx<Session[]>("readonly", (s) => s.getAll() as IDBRequest<Session[]>);
+  const all = (await tx<Session[]>(STORE_SESSIONS, "readonly", (s) => s.getAll() as IDBRequest<Session[]>)) ?? [];
   return all
     .map((s) => ({ id: s.id, title: s.title, updatedAt: s.updatedAt, blocks: s.blocks.length }))
     .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
 }
 
 export async function loadSession(id: string): Promise<Session | null> {
-  const got = await tx<Session | undefined>("readonly", (s) => s.get(id) as IDBRequest<Session | undefined>);
+  const got = await tx<Session | undefined>(STORE_SESSIONS, "readonly", (s) => s.get(id) as IDBRequest<Session | undefined>);
   return got ?? null;
 }
 
 export async function putSession(session: Session): Promise<void> {
-  await tx("readwrite", (s) => s.put(session));
+  await tx(STORE_SESSIONS, "readwrite", (s) => s.put(session));
 }
 
 export async function deleteSession(id: string): Promise<void> {
-  await tx("readwrite", (s) => s.delete(id));
+  await tx(STORE_SESSIONS, "readwrite", (s) => s.delete(id));
 }
