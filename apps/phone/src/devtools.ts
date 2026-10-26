@@ -6,6 +6,9 @@
  */
 
 import type { ToolImpl } from "@herta/core";
+import { captionImage } from "./vision.ts";
+import { ensureGalleryPermission, listPhotos, readPhoto } from "./gallery.ts";
+import type { StickerRecord } from "./storage.ts";
 import type { ChatTransport } from "./transport.ts";
 
 export interface ToolContext {
@@ -14,6 +17,14 @@ export interface ToolContext {
   baseUrl: string;
   /** 用户手动选给她读的文件（名字 → 文本）。工具只能读这里，不能自己翻磁盘。 */
   files: Map<string, string>;
+  /** 视觉模型名：看图要用它。 */
+  visionModel: string;
+  /** 允许翻相册。 */
+  albumEnabled: boolean;
+  /** 她自己的表情库。 */
+  stickers: StickerRecord[];
+  /** 挑中一张时回调给回合层，由它贴到她这句话上。 */
+  onSticker(record: StickerRecord): void;
 }
 
 /** 在 Web Worker 里跑一小段 JS，超时就掐掉——不阻塞界面，也不让她卡死整个 App。 */
@@ -200,5 +211,79 @@ export function buildTools(ctx: ToolContext): ToolImpl[] {
     },
   };
 
-  return [now, clipboard, sandbox, search, device, readFile];
+  const sticker: ToolImpl = {
+    spec: {
+      name: "sticker",
+      description:
+        "发一张表情包。想用表情代替一句话、或者话说完想补个反应时用。可以给 tag 说明想要什么感觉（例如 得意/无语/敷衍/生气），不给就随机。",
+      parameters: {
+        type: "object",
+        properties: { tag: { type: "string", description: "想要的感觉，比如 无语 / 得意 / 敷衍" } },
+        required: [],
+      },
+    },
+    async run(args) {
+      const list = ctx.stickers;
+      if (list.length === 0) throw new Error("表情库是空的。让他先在设置里给你几张图。");
+      const want = String(args.tag ?? "").trim().toLowerCase();
+      const hit =
+        want &&
+        list.find(
+          (s) => s.name.toLowerCase().includes(want) || s.tags.some((t) => t.toLowerCase().includes(want))
+        );
+      const pick = hit || list[Math.floor(Math.random() * list.length)];
+      ctx.onSticker(pick);
+      return "（发了一张表情包：" + pick.name + "）";
+    },
+  };
+
+  /* ------------------------------------------------------------ 相册 */
+
+  const album: ToolImpl = {
+    spec: {
+      name: "album",
+      description: "翻他的相册，列出最近的照片。只给编号、文件名与时间——想真看某一张再用 look_at_photo。",
+      parameters: { type: "object", properties: { limit: { type: "integer", description: "要几张，默认 40" } }, required: [] },
+    },
+    async run(args) {
+      if (!ctx.albumEnabled) throw new Error("翻相册的开关关着。让他先去设置里打开。");
+      const granted = await ensureGalleryPermission();
+      if (!granted) throw new Error("他还没给相册权限——系统弹窗里点允许，或者去设置里开。");
+      const limit = Math.min(80, Math.max(1, Number(args.limit ?? 40) || 40));
+      const photos = await listPhotos(limit);
+      if (photos.length === 0) return "相册里没有照片。";
+      return photos
+        .map((p, i) => i + 1 + ". " + p.name + " · " + new Date(p.takenAt).toLocaleString("zh-CN") + " · id=" + p.id)
+        .join("\n");
+    },
+  };
+
+  const lookAtPhoto: ToolImpl = {
+    spec: {
+      name: "look_at_photo",
+      description: "真去看相册里的某一张。要先用 album 拿到 id。返回的是这张图的客观描述，不是原图。",
+      parameters: { type: "object", properties: { id: { type: "integer" } }, required: ["id"] },
+    },
+    async run(args) {
+      if (!ctx.albumEnabled) throw new Error("翻相册的开关关着。");
+      if (!ctx.visionModel) throw new Error("没配视觉模型，看了也说不出来。让他去设置里填一个。");
+      const id = Number(args.id);
+      if (!Number.isFinite(id)) throw new Error("id 不对");
+      const granted = await ensureGalleryPermission();
+      if (!granted) throw new Error("他还没给相册权限。");
+      const { data } = await readPhoto(id);
+      const caption = await captionImage(
+        ctx.transport,
+        { apiKey: ctx.apiKey, baseUrl: ctx.baseUrl, model: ctx.visionModel },
+        data
+      );
+      return caption || "这张图没看出什么。";
+    },
+  };
+
+  // 表情库空着就不给表情工具；相册开关关着就不给相册工具——
+  // 否则她每轮都可能去调一个必然失败的东西
+  const base = [now, clipboard, sandbox, search, device, readFile];
+  const withSticker = ctx.stickers.length > 0 ? [...base, sticker] : base;
+  return ctx.albumEnabled ? [...withSticker, album, lookAtPhoto] : withSticker;
 }

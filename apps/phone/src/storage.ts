@@ -13,11 +13,22 @@
 import type { Session } from "@herta/protocol";
 
 const DB_NAME = "herta";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 export const STORE_SESSIONS = "sessions";
 export const STORE_MEMORIES = "memories";
 export const STORE_KV = "kv";
+export const STORE_STICKERS = "stickers";
+
+export interface StickerRecord {
+  id: string;
+  name: string;
+  /** 粗略标签，她按心情挑的时候用。 */
+  tags: string[];
+  data: string;
+  mediaType: string;
+  createdAt: string;
+}
 
 export interface SessionMeta {
   id: string;
@@ -43,6 +54,10 @@ function open(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORE_KV)) {
         db.createObjectStore(STORE_KV, { keyPath: "key" });
+      }
+      // v3：表情库
+      if (!db.objectStoreNames.contains(STORE_STICKERS)) {
+        db.createObjectStore(STORE_STICKERS, { keyPath: "id" });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -82,4 +97,19 @@ export async function putSession(session: Session): Promise<void> {
 
 export async function deleteSession(id: string): Promise<void> {
   await tx(STORE_SESSIONS, "readwrite", (s) => s.delete(id));
+}
+
+/* -------------------------------------------------------------- 表情库 */
+
+export async function listStickers(): Promise<StickerRecord[]> {
+  const all = (await tx<StickerRecord[]>(STORE_STICKERS, "readonly", (s) => s.getAll() as IDBRequest<StickerRecord[]>)) ?? [];
+  return all.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+}
+
+export async function putSticker(record: StickerRecord): Promise<void> {
+  await tx(STORE_STICKERS, "readwrite", (s) => s.put(record));
+}
+
+export async function deleteSticker(id: string): Promise<void> {
+  await tx(STORE_STICKERS, "readwrite", (s) => s.delete(id));
 }

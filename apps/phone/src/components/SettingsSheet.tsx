@@ -1,4 +1,5 @@
 import type { Settings } from "../settings.ts";
+import type { StickerRecord } from "../storage.ts";
 
 /** 设置面板。全部是本机状态，没有一处上传。 */
 export function SettingsSheet({
@@ -7,12 +8,18 @@ export function SettingsSheet({
   mood,
   fileNames,
   onFile,
+  stickers,
+  onAddStickers,
+  onRemoveSticker,
 }: {
   settings: Settings;
   onChange(patch: Partial<Settings>): void;
   mood: string;
   fileNames: string[];
   onFile(file: File): void;
+  stickers: StickerRecord[];
+  onAddStickers(files: FileList): void;
+  onRemoveSticker(id: string): void;
 }) {
   return (
     <div className="sheet">
@@ -79,6 +86,37 @@ export function SettingsSheet({
       <p className="memNote">
         {fileNames.length > 0 ? "她能读：" + fileNames.join("、") : "还没给她文件。只能读你在这里选的，不能自己翻手机。"}
       </p>
+      <label className="check">
+        <input type="checkbox" checked={settings.albumEnabled} onChange={(e) => onChange({ albumEnabled: e.target.checked })} />
+        <span>允许她翻我的相册（要配视觉模型才会真看）</span>
+      </label>
+      <label>
+        她的表情包（{stickers.length} 张）
+        <input
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={(e) => {
+            const files = e.target.files;
+            e.target.value = "";
+            if (files && files.length > 0) onAddStickers(files);
+          }}
+        />
+      </label>
+      {stickers.length > 0 ? (
+        <div className="stickerGrid">
+          {stickers.map((s) => (
+            <div key={s.id} className="stickerCell">
+              <img src={s.data} alt={s.name} />
+              <button onClick={() => onRemoveSticker(s.id)} aria-label="删掉">
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="memNote">她还没有表情包。加几张，她就会在合适的时候自己挑一张发出来。</p>
+      )}
     </div>
   );
 }

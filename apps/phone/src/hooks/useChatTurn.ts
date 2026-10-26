@@ -27,6 +27,7 @@ import {
 } from "@herta/core";
 import { BrowserAssetSource } from "../assets-browser.ts";
 import { buildTools } from "../devtools.ts";
+import type { StickerRecord } from "../storage.ts";
 import { loadPromptCode } from "../prompts.ts";
 import type { Settings } from "../settings.ts";
 import { collect } from "../stream.ts";
@@ -60,10 +61,11 @@ export function useChatTurn(opts: {
   memories: MemoryRecord[];
   dreamState: DreamState | null;
   files: Map<string, string>;
+  stickers: StickerRecord[];
   onError(message: string | null): void;
   onNeedKey(): void;
 }) {
-  const { settings, session, setSession, persist, memories, dreamState, files, onError, onNeedKey } = opts;
+  const { settings, session, setSession, persist, memories, dreamState, files, stickers, onError, onNeedKey } = opts;
   const [busy, setBusy] = useState(false);
   const [mood, setMood] = useState<string>(DEFAULT_MOOD);
   const abort = useRef<AbortController | null>(null);
@@ -148,12 +150,20 @@ export function useChatTurn(opts: {
         { role: "user", content: serializeRecord(context, { maxBlocks: 0 }) },
       ];
 
-      // 带上她的手：她可以在这一轮里自己决定查时间、搜网、算一段、读文件。
+      // 她这一轮挑中的表情：工具里回调出来，最后贴到她那句话上
+      let pickedSticker: StickerRecord | null = null;
+      // 带上她的手：查时间、搜网、算一段、读文件，以及发表情
       const tools = buildTools({
         transport,
         apiKey: settings.apiKey,
         baseUrl: settings.baseUrl,
-        files: files,
+        files,
+        stickers,
+        visionModel: settings.visionModel,
+        albumEnabled: settings.albumEnabled,
+        onSticker: (record) => {
+          pickedSticker = record;
+        },
       });
       const toolNotes: Block[] = [];
 
@@ -259,7 +269,21 @@ export function useChatTurn(opts: {
         ...toolNotes,
       ];
       if (thought) tail.push({ kind: "herta", surface: "thought", text: thought, at: new Date().toISOString() });
-      if (speech) tail.push({ kind: "herta", surface: "speech", text: speech, at: new Date().toISOString() });
+      if (speech) {
+        tail.push({
+          kind: "herta",
+          surface: "speech",
+          text: speech,
+          at: new Date().toISOString(),
+          ...(pickedSticker
+            ? {
+                attachments: [
+                  { mediaType: (pickedSticker as StickerRecord).mediaType, data: (pickedSticker as StickerRecord).data, name: (pickedSticker as StickerRecord).name },
+                ],
+              }
+            : {}),
+        });
+      }
 
       const final = appendBlocks(withRedos, tail);
       setSession(final);

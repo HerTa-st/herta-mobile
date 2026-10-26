@@ -26,6 +26,8 @@ export interface HertaBlock {
   surface: "speech" | "thought";
   text: string;
   at: string;
+  /** 她随话发出去的表情（一张图）。 */
+  attachments?: { mediaType: string; data: string; name?: string }[];
 }
 
 export interface SystemBlock {

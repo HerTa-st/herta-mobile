@@ -496,6 +496,42 @@ body {
   font: inherit;
   font-size: 11px;
 }
+.bubble .sticker {
+  display: block;
+  max-width: 140px;
+  max-height: 140px;
+  border-radius: 10px;
+  margin-top: 8px;
+}
+.stickerGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+  gap: 6px;
+}
+.stickerCell { position: relative; }
+.stickerCell img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+}
+.stickerCell button {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(10, 10, 14, 0.75);
+  border: 1px solid var(--line);
+  color: var(--fg);
+  font: inherit;
+  font-size: 10px;
+  line-height: 1;
+}
+
 .bubble .shot {
   display: block;
   max-width: 100%;
