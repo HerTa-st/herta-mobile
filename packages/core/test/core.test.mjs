@@ -6,6 +6,7 @@ import { NodeAssetSource } from "../src/assets-node.ts";
 import { buildStaticPrefix, pickSeeds, MOBILE_NOTE, FORMAT_CONTRACT } from "../src/persona.ts";
 import { extractTagged, parseTagged, isPlaceholder, serializeRecord, parseSupervisorVerdict } from "../src/tags.ts";
 import { buildReviewMessages, decideReview, vetoHints } from "../src/supervisor.ts";
+import { listOpenings, pickOpening } from "../src/openings.ts";
 
 /** 桌面版原文抽出来的 196 个函数：复核提示词与分隔符从它注入，不在 core 里重写。 */
 import * as H from "../../../runtime/prompts-code.zh.mjs";
@@ -57,6 +58,29 @@ test("挑种子：确定性（rng 固定时同一输入同一结果）且不超�
   assert.deepEqual(a, b);
   assert.equal(a.length, 3);
   assert.equal(pickSeeds([], "x", 3).length, 0);
+});
+
+/* ---------------------------------------------------------------- 开局 */
+
+test("开局：36 篇全部带得上原声，路径去掉 assets/ 前缀", async () => {
+  const a = await src.promptAssets();
+  const voice = await src.voice();
+  const list = listOpenings((a.openings ?? {}), voice);
+
+  assert.equal(list.length, 36);
+  assert.ok(list.every((o) => o.audio && !o.audio.startsWith("assets/")));
+  assert.ok(list.every((o) => o.speech.length > 0), "有开局读不出「说」那一轨");
+  assert.ok(list[0].key < list[35].key, "排序不稳定");
+});
+
+test("开局：rng 决定挑哪一篇，且不会挑空", () => {
+  const list = [
+    { key: "a", thought: "", speech: "甲", audio: null },
+    { key: "b", thought: "", speech: "乙", audio: null },
+  ];
+  assert.equal(pickOpening(list, () => 0)?.key, "a");
+  assert.equal(pickOpening(list, () => 0.99)?.key, "b");
+  assert.equal(pickOpening([], () => 0), null);
 });
 
 /* -------------------------------------------------------------- 标签语法 */

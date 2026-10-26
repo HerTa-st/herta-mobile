@@ -9,7 +9,7 @@
  * 让"在真机上能聊"这件事变成假象。
  */
 
-import { Capacitor, registerPlugin } from "@capacitor/core";
+import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import type { ChatMessage } from "@herta/core";
 
 export interface ChatRequest {
@@ -101,6 +101,18 @@ export const browserTransport: ChatTransport = {
 
 /* ----------------------------------------------------------- 原生通道 */
 
+interface HertaChunk {
+  requestId: string;
+  data?: string;
+  done?: boolean;
+  error?: string;
+}
+
+/**
+ * 原生插件只有三个方法。
+ * 注意 addListener 是**插件上**的，不是全局 Capacitor.addListener —— 后者是桥级事件，
+ * 传插件名进去只会静默收不到任何东西（第一版就这么写错过一次）。
+ */
 interface HertaHttpPlugin {
   stream(options: {
     requestId: string;
@@ -108,6 +120,8 @@ interface HertaHttpPlugin {
     headers: Record<string, string>;
     body: string;
   }): Promise<{ status: number }>;
+  cancel(options: { requestId: string }): Promise<void>;
+  addListener(event: "chunk", cb: (data: HertaChunk) => void): Promise<PluginListenerHandle>;
 }
 
 const HertaHttp = registerPlugin<HertaHttpPlugin>("HertaHttp");
@@ -120,7 +134,7 @@ export const nativeTransport: ChatTransport = {
     let closed = false;
     let failure: string | null = null;
 
-    const listener = await Capacitor.addListener("HertaHttp", "chunk", (ev: { requestId: string; data?: string; done?: boolean; error?: string }) => {
+    const listener = await HertaHttp.addListener("chunk", (ev: HertaChunk) => {
       if (ev.requestId !== requestId) return;
       if (ev.data) chunks.push(ev.data);
       if (ev.error) failure = ev.error;
@@ -160,6 +174,7 @@ export const nativeTransport: ChatTransport = {
       }
     } finally {
       await listener.remove();
+      await HertaHttp.cancel({ requestId }).catch(() => undefined);
     }
   },
   async search() {
