@@ -174,12 +174,13 @@ const GOOD = "### 废案_10：慢与体量\n\n那天他嫌我慢。\n\n---\n\n�
 function dreamHarness({ replies, seed = [] }) {
   const store = new MemoryInMemory(seed);
   const calls = [];
+  // 桌面版的建造函数返回两条消息，不是一段字符串——测试也照这个形状来。
   const prompts = {
     buildEpisodeDigest: (blocks) => blocks.map((b) => b.text).join("\n"),
-    buildWorthinessPrompt: () => "WORTH",
-    buildGenerationPrompt: () => "GEN",
-    buildCritiquePrompt: () => "CRITIQUE",
-    buildRefinePrompt: (_draft, errors) => "REFINE:" + errors.join("|"),
+    buildWorthinessPrompt: () => ({ systemPrompt: "WORTH-SYS", userPayload: "WORTH-USER" }),
+    buildGenerationPrompt: () => ({ systemPrompt: "GEN-SYS", userPayload: "GEN-USER" }),
+    buildCritiquePrompt: () => ({ systemPrompt: "CRITIQUE-SYS", userPayload: "CRITIQUE-USER" }),
+    buildRefinePrompt: (_draft, errors) => ({ systemPrompt: "REFINE-SYS", userPayload: "REFINE:" + errors.join("|") }),
     validateFeian: (text) =>
       text.includes("（我 说）") && text.includes("---") ? { ok: true } : { ok: false, errors: ["missing --- separator"] },
   };
@@ -187,8 +188,8 @@ function dreamHarness({ replies, seed = [] }) {
     store,
     prompts,
     scene: { env: "办公室", guide: "指南", lang: "zh" },
-    chat: async ({ prompt }) => {
-      calls.push(prompt);
+    chat: async ({ system, user }) => {
+      calls.push(system + "\n" + user);
       const next = replies.shift();
       if (next === undefined) throw new Error("模型调用次数超了");
       return next;
@@ -288,6 +289,44 @@ test("做梦：语气分不够 → 带上评审意见去改", async () => {
   const out = await runDreamPass(h.deps, { sessionId: "s1", blocks: SIX_BLOCKS });
   assert.equal(out.kind, "made");
   assert.ok(h.calls[3].includes("太平了"), "语气问题没进改写提示词");
+});
+
+test("做梦：建造函数返回的两条消息要分别落到 system 与 user 上", async () => {
+  const h = dreamHarness({
+    replies: ['{"worthy": false}',],
+  });
+  await runDreamPass(h.deps, { sessionId: "s1", blocks: SIX_BLOCKS });
+  assert.equal(h.calls.length, 1);
+  // 第一版把整个返回对象当 content 发出去，请求体里 content 成了对象，服务端回 422。
+  assert.ok(h.calls[0].startsWith("WORTH-SYS"), "system 段丢了：" + h.calls[0].slice(0, 40));
+  assert.ok(h.calls[0].includes("WORTH-USER"), "user 段丢了");
+});
+
+test("做梦：建造函数只给字符串时也能发（兼容两种返回形状）", async () => {
+  const h = dreamHarness({ replies: ['{"worthy": false}'] });
+  h.deps.prompts.buildWorthinessPrompt = () => "只有一段";
+  await runDreamPass(h.deps, { sessionId: "s1", blocks: SIX_BLOCKS });
+  assert.equal(h.calls[0], "\n只有一段");
+});
+
+test("做梦：真实建造函数的返回形状是两条消息（422 那次的根因）", async () => {
+  const a = await src.promptAssets();
+  const worth = H.buildWorthinessPrompt("开拓者：在吗\n我：在。", [{ title: "旧记忆", tag: "日常" }], a.envSet, "zh");
+  assert.equal(typeof worth, "object", "建造函数改了返回形状");
+  assert.equal(typeof worth.systemPrompt, "string");
+  assert.equal(typeof worth.userPayload, "string");
+  assert.ok(worth.systemPrompt.length > 1000, "系统段太短");
+  assert.ok(worth.userPayload.includes("在吗"), "用户段没带上对话摘录");
+
+  const gen = H.buildGenerationPrompt("摘要", [], [], a.hertaGuide, a.envSet, "zh");
+  assert.equal(typeof gen.systemPrompt, "string");
+  assert.equal(typeof gen.userPayload, "string");
+
+  const critique = H.buildCritiquePrompt("### 废案_01：x\n\n---\n\n（我 说）\n在。\n（/我 说）", a.hertaGuide, "zh");
+  assert.equal(typeof critique.systemPrompt, "string");
+
+  const refine = H.buildRefinePrompt("草稿", ["缺分隔线"], a.hertaGuide, "zh");
+  assert.equal(typeof refine.systemPrompt, "string");
 });
 
 test("做梦：模型把 JSON 包在代码块里也认得出来", () => {

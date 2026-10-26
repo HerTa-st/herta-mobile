@@ -153,11 +153,20 @@ export const nativeTransport: ChatTransport = {
           stream: true,
         }),
       });
-      if (status < 200 || status >= 300) throw new Error("模型接口 " + status);
+      // 非 2xx 时**不能立刻抛**：服务端把错误原因写在响应体里，而原生产生的是
+      // 一串 chunk。先把它收完，再把真正的原因带出去——否则用户只看到一个光秃秃的
+      // 状态码（422 那次就是这么瞎猜的）。
+      const bad = status < 200 || status >= 300;
+      let errText = "";
+
       while (true) {
-        if (failure) throw new Error(String(failure));
+        if (failure && !bad) throw new Error(String(failure));
         const next = chunks.shift();
         if (next !== undefined) {
+          if (bad) {
+            errText += next;
+            continue;
+          }
           for (const payload of sseData(next)) {
             try {
               const j = JSON.parse(payload);
@@ -171,6 +180,11 @@ export const nativeTransport: ChatTransport = {
         }
         if (closed) break;
         await new Promise((r) => setTimeout(r, 16));
+      }
+
+      if (bad) {
+        const detail = errText.replace(/\s+/g, " ").trim().slice(0, 300);
+        throw new Error("模型接口 " + status + (detail ? "：" + detail : "（响应体为空）"));
       }
     } finally {
       await listener.remove();
