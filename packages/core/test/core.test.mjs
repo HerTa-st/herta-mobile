@@ -27,7 +27,7 @@ import {
 import { applyConsolidatePlan, buildConsolidatePrompt, consolidateMemories, forgetMemories, parseConsolidatePlan } from "../src/consolidate.ts";
 import { layoutGraph } from "../src/layout.ts";
 import { searchMemories, searchSessions, snippetOf } from "../src/search.ts";
-import { runToolLoop } from "../src/tools.ts";
+import { runToolLoop, toProviderMessages, toProviderTools } from "../src/tools.ts";
 
 /** 桌面版原文抽出来的 196 个函数：复核提示词与分隔符从它注入，不在 core 里重写。 */
 import * as H from "../../../runtime/prompts-code.zh.mjs";
@@ -1003,6 +1003,28 @@ test("工具循环：轮数封顶，不让一个想不清楚的模型烧光额�
   );
   assert.equal(out.rounds, 3);
   assert.equal(out.results.length, 3);
+});
+
+test("工具格式：必须带 type=function 与内层 function（422 missing field type 的根因）", () => {
+  const [t] = toProviderTools([{ name: "now", description: "查时间", parameters: { type: "object", properties: {} } }]);
+  assert.equal(t.type, "function");
+  assert.equal(t.function.name, "now");
+  assert.equal(t.function.description, "查时间");
+  assert.deepEqual(t.function.parameters, { type: "object", properties: {} });
+});
+
+test("工具格式：assistant 的 tool_calls 与 tool 结果也要转成接口形状", () => {
+  const out = toProviderMessages([
+    { role: "user", content: "几点了" },
+    { role: "assistant", content: "", tool_calls: [{ id: "c1", name: "now", arguments: "{}" }] },
+    { role: "tool", tool_call_id: "c1", name: "now", content: "15:00" },
+  ]);
+  assert.equal(out[0].role, "user");
+  assert.equal(out[1].tool_calls[0].type, "function");
+  assert.equal(out[1].tool_calls[0].function.name, "now");
+  assert.equal(out[1].tool_calls[0].function.arguments, "{}");
+  assert.equal(out[2].role, "tool");
+  assert.equal(out[2].tool_call_id, "c1");
 });
 
 /* -------------------------------------------------------------- 标签语法 */

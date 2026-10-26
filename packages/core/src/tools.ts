@@ -45,6 +45,41 @@ export interface ToolLoopResult {
   rounds: number;
 }
 
+/**
+ * 转成模型接口要的形状。
+ *
+ * OpenAI 的函数调用格式是**两层**：
+ *   {`type`:`function`, `function`:{ name, description, parameters }}
+ * 直接发 {name, description, parameters} 会被服务端拒掉（422 missing field `type`）。
+ * 同理 assistant 里的 tool_calls 也要包 `type`/`function`，否则第二轮请求就废了。
+ */
+export function toProviderTools(tools: readonly ToolSpec[]): Record<string, unknown>[] {
+  return tools.map((t) => ({
+    type: "function",
+    function: { name: t.name, description: t.description, parameters: t.parameters },
+  }));
+}
+
+export function toProviderMessages(messages: readonly ChatMessage[]): Record<string, unknown>[] {
+  return messages.map((m) => {
+    if (m.role === "assistant" && m.tool_calls && m.tool_calls.length > 0) {
+      return {
+        role: "assistant",
+        content: m.content ?? "",
+        tool_calls: m.tool_calls.map((c) => ({
+          id: c.id,
+          type: "function",
+          function: { name: c.name, arguments: c.arguments },
+        })),
+      };
+    }
+    if (m.role === "tool") {
+      return { role: "tool", tool_call_id: m.tool_call_id, content: m.content };
+    }
+    return { role: m.role, content: m.content };
+  });
+}
+
 function parseArgs(raw: string): Record<string, unknown> {
   try {
     const v = JSON.parse(raw || "{}");
