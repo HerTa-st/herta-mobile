@@ -205,6 +205,18 @@ body {
   padding: calc(env(safe-area-inset-top) + 10px) 12px calc(env(safe-area-inset-bottom) + 10px);
 }
 .graph .gcanvas { flex: 1; width: 100%; min-height: 0; touch-action: manipulation; }
+.graph .vh { display: flex; align-items: center; gap: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.graph .vt { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 600; }
+.graph .vx {
+  flex: none;
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--dim);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 13px;
+}
 .graph .glegend { margin: 8px 0 0; font-size: 12px; color: var(--dim); line-height: 1.6; }
 .memHead .sm { margin-left: auto; font-size: 12px; }
 .memNote { margin: 6px 0 0; font-size: 12px; color: var(--dim); }

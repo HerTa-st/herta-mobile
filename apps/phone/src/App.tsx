@@ -661,14 +661,22 @@ export function App() {
         if (names.has(l) && m.name < l) edges.push({ a: m.name, b: l });
       }
     }
-    const pos = layoutGraph(nodes, edges);
+    // 没有连线时斥力会把所有点推到边界，画出来是个空环。
+    // 那种情况加大向心力，让它们聚成一团——本来就还没长出结构。
+    const pos = layoutGraph(
+      nodes,
+      edges,
+      edges.length > 0 ? {} : { gravity: 0.02, repulsion: 0.006 }
+    );
+    // 视框 100×130，四周留边：节点半径最大 8，留 14 就不会被裁掉。
+    const frame = (p: { x: number; y: number }) => ({ x: 14 + p.x * 72, y: 16 + p.y * 98 });
     const labelled = new Set(
       [...nodes]
         .sort((a, b) => b.weight - a.weight)
         .slice(0, 6)
         .map((n) => n.name)
     );
-    return { nodes, edges, pos, labelled };
+    return { nodes, edges, pos, labelled, frame };
   }, [memories]);
 
   // 记忆跨过阈值就自动整理/遗忘。整理要用模型，没填 Key 就不动。
@@ -836,45 +844,59 @@ export function App() {
       )}
 
       {showGraph && (
-        <div className="graph" role="dialog" aria-label="记忆星图">
+        <div className="viewer graph" role="dialog" aria-label="记忆星图">
           <header className="vh">
             <span className="vt">记忆星图 · {graph.nodes.length} 条</span>
             <button className="vx" onClick={() => setShowGraph(false)}>
               关闭
             </button>
           </header>
-          <svg className="gcanvas" viewBox="0 0 1 1" preserveAspectRatio="xMidYMid meet">
+          <svg className="gcanvas" viewBox="0 0 100 130" preserveAspectRatio="xMidYMid meet">
             {graph.edges.map((e, i) => {
               const p = graph.pos.get(e.a);
               const q = graph.pos.get(e.b);
               if (!p || !q) return null;
-              return <line key={"e" + i} x1={p.x} y1={p.y} x2={q.x} y2={q.y} stroke="#5b4a86" strokeWidth={0.0022} />;
+              return (
+                <line
+                  key={"e" + i}
+                  x1={graph.frame(p).x}
+                  y1={graph.frame(p).y}
+                  x2={graph.frame(q).x}
+                  y2={graph.frame(q).y}
+                  stroke="#6b5998"
+                  strokeWidth={0.45}
+                />
+              );
             })}
             {graph.nodes.map((n) => {
               const p = graph.pos.get(n.name);
               if (!p) return null;
-              const r = nodeRadius(n.weight);
+              const c = graph.frame(p);
+              const r = nodeRadius(n.weight) * 100;
               const rec = memories.find((m) => m.name === n.name);
               return (
                 <g key={n.name}>
                   <circle
-                    cx={p.x}
-                    cy={p.y}
+                    cx={c.x}
+                    cy={c.y}
                     r={r}
                     fill={n.weight > 0.7 ? "#6d4aff" : n.weight > 0.4 ? "#3f6f8f" : "#2a4257"}
                     stroke="#9a86c8"
-                    strokeWidth={0.0016}
+                    strokeWidth={0.4}
                     onClick={() => rec && setViewing(rec)}
                   />
                   {graph.labelled.has(n.name) && (
-                    <text x={p.x} y={p.y - r - 0.012} fontSize={0.028} fill="#c9c3d6" textAnchor="middle">
-                      {n.title.slice(0, 10)}
+                    <text x={c.x} y={c.y - r - 2.2} fontSize={2.8} fill="#c9c3d6" textAnchor="middle">
+                      {n.title.slice(0, 8)}
                     </text>
                   )}
                 </g>
               );
             })}
           </svg>
+          {graph.edges.length === 0 && (
+            <p className="glegend">还没有连线——攒到 20 条时她会把相关的自己串起来。</p>
+          )}
           <p className="glegend">
             圆越大 = 权重越高（越常被想起、越没凉）。线 = 她自己串起来的关联。点圆看全文。
           </p>
