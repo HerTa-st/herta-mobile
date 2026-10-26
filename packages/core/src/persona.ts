@@ -73,6 +73,16 @@ export function buildStaticPrefix({ assets, seeds = [], extraNotes = [], voiceTe
   return parts.filter((p) => p && p.trim()).join("\n\n");
 }
 
+/**
+ * 这一轮心情对应的语气旁注。
+ * 素材里的 `metaThink.preThink[mood]` 是桌面版原文，描述"这种心情下她怎么想"。
+ * 取不到就返回 null——没有旁注也比安错一个强。
+ */
+export function moodStyleNote(assets: PromptAssets, mood: string): string | null {
+  const note = assets.metaThink?.preThink?.[mood];
+  return note && note.trim() ? note.trim() : null;
+}
+
 export interface SeedCandidate {
   file: string;
   body: string;

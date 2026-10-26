@@ -6,8 +6,12 @@ import {
   buildReviewMessages,
   buildStaticPrefix,
   buildVoiceRevisionPrompt,
+  buildMoodPrompt,
   cleanVoiceText,
   consolidateMemories,
+  DEFAULT_MOOD,
+  moodStyleNote,
+  parseMood,
   createSession,
   distillSession,
   effectiveWeight,
@@ -89,6 +93,7 @@ export function App() {
   const [importText, setImportText] = useState("");
   const [importNote, setImportNote] = useState<string | null>(null);
   const [fileNames, setFileNames] = useState<string[]>([]);
+  const [mood, setMood] = useState<string>(DEFAULT_MOOD);
   const [filter, setFilter] = useState("");
   const [allSessions, setAllSessions] = useState<Session[]>([]);
   const [pendingJump, setPendingJump] = useState<{ sessionId: string; index: number } | null>(null);
@@ -560,7 +565,40 @@ export function App() {
       const pool = memories.map((m) => ({ file: m.name, body: m.body }));
       const seeds = pickSeeds(pool, text, settings.memorySeeds);
       const context = trimForContext(history.blocks, settings.contextBlocks);
-      const prefix = buildStaticPrefix({ assets: promptAssets, seeds, voiceText: voiceTextOf(dreamState) });
+
+      // 先判心情：一次十几个 token 的调用，换来她这一轮的语气基线不一样。
+      // 判定失败就按默认走——心情不该成为整轮对话的单点故障。
+      let thisMood = DEFAULT_MOOD;
+      if (settings.moodEnabled) {
+        try {
+          const pack = await assets.mood();
+          if (pack) {
+            const p = buildMoodPrompt(pack, serializeRecord(trimForContext(history.blocks, 12), { maxBlocks: 0 }));
+            const answer = await collect(
+              transport.stream({
+                ...base,
+                messages: [
+                  { role: "system", content: p.system },
+                  { role: "user", content: p.user },
+                ],
+                maxTokens: 12,
+              })
+            );
+            thisMood = parseMood(answer, pack.moods);
+          }
+        } catch {
+          thisMood = DEFAULT_MOOD;
+        }
+        setMood(thisMood);
+      }
+
+      const styleNote = settings.moodEnabled ? moodStyleNote(promptAssets, thisMood) : null;
+      const prefix = buildStaticPrefix({
+        assets: promptAssets,
+        seeds,
+        voiceText: voiceTextOf(dreamState),
+        extraNotes: styleNote ? ["〔旁注：" + styleNote + "〕"] : [],
+      });
       const mainMessages: ChatMessage[] = [
         { role: "system", content: prefix },
         // 已经按整轮边界截过了，序列化层不要再截一次——那会从她话中间切开。
@@ -638,7 +676,7 @@ export function App() {
               {
                 feianFewShots: [],
                 lang: "zh",
-                currentState: "默认",
+                currentState: thisMood,
                 recentRecord: trimForContext(history.blocks, 12),
                 currentTurnThought: thought,
                 candidateSpeech: speech,
@@ -1048,6 +1086,14 @@ export function App() {
               value={settings.contextBlocks}
               onChange={(e) => setSettings({ ...settings, contextBlocks: Number(e.target.value) || 24 })}
             />
+          </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={settings.moodEnabled}
+              onChange={(e) => setSettings({ ...settings, moodEnabled: e.target.checked })}
+            />
+            <span>每轮先判心情（现在是：{mood}）</span>
           </label>
           <label className="check">
             <input

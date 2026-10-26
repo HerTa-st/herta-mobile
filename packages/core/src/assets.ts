@@ -34,6 +34,7 @@ export interface MoodPack {
   version: number;
   system: string;
   userInstruction: string;
+  /** 八种心情的名字，判定时列给模型挑。 */
   moods: string[];
   sampleAnswer?: string;
 }
