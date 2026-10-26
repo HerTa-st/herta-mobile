@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Block, Session } from "@herta/protocol";
+import type { Block, ImportBundle, Session } from "@herta/protocol";
 import {
   REVIEW_POLICY,
   appendBlocks,
@@ -13,9 +13,12 @@ import {
   parseSupervisorVerdict,
   pickOpening,
   parseImportBundle,
+  parseSharedConversation,
   pickSeeds,
   planImport,
   retractLastTurn,
+  shareIdFromInput,
+  SHARE_API,
   runDreamPass,
   serializeRecord,
   trimForContext,
@@ -60,6 +63,8 @@ export function App() {
   const [importText, setImportText] = useState("");
   const [importNote, setImportNote] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  const [shareInput, setShareInput] = useState("");
+  const [importBusy, setImportBusy] = useState(false);
   const abort = useRef<AbortController | null>(null);
   const dreamingRef = useRef(false);
 
@@ -237,29 +242,68 @@ export function App() {
     [settings.apiKey, settings.baseUrl, settings.model]
   );
 
-  /** 导入：校验 → 去重 → 只写新的。永远不覆盖已有会话。 */
+  /** 真正落库：去重 → 只写新的。永远不覆盖已有会话。 */
+  const applyBundle = useCallback(
+    async (bundle: ImportBundle) => {
+      const existing = new Set((await listSessions()).map((s) => s.id));
+      const plan = planImport(bundle, existing);
+      for (const s of plan.toWrite) await putSession(s);
+      await refreshList();
+      setImportNote(
+        plan.toWrite.length > 0
+          ? "导进来了 " + plan.toWrite.length + " 个对话" + (plan.skipped ? "，跳过 " + plan.skipped + " 个已存在的" : "")
+          : "这份包里的 " + plan.total + " 个对话都已经在库里了"
+      );
+      if (plan.toWrite.length > 0) {
+        setImportText("");
+        // 导完直接跳到最新那个，省得她自己在列表里找
+        const newest = [...plan.toWrite].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))[0];
+        setSession(newest);
+        setDrawer(false);
+      }
+    },
+    [refreshList]
+  );
+
   const runImport = useCallback(async () => {
     const parsed = parseImportBundle(importText);
     if (!parsed.ok) {
       setImportNote("没导进来：" + parsed.error);
       return;
     }
-    const existing = new Set((await listSessions()).map((s) => s.id));
-    const plan = planImport(parsed.bundle, existing);
-    for (const s of plan.toWrite) await putSession(s);
-    await refreshList();
-    setImportNote(
-      plan.toWrite.length > 0
-        ? "导进来了 " + plan.toWrite.length + " 个对话" + (plan.skipped ? "，跳过 " + plan.skipped + " 个已存在的" : "")
-        : "这份包里的 " + plan.total + " 个对话都已经在库里了"
-    );
-    if (plan.toWrite.length > 0) {
-      setImportText("");
-      // 导完直接跳到最新那个，省得她自己在列表里找
-      const newest = [...plan.toWrite].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))[0];
-      setSession(newest);
+    await applyBundle(parsed.bundle);
+  }, [applyBundle, importText]);
+
+  /** 从分享链接导入：公开接口，不需要登录态，也不用把文件搬来搬去。 */
+  const importFromLink = useCallback(async () => {
+    const id = shareIdFromInput(shareInput);
+    if (!id) {
+      setImportNote("认不出链接。要形如 https://chat.deepseek.com/share/xxxxx");
+      return;
     }
-  }, [importText, refreshList]);
+    setImportBusy(true);
+    setImportNote("正在取这份分享…");
+    try {
+      const json = await transport.getText(SHARE_API + id);
+      const parsed = parseSharedConversation(json, "从分享导入");
+      if (!parsed.ok) {
+        setImportNote("没导进来：" + parsed.error);
+        return;
+      }
+      await applyBundle({
+        format: "herta-import",
+        version: 1,
+        source: "deepseek-web",
+        exportedAt: new Date().toISOString(),
+        collector: { name: "deepseek-share", version: "1.0.0" },
+        sessions: [parsed.session],
+      });
+    } catch (e) {
+      setImportNote("没导进来：" + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setImportBusy(false);
+    }
+  }, [applyBundle, shareInput]);
 
   const send = useCallback(async () => {
     const text = draft.trim();
@@ -473,9 +517,20 @@ export function App() {
             {showImport && (
               <>
                 <p className="impHelp">
-                  在电脑上用油猴脚本导出 JSON，把内容贴进来（或选文件）。导入的是原文归档，不会直接变成她的记忆——
-                  记忆要经过做梦。
+                  最省事的是**分享链接**：在 DeepSeek 里打开那条对话 → 分享 → 创建链接 → 把链接贴到下面。
+                  接口是公开的，不需要登录，链接用完可以在 DeepSeek 里删掉。
                 </p>
+                <div className="shareRow">
+                  <input
+                    value={shareInput}
+                    onChange={(e) => setShareInput(e.target.value)}
+                    placeholder="https://chat.deepseek.com/share/…"
+                  />
+                  <button onClick={() => void importFromLink()} disabled={importBusy || !shareInput.trim()}>
+                    {importBusy ? "取…" : "取"}
+                  </button>
+                </div>
+                <p className="impHelp">也可以用油猴脚本导出 JSON，把内容贴进来（或选文件）。</p>
                 <input
                   type="file"
                   accept=".json,application/json"

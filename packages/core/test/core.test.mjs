@@ -12,6 +12,7 @@ import { EMPTY_TITLE, appendBlocks, createSession, deriveTitle, retractLastTurn,
 import { MemoryInMemory, memoryFileName, memoryTitle, nextMemoryIndex } from "../src/memory.ts";
 import { extractJson, runDreamPass } from "../src/dream.ts";
 import { importSessionId, parseImportBundle, planImport, sessionFromImport } from "../src/import.ts";
+import { parseSharedConversation, shareIdFromInput } from "../src/share.ts";
 
 /** 桌面版原文抽出来的 196 个函数：复核提示词与分隔符从它注入，不在 core 里重写。 */
 import * as H from "../../../runtime/prompts-code.zh.mjs";
@@ -413,6 +414,74 @@ test("导入：同一份包里重复的会话也只写一次", () => {
   const plan = planImport(r.bundle, new Set());
   assert.equal(plan.toWrite.length, 1);
   assert.equal(plan.skipped, 1);
+});
+
+/* ---------------------------------------------------------------- 分享导入 */
+
+function shareJson(messages) {
+  return JSON.stringify({ code: 0, msg: "", data: { biz_code: 0, biz_data: { title: "Shared Conversation", messages } } });
+}
+
+test("分享：认出链接 / 裸 id / 带参数的链接", () => {
+  assert.equal(shareIdFromInput("https://chat.deepseek.com/share/olr62jhemwjox72hm9"), "olr62jhemwjox72hm9");
+  assert.equal(shareIdFromInput("https://chat.deepseek.com/share/olr62jhemwjox72hm9?from=x"), "olr62jhemwjox72hm9");
+  assert.equal(shareIdFromInput("olr62jhemwjox72hm9"), "olr62jhemwjox72hm9");
+  assert.equal(shareIdFromInput("随便一段话"), null);
+});
+
+test("分享：只认 REQUEST/RESPONSE，思维链不进台词", () => {
+  const json = shareJson([
+    { message_id: 1, parent_id: null, role: "USER", inserted_at: 1791132360, fragments: [{ type: "REQUEST", content: "在吗" }] },
+    {
+      message_id: 2,
+      parent_id: 1,
+      role: "ASSISTANT",
+      inserted_at: 1791132362,
+      fragments: [
+        { type: "THINK", content: "我需要回答用户，先想想" },
+        { type: "RESPONSE", content: "在。" },
+        { type: "TOOL_SEARCH", content: "搜索了什么" },
+      ],
+    },
+  ]);
+  const r = parseSharedConversation(json);
+  assert.equal(r.ok, true);
+  assert.equal(r.session.messages.length, 2);
+  assert.equal(r.session.messages[0].text, "在吗");
+  assert.equal(r.session.messages[1].text, "在。");
+  assert.ok(!JSON.stringify(r.session).includes("我需要回答用户"));
+  assert.ok(r.session.messages[1].at?.startsWith("2026-"));
+});
+
+test("分享：按 parent_id 走主链，被改写的分支不会混进来", () => {
+  const json = shareJson([
+    { message_id: 1, parent_id: null, role: "USER", fragments: [{ type: "REQUEST", content: "一" }] },
+    { message_id: 2, parent_id: 1, role: "ASSISTANT", fragments: [{ type: "RESPONSE", content: "旧回答" }] },
+    { message_id: 3, parent_id: 1, role: "ASSISTANT", fragments: [{ type: "RESPONSE", content: "新回答" }] },
+    { message_id: 4, parent_id: 3, role: "USER", fragments: [{ type: "REQUEST", content: "二" }] },
+  ]);
+  const r = parseSharedConversation(json);
+  assert.equal(r.ok, true);
+  const texts = r.session.messages.map((m) => m.text);
+  assert.deepEqual(texts, ["一", "新回答", "二"], "分支没走对：" + JSON.stringify(texts));
+});
+
+test("分享：连续同角色合并成一条", () => {
+  const json = shareJson([
+    { message_id: 1, parent_id: null, role: "USER", fragments: [{ type: "REQUEST", content: "上半" }] },
+    { message_id: 2, parent_id: 1, role: "USER", fragments: [{ type: "REQUEST", content: "下半" }] },
+    { message_id: 3, parent_id: 2, role: "ASSISTANT", fragments: [{ type: "RESPONSE", content: "答" }] },
+  ]);
+  const r = parseSharedConversation(json);
+  assert.equal(r.session.messages.length, 2);
+  assert.equal(r.session.messages[0].text, "上半\n\n下半");
+});
+
+test("分享：空壳/坏链接要明确拒绝", () => {
+  assert.match(parseSharedConversation("不是 json").error, /JSON/);
+  assert.match(parseSharedConversation(shareJson([])).error, /没有对话/);
+  const empty = shareJson([{ message_id: 1, parent_id: null, role: "USER", fragments: [] }]);
+  assert.equal(parseSharedConversation(empty).ok, false);
 });
 
 /* -------------------------------------------------------------- 标签语法 */

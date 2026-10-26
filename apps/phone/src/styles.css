@@ -221,6 +221,29 @@ body {
 }
 .impHelp { margin: 8px 0; font-size: 12px; color: var(--dim); line-height: 1.5; }
 .imp input[type="file"] { font-size: 12px; color: var(--dim); }
+.shareRow { display: flex; gap: 6px; margin: 8px 0; }
+.shareRow input {
+  flex: 1;
+  min-width: 0;
+  background: #0b0b0f;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--fg);
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 12px;
+}
+.shareRow button {
+  flex: none;
+  width: 56px;
+  margin: 0;
+  background: #1b1730;
+  border: 1px solid #2c2444;
+  color: var(--fg);
+  border-radius: 8px;
+  font: inherit;
+}
+.shareRow button:disabled { opacity: 0.4; }
 .impBox {
   width: 100%;
   margin-top: 8px;
