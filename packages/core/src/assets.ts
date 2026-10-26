@@ -11,8 +11,10 @@ import type { Lang } from "../../protocol/src/index.ts";
 export interface PromptAssets {
   /** 她的自传（hertaBio），约 9.5k 字。人格的本体。 */
   hertaBio: string;
-  /** 办公室设定（envSet）。 */
-  envSet: string;
+  /**
+   * 办公室设定（envSet）已不再打包：她不再永远坐在同一个房间里。
+   * 现在的"她在哪"由 presence.ts 按钟点算出来。
+   */
   /**
    * 语气指南是桌面版的固定文本。**这个版本不再打包它**——
    * 她的语气改由自己攒的笔记决定（见 voice.ts），会随长期聊天变化。

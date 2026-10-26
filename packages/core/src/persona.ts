@@ -56,16 +56,27 @@ export interface StaticPrefixInput {
   /** 额外插入的处境段（连接模式会追加一段"电脑那双手回来了"）。 */
   extraNotes?: readonly string[];
   /**
+   * 她此刻在哪、在做什么（presence.ts 拼好的那一段）。
+   * 这是原先《办公室设定》的位置——只不过它是活的，按钟点变。
+   */
+  presence?: string | null;
+  /**
    * 她自己攒的语气笔记。空着就不插——**包里不带指南**，
    * 她一开始就是"自传 + 记忆"撑着，写得出来什么样子是她的事。
    */
   voiceText?: string | null;
 }
 
-export function buildStaticPrefix({ assets, seeds = [], extraNotes = [], voiceText = null }: StaticPrefixInput): string {
+export function buildStaticPrefix({
+  assets,
+  seeds = [],
+  extraNotes = [],
+  voiceText = null,
+  presence = null,
+}: StaticPrefixInput): string {
   const parts: string[] = [assets.hertaBio];
   for (const seed of seeds) if (seed && seed.trim()) parts.push(seed);
-  parts.push(assets.envSet);
+  if (presence && presence.trim()) parts.push(presence.trim());
   // 位置在设定之后、处境之前：先"我在哪"，再"我怎么说话"，最后"现在这个终端是什么样"。
   if (voiceText && voiceText.trim()) parts.push(VOICE_HEADING + "\n\n" + voiceText.trim());
   for (const note of extraNotes) if (note && note.trim()) parts.push(note);

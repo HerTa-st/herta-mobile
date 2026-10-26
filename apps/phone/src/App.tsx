@@ -7,11 +7,14 @@ import {
   buildStaticPrefix,
   buildVoiceRevisionPrompt,
   buildMoodPrompt,
+  buildPresenceNote,
   cleanVoiceText,
   consolidateMemories,
   DEFAULT_MOOD,
   moodStyleNote,
   parseMood,
+  presenceAt,
+  timePhrase,
   createSession,
   distillSession,
   effectiveWeight,
@@ -298,7 +301,7 @@ export function App() {
           {
             store: memoryStore,
             prompts: code,
-            scene: { env: promptAssets.envSet, lang: "zh" },
+            scene: { env: buildPresenceNote(presenceAt(), timePhrase()), lang: "zh" },
         // 攒够记忆就让她重读自己、重写语气笔记——这是"语气会变"的唯一来源
         reviseVoice: reviseVoiceImpl,
             chat: ({ system, user, maxTokens }) =>
@@ -359,7 +362,7 @@ export function App() {
           {
             store: memoryStore,
             prompts: code,
-            scene: { env: promptAssets.envSet, lang: "zh" },
+            scene: { env: buildPresenceNote(presenceAt(), timePhrase()), lang: "zh" },
             chat: ({ system, user, maxTokens }) =>
               collect(
                 transport.stream({
@@ -593,10 +596,13 @@ export function App() {
       }
 
       const styleNote = settings.moodEnabled ? moodStyleNote(promptAssets, thisMood) : null;
+      // 她此刻在哪：按钟点算，同一天同一时段固定，隔天才换。
+      const presenceNote = buildPresenceNote(presenceAt(), timePhrase());
       const prefix = buildStaticPrefix({
         assets: promptAssets,
         seeds,
         voiceText: voiceTextOf(dreamState),
+        presence: presenceNote,
         extraNotes: styleNote ? ["〔旁注：" + styleNote + "〕"] : [],
       });
       const mainMessages: ChatMessage[] = [
@@ -849,6 +855,9 @@ export function App() {
           <button className="new" onClick={() => void newSession()}>
             ＋ 新的对话
           </button>
+          <p className="nowLine">
+            {timePhrase()} · 她在{presenceAt().place}
+          </p>
           <input
             className="filter"
             value={filter}

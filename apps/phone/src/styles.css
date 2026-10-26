@@ -375,6 +375,12 @@ body {
   overflow: hidden;
 }
 
+.nowLine {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #7b6aa8;
+}
+
 .drawer .filter {
   width: 100%;
   margin-bottom: 8px;
