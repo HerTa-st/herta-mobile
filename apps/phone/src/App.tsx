@@ -231,7 +231,6 @@ export function App() {
     persist,
     memories,
     dreamState,
-    dreamNow,
     files: filesRef.current,
     onError: setError,
     onNeedKey: () => setShowSettings(true),
@@ -259,6 +258,54 @@ export function App() {
     },
     [refreshList]
   );
+
+  /* ------------------------------------------------------------ 自主做梦 */
+
+  /**
+   * 她自己做梦的时机：**你走了之后**，不是说完就做。
+   *
+   * 判据三条：
+   *   1. 有一阵子没人说话（空闲阈值，见下）
+   *   2. 这一段攒够了新对话（dreamNow 内部还有 6 块 / 10 分钟两道门）
+   *   3. 她这会儿没在忙别的（不做梦、不消化、不整理）
+   *
+   * 阈值按她的行踪浮动：凌晨和深夜是她本来就没人的时段，两分钟就够；
+   * 白天你在身边的时候给到六分钟——她不该在你打字的中途突然发呆。
+   * 页面切到后台时不跑：手机上那点电不该花在她没人的时候。
+   */
+  const lastActivityRef = useRef(Date.now());
+
+  useEffect(() => {
+    if (draft || busy) lastActivityRef.current = Date.now();
+  }, [draft, busy, session?.blocks.length]);
+
+  useEffect(() => {
+    if (!settings.autoDream) return;
+    const tick = () => {
+      if (!session || busy || dreaming || distilling || maintaining) return;
+      if (!settings.autoDream) return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      const phase = presenceAt().phase;
+      const quiet = phase === "凌晨" || phase === "深夜" || phase === "夜里";
+      const idleMs = quiet ? 2 * 60 * 1000 : 6 * 60 * 1000;
+      if (Date.now() - lastActivityRef.current < idleMs) return;
+      // 剩下的门槛（材料够不够、距上次多久）交给 dreamNow 自己判
+      void dreamNow(session, false);
+    };
+    const timer = setInterval(tick, 60_000);
+    return () => clearInterval(timer);
+  }, [busy, distilling, dreamNow, dreaming, maintaining, session, settings.autoDream]);
+
+  /** 打开 App 放了半天没说话的，进来二十秒后让她做一次梦。 */
+  useEffect(() => {
+    if (!settings.autoDream) return;
+    const t = setTimeout(() => {
+      if (session && !busy && !dreaming) void dreamNow(session, false);
+    }, 20_000);
+    return () => clearTimeout(t);
+    // 只在挂载时排一次：这是"刚打开"的那一次，不该因为换会话重排
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const runImport = useCallback(async () => {
     const parsed = parseImportBundle(importText);

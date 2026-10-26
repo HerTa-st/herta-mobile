@@ -14,6 +14,8 @@ export interface Settings {
   reviewEnabled: boolean;
   /** 每轮先判一次心情（八种之一），决定这一轮的语气基线。多一次极便宜的调用。 */
   moodEnabled: boolean;
+  /** 你离开一阵子之后，她自己做梦。关掉就只有手动按钮能做。 */
+  autoDream: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -24,6 +26,7 @@ export const DEFAULT_SETTINGS: Settings = {
   memorySeeds: 3,
   reviewEnabled: true,
   moodEnabled: true,
+  autoDream: true,
 };
 
 const KEY = "herta.settings.v1";
