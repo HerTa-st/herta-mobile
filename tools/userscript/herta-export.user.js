@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Herta 对话导出器
 // @namespace    herta-mobile
-// @version      0.2.0
+// @version      0.3.0
 // @description  把 chat.deepseek.com 里的对话导出成 herta-import.v1.json，供 Herta 手机端导入
 // @match        https://chat.deepseek.com/*
 // @run-at       document-start
@@ -23,17 +23,31 @@
 (function () {
   "use strict";
 
-  const VERSION = "0.2.0";
+  const VERSION = "0.3.0";
   const STORE_KEY = "herta-export:v1";
+  const FOCUS_KEY = "herta-export:focus";
   const COPY = "herta-import";
 
   /** sessionId → { id, title, startedAt, messages: [{role, text, at}] } */
   const sessions = new Map();
   let titleByHref = new Map();
+  /** 只收这一个会话时，这里放着它的 id；null 表示全收。 */
+  let focusId = null;
 
   /* ------------------------------------------------------------- 存档 */
 
+  /** 当前页面打开的是哪个会话：URL 形如 /a/chat/s/<uuid>。 */
+  function currentSessionId() {
+    const m = location.pathname.match(/\/chat\/s\/([0-9a-fA-F-]{8,})/);
+    return m ? m[1] : window.__hertaLastSessionId || "";
+  }
+
   function load() {
+    try {
+      focusId = localStorage.getItem(FOCUS_KEY) || null;
+    } catch {
+      focusId = null;
+    }
     try {
       const raw = localStorage.getItem(STORE_KEY);
       if (!raw) return;
@@ -222,7 +236,8 @@
 
   async function crawl() {
     if (crawling) return;
-    const links = sidebarLinks();
+    // 只看一个的时候，"自动翻一遍"就只翻那一个——别偷偷把别的也收进来。
+    const links = sidebarLinks().filter((l) => !focusId || l.id === focusId);
     if (links.length === 0) {
       log("侧栏里没找到对话链接。先把左侧对话列表展开，或者手动点开几个，脚本会自动收集。");
       return;
@@ -267,15 +282,22 @@
     logEl.scrollTop = logEl.scrollHeight;
   }
 
+  function visibleSessions() {
+    const all = [...sessions.values()];
+    return focusId ? all.filter((s) => s.id === focusId) : all;
+  }
+
   function render() {
     if (!statusEl) return;
-    const total = [...sessions.values()].reduce((n, s) => n + s.messages.length, 0);
-    const withMsg = [...sessions.values()].filter((s) => s.messages.length > 0).length;
-    statusEl.textContent = "已收集 " + withMsg + " 个对话 · " + total + " 条消息";
+    const shown = visibleSessions();
+    const total = shown.reduce((n, s) => n + s.messages.length, 0);
+    const withMsg = shown.filter((s) => s.messages.length > 0).length;
+    const who = focusId ? shown[0]?.title || focusId.slice(0, 8) : "全部对话";
+    statusEl.textContent = "只收：" + (focusId ? who : "全部") + " · 已收集 " + withMsg + " 个 · " + total + " 条消息";
   }
 
   function buildBundle() {
-    const list = [...sessions.values()]
+    const list = visibleSessions()
       .filter((s) => s.messages.length > 0)
       .map((s) => ({
         id: s.id,
@@ -360,6 +382,8 @@
         <button data-act="close" class="x" title="收起">×</button>
       </div>
       <div class="st"></div>
+      <button data-act="focus">只收当前这个</button>
+      <button data-act="focusOff">改成全收</button>
       <button data-act="crawl">自动翻一遍（慢）</button>
       <button data-act="stop">停止</button>
       <button data-act="download">导出 JSON 文件</button>
@@ -374,7 +398,33 @@
     panel.addEventListener("click", (e) => {
       const act = e.target?.dataset?.act;
       if (act === "close") panel.style.display = "none";
-      else if (act === "crawl") void crawl();
+      else if (act === "focus") {
+        const id = currentSessionId();
+        if (!id) {
+          log("认不出当前对话的 id。先把目标对话点开，再点这个按钮。");
+          return;
+        }
+        focusId = id;
+        try {
+          localStorage.setItem(FOCUS_KEY, id);
+        } catch {
+          /* 存不下就只在这次会话里生效 */
+        }
+        // 把别的都扔掉，免得导出时混进去
+        for (const k of [...sessions.keys()]) if (k !== id) sessions.delete(k);
+        save();
+        render();
+        log("只收这一个。看不到消息的话，往上滚到顶把历史加载完——老消息是懒加载的。");
+      } else if (act === "focusOff") {
+        focusId = null;
+        try {
+          localStorage.removeItem(FOCUS_KEY);
+        } catch {
+          /* 同上 */
+        }
+        render();
+        log("改成全收了。");
+      } else if (act === "crawl") void crawl();
       else if (act === "stop") {
         stopFlag = true;
         log("收到停止指令…");
