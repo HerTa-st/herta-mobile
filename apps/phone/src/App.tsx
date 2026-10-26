@@ -47,6 +47,7 @@ import {
 import { loadSettings, saveSettings, type Settings } from "./settings.ts";
 import { pickTransport } from "./transport.ts";
 import { loadPromptCode } from "./prompts.ts";
+import { synthesize } from "./tts.ts";
 import { playVoice, stopVoice } from "./voice.ts";
 
 const assets = new BrowserAssetSource();
@@ -457,6 +458,30 @@ export function App() {
     await persist(cut);
   }, [busy, persist, session]);
 
+  /** 念一段：合成完直接播。合成失败就把原因说出来，不静默。 */
+  const speakBlock = useCallback(
+    async (text: string) => {
+      try {
+        const url = await synthesize(
+          transport,
+          {
+            provider: settings.ttsProvider,
+            apiKey: settings.ttsApiKey,
+            baseUrl: settings.ttsBaseUrl,
+            model: settings.ttsModel,
+            voice: settings.ttsVoice,
+            groupId: settings.ttsGroupId,
+          },
+          text
+        );
+        await playVoice(url);
+      } catch (e) {
+        setError("念不出来：" + (e instanceof Error ? e.message : String(e)));
+      }
+    },
+    [settings.ttsApiKey, settings.ttsBaseUrl, settings.ttsGroupId, settings.ttsModel, settings.ttsProvider, settings.ttsVoice]
+  );
+
   /** 发出去：文字 + 待发的图（图会作为附件存进会话，描述并进正文）。 */
   const dispatch = useCallback(() => {
     const img = pendingImage;
@@ -673,6 +698,11 @@ export function App() {
               )}
               {b.kind === "herta" && b.attachments && b.attachments.length > 0 && (
                 <img className="sticker" src={b.attachments[0].data} alt={b.attachments[0].name ?? "表情"} />
+              )}
+              {b.kind === "herta" && b.surface === "speech" && settings.ttsEnabled && (
+                <button className="say" onClick={() => void speakBlock(b.text)} title="用她的声音念出来">
+                  ▶ 念
+                </button>
               )}
               {b.kind === "herta" && b.surface === "thought" ? (
                 <details>

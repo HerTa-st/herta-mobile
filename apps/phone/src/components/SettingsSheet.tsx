@@ -90,6 +90,51 @@ export function SettingsSheet({
         <input type="checkbox" checked={settings.albumEnabled} onChange={(e) => onChange({ albumEnabled: e.target.checked })} />
         <span>允许她翻我的相册（要配视觉模型才会真看）</span>
       </label>
+      <label className="check">
+        <input type="checkbox" checked={settings.ttsEnabled} onChange={(e) => onChange({ ttsEnabled: e.target.checked })} />
+        <span>用云端语音念出来（不然只能播那 41 条录音）</span>
+      </label>
+      {settings.ttsEnabled && (
+        <>
+          <label>
+            语音接口
+            <select
+              value={settings.ttsProvider}
+              onChange={(e) => onChange({ ttsProvider: e.target.value as Settings["ttsProvider"] })}
+            >
+              <option value="openai">OpenAI 兼容（/audio/speech）</option>
+              <option value="minimax">MiniMax（/t2a_v2）</option>
+            </select>
+          </label>
+          <label>
+            语音 Key
+            <input
+              type="password"
+              value={settings.ttsApiKey}
+              onChange={(e) => onChange({ ttsApiKey: e.target.value.trim() })}
+              placeholder="sk-..."
+            />
+          </label>
+          <label>
+            语音 Base URL
+            <input value={settings.ttsBaseUrl} onChange={(e) => onChange({ ttsBaseUrl: e.target.value.trim() })} />
+          </label>
+          <label>
+            语音模型
+            <input value={settings.ttsModel} onChange={(e) => onChange({ ttsModel: e.target.value.trim() })} />
+          </label>
+          <label>
+            音色 ID
+            <input value={settings.ttsVoice} onChange={(e) => onChange({ ttsVoice: e.target.value.trim() })} />
+          </label>
+          {settings.ttsProvider === "minimax" && (
+            <label>
+              GroupId
+              <input value={settings.ttsGroupId} onChange={(e) => onChange({ ttsGroupId: e.target.value.trim() })} />
+            </label>
+          )}
+        </>
+      )}
       <label>
         她的表情包（{stickers.length} 张）
         <input

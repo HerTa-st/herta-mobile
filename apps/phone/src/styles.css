@@ -496,6 +496,17 @@ body {
   font: inherit;
   font-size: 11px;
 }
+.bubble .say {
+  margin-top: 8px;
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--dim);
+  border-radius: 999px;
+  padding: 3px 9px;
+  font: inherit;
+  font-size: 11px;
+}
+
 .bubble .sticker {
   display: block;
   max-width: 140px;
