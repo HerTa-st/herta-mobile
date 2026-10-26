@@ -12,6 +12,8 @@ export interface Settings {
    * 开着每轮多一次模型调用，被打回还要再加——这是她"不吹牛"的代价。
    */
   reviewEnabled: boolean;
+  /** 每轮先判一次心情（八种之一），决定这一轮的语气基线。多一次极便宜的调用。 */
+  moodEnabled: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -21,6 +23,7 @@ export const DEFAULT_SETTINGS: Settings = {
   contextBlocks: 24,
   memorySeeds: 3,
   reviewEnabled: true,
+  moodEnabled: true,
 };
 
 const KEY = "herta.settings.v1";

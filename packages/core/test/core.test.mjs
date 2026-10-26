@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 
 import { NodeAssetSource } from "../src/assets-node.ts";
-import { buildStaticPrefix, pickSeeds, MOBILE_NOTE, FORMAT_CONTRACT } from "../src/persona.ts";
+import { buildStaticPrefix, moodStyleNote, pickSeeds, MOBILE_NOTE, FORMAT_CONTRACT } from "../src/persona.ts";
 import { extractTagged, parseTagged, isPlaceholder, serializeRecord, parseSupervisorVerdict } from "../src/tags.ts";
 import { parseNarrative } from "../src/narrative.ts";
 import { buildReviewMessages, decideReview, vetoHints } from "../src/supervisor.ts";
@@ -28,6 +28,7 @@ import { applyConsolidatePlan, buildConsolidatePrompt, consolidateMemories, forg
 import { layoutGraph } from "../src/layout.ts";
 import { searchMemories, searchSessions, snippetOf } from "../src/search.ts";
 import { runToolLoop, toProviderMessages, toProviderTools } from "../src/tools.ts";
+import { buildMoodPrompt, parseMood } from "../src/mood.ts";
 
 /** 桌面版原文抽出来的 196 个函数：复核提示词与分隔符从它注入，不在 core 里重写。 */
 import * as H from "../../../runtime/prompts-code.zh.mjs";
@@ -1025,6 +1026,32 @@ test("工具格式：assistant 的 tool_calls 与 tool 结果也要转成接口�
   assert.equal(out[1].tool_calls[0].function.arguments, "{}");
   assert.equal(out[2].role, "tool");
   assert.equal(out[2].tool_call_id, "c1");
+});
+
+/* ---------------------------------------------------------------- 心情 */
+
+test("心情：从回答里认出八种之一，认不出就按默认", () => {
+  const moods = ["默认", "被烦版", "教学版", "被戳穿版", "任务部署版", "板砖代答版", "被顶嘴版", "倾听版"];
+  assert.equal(parseMood("被烦版", moods), "被烦版");
+  assert.equal(parseMood("我觉得是倾听版吧", moods), "倾听版");
+  assert.equal(parseMood("不知道", moods), "默认");
+  assert.equal(parseMood("", moods), "默认");
+  assert.equal(parseMood(null, moods), "默认");
+});
+
+test("心情：判定提示词把最近对话与选项都给到", () => {
+  const pack = { version: 1, system: "SYS", userInstruction: "挑一个心情名回答", moods: ["默认", "被烦版"] };
+  const p = buildMoodPrompt(pack, "他：在吗\n我：在。");
+  assert.equal(p.system, "SYS");
+  assert.ok(p.user.includes("在吗"));
+  assert.ok(p.user.includes("挑一个心情名回答"));
+});
+
+test("心情：旁注取不到就返回 null，不瞎安一个", async () => {
+  const a = await src.promptAssets();
+  assert.equal(moodStyleNote(a, "不存在的心情"), null);
+  const anyMood = Object.keys(a.metaThink?.preThink ?? {})[0];
+  if (anyMood) assert.ok((moodStyleNote(a, anyMood) ?? "").length > 0);
 });
 
 /* -------------------------------------------------------------- 标签语法 */

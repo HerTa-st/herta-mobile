@@ -12,6 +12,7 @@ export * from "./consolidate.ts";
 export * from "./layout.ts";
 export * from "./search.ts";
 export * from "./tools.ts";
+export * from "./mood.ts";
 export * from "./dream.ts";
 export type { DreamPrompt } from "./dream.ts";
 export * from "./openings.ts";
