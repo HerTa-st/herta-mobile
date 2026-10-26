@@ -20,6 +20,14 @@ export interface Settings {
   visionModel: string;
   /** 允许她翻你的相册。默认关——这是隐私开关，得你自己打开。 */
   albumEnabled: boolean;
+  /** 云端语音：让她能说任意一句话，而不只是那 41 条录音。 */
+  ttsEnabled: boolean;
+  ttsProvider: "openai" | "minimax";
+  ttsApiKey: string;
+  ttsBaseUrl: string;
+  ttsModel: string;
+  ttsVoice: string;
+  ttsGroupId: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -33,6 +41,13 @@ export const DEFAULT_SETTINGS: Settings = {
   autoDream: true,
   visionModel: "",
   albumEnabled: false,
+  ttsEnabled: false,
+  ttsProvider: "openai",
+  ttsApiKey: "",
+  ttsBaseUrl: "https://api.openai.com/v1",
+  ttsModel: "tts-1",
+  ttsVoice: "alloy",
+  ttsGroupId: "",
 };
 
 const KEY = "herta.settings.v1";

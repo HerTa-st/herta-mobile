@@ -36,6 +36,10 @@ export interface ChatTransport {
   search(query: string, opts: { apiKey: string; baseUrl: string; count?: number }): Promise<SearchHit[]>;
   /** 一次性 GET，整段文本返回（分享页的数据接口用）。 */
   getText(url: string): Promise<string>;
+  /** 一次性 POST，拿二进制（语音合成）。返回 base64 与 mime。 */
+  postBinary(url: string, opts: { headers: Record<string, string>; body: string }): Promise<{ base64: string; mediaType: string }>;
+  /** 一次性 POST，拿 JSON 文本（MiniMax 那种"音频装在 JSON 里"的接口）。 */
+  post(url: string, opts: { headers: Record<string, string>; body: string }): Promise<{ status: number; body: string }>;
 }
 
 function parseSseChunk(chunk: string): ChatDelta[] {
@@ -120,6 +124,18 @@ export const browserTransport: ChatTransport = {
     if (!res.ok) throw new Error("接口 " + res.status);
     return res.text();
   },
+  async postBinary(url, { headers, body }) {
+    const res = await fetch(url, { method: "POST", headers, body });
+    if (!res.ok) throw new Error("接口 " + res.status + "：" + (await res.text()).slice(0, 200));
+    const buf = new Uint8Array(await res.arrayBuffer());
+    let bin = "";
+    for (const b of buf) bin += String.fromCharCode(b);
+    return { base64: btoa(bin), mediaType: res.headers.get("content-type") ?? "audio/mpeg" };
+  },
+  async post(url, { headers, body }) {
+    const res = await fetch(url, { method: "POST", headers, body });
+    return { status: res.status, body: await res.text() };
+  },
   async search(query, { apiKey, baseUrl, count = 5 }) {
     const res = await fetch(baseUrl.replace(/\/$/, "") + "/v1/tools/search", {
       method: "POST",
@@ -150,6 +166,11 @@ interface HertaHttpPlugin {
   }): Promise<{ status: number }>;
   get(options: { url: string }): Promise<{ status: number; body: string }>;
   post(options: { url: string; headers: Record<string, string>; body: string }): Promise<{ status: number; body: string }>;
+  postBinary(options: {
+    url: string;
+    headers: Record<string, string>;
+    body: string;
+  }): Promise<{ status: number; base64: string; mediaType: string }>;
   cancel(options: { requestId: string }): Promise<void>;
   addListener(event: "chunk", cb: (data: HertaChunk) => void): Promise<PluginListenerHandle>;
 }
@@ -210,6 +231,15 @@ export const nativeTransport: ChatTransport = {
     const { status, body } = await HertaHttp.get({ url });
     if (status < 200 || status >= 300) throw new Error("接口 " + status + "：" + String(body ?? "").slice(0, 200));
     return body;
+  },
+  async post(url, { headers, body }) {
+    const res = await HertaHttp.post({ url, headers, body });
+    return { status: res.status, body: res.body };
+  },
+  async postBinary(url, { headers, body }) {
+    const res = await HertaHttp.postBinary({ url, headers, body });
+    if (res.status < 200 || res.status >= 300) throw new Error("接口 " + res.status);
+    return { base64: res.base64, mediaType: res.mediaType || "audio/mpeg" };
   },
   async search(query, { apiKey, baseUrl, count = 5 }) {
     const { status, body } = await HertaHttp.post({
