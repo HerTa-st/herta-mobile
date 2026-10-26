@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Herta 对话导出器
 // @namespace    herta-mobile
-// @version      0.1.0
+// @version      0.2.0
 // @description  把 chat.deepseek.com 里的对话导出成 herta-import.v1.json，供 Herta 手机端导入
 // @match        https://chat.deepseek.com/*
 // @run-at       document-start
@@ -23,7 +23,7 @@
 (function () {
   "use strict";
 
-  const VERSION = "0.1.0";
+  const VERSION = "0.2.0";
   const STORE_KEY = "herta-export:v1";
   const COPY = "herta-import";
 
@@ -323,6 +323,10 @@
   }
 
   function mountUI() {
+    if (panel && document.body.contains(panel)) {
+      panel.style.display = "block";
+      return;
+    }
     panel = document.createElement("div");
     panel.id = "herta-export-panel";
     panel.innerHTML = `
@@ -334,7 +338,12 @@
           font: 13px/1.5 system-ui, -apple-system, "Segoe UI", "Noto Sans SC", sans-serif;
           box-shadow: 0 8px 32px rgba(0,0,0,.45);
         }
-        #herta-export-panel h4 { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
+        #herta-export-panel .hd { display: flex; align-items: center; gap: 8px; }
+        #herta-export-panel h4 { margin: 0 0 6px; font-size: 13px; font-weight: 600; flex: 1; }
+        #herta-export-panel .x {
+          width: 22px; height: 22px; margin: 0 0 6px; padding: 0; border-radius: 6px;
+          background: none; border: 1px solid #2c2444; color: #9a93a6; font-size: 14px; line-height: 1;
+        }
         #herta-export-panel .st { color: #9a93a6; font-size: 12px; margin-bottom: 8px; }
         #herta-export-panel button {
           width: 100%; margin-top: 6px; padding: 7px; border-radius: 8px; cursor: pointer;
@@ -346,7 +355,10 @@
           font-size: 11px; color: #9a93a6; white-space: pre-wrap;
         }
       </style>
-      <h4>Herta 对话导出器</h4>
+      <div class="hd">
+        <h4>Herta 对话导出器</h4>
+        <button data-act="close" class="x" title="收起">×</button>
+      </div>
       <div class="st"></div>
       <button data-act="crawl">自动翻一遍（慢）</button>
       <button data-act="stop">停止</button>
@@ -361,7 +373,8 @@
 
     panel.addEventListener("click", (e) => {
       const act = e.target?.dataset?.act;
-      if (act === "crawl") void crawl();
+      if (act === "close") panel.style.display = "none";
+      else if (act === "crawl") void crawl();
       else if (act === "stop") {
         stopFlag = true;
         log("收到停止指令…");
@@ -373,10 +386,65 @@
     log("被动收集中：正常翻几个对话就会自动记下。");
   }
 
+  /* ------------------------------------------------------- 常驻入口与自愈 */
+
+  let launcher = null;
+
+  function mountLauncher() {
+    if (launcher && document.body.contains(launcher)) return;
+    launcher = document.createElement("button");
+    launcher.id = "herta-export-launcher";
+    launcher.textContent = "导";
+    launcher.title = "Herta 对话导出器（Alt+H）";
+    Object.assign(launcher.style, {
+      position: "fixed",
+      right: "18px",
+      bottom: "96px",
+      zIndex: "2147483647",
+      width: "34px",
+      height: "34px",
+      borderRadius: "50%",
+      border: "1px solid #2c2444",
+      background: "#1b1730",
+      color: "#e9e6ee",
+      font: "13px/1 system-ui, sans-serif",
+      cursor: "pointer",
+      boxShadow: "0 4px 16px rgba(0,0,0,.4)",
+    });
+    launcher.addEventListener("click", () => {
+      if (!panel || !document.body.contains(panel)) {
+        mountUI();
+        return;
+      }
+      panel.style.display = panel.style.display === "none" ? "block" : "none";
+    });
+    document.body.appendChild(launcher);
+  }
+
+  /** 页面是单页应用，路由切换会把右下的东西挤走；这里盯着，掉了就补上。 */
+  function keepAlive() {
+    setInterval(() => {
+      if (!document.body) return;
+      if (!launcher || !document.body.contains(launcher)) mountLauncher();
+    }, 3000);
+  }
+
+  function boot() {
+    mountLauncher();
+    mountUI();
+    keepAlive();
+    window.addEventListener("keydown", (e) => {
+      if (e.altKey && (e.key === "h" || e.key === "H")) {
+        if (!panel || !document.body.contains(panel)) mountUI();
+        else panel.style.display = panel.style.display === "none" ? "block" : "none";
+      }
+    });
+  }
+
   load();
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", mountUI);
+    document.addEventListener("DOMContentLoaded", boot);
   } else {
-    mountUI();
+    boot();
   }
 })();
