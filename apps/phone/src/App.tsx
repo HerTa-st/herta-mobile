@@ -29,6 +29,8 @@ import {
   shareIdFromInput,
   SHARE_API,
   runDreamPass,
+  searchMemories,
+  searchSessions,
   serializeRecord,
   trimForContext,
   vetoHints,
@@ -74,6 +76,8 @@ export function App() {
   const [importText, setImportText] = useState("");
   const [importNote, setImportNote] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  const [allSessions, setAllSessions] = useState<Session[]>([]);
+  const [pendingJump, setPendingJump] = useState<{ sessionId: string; index: number } | null>(null);
   const [viewing, setViewing] = useState<MemoryRecord | null>(null);
   const [showGraph, setShowGraph] = useState(false);
   const [maintaining, setMaintaining] = useState<string | null>(null);
@@ -648,6 +652,45 @@ export function App() {
 
   const blocks = useMemo(() => session?.blocks ?? [], [session]);
 
+  /* 搜索需要在内存里扫全文，所以查的时候才把会话都读出来（几十条，几十万字，毫秒级）。 */
+  useEffect(() => {
+    if (!filter.trim()) return;
+    let alive = true;
+    void (async () => {
+      const loaded = await Promise.all(sessions.map((s) => loadSession(s.id)));
+      if (alive) setAllSessions(loaded.filter((s): s is Session => s !== null));
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [filter, sessions.length]);
+
+  const memHits = useMemo(() => searchMemories(memories, filter), [memories, filter]);
+  const sessHits = useMemo(() => searchSessions(allSessions, filter), [allSessions, filter]);
+
+  /* 从搜索结果跳到某一条消息：开对应会话，然后滚到那一块。 */
+  useEffect(() => {
+    if (!pendingJump || !session || pendingJump.sessionId !== session.id) return;
+    const t = setTimeout(() => {
+      const el = feedRef.current?.querySelector('[data-idx="' + pendingJump.index + '"]');
+      if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+      setPendingJump(null);
+    }, 80);
+    return () => clearTimeout(t);
+  }, [pendingJump, session]);
+
+  const jumpTo = useCallback(
+    async (sessionId: string, index: number) => {
+      const s = await loadSession(sessionId);
+      if (!s) return;
+      stickToBottom.current = false;
+      setSession(s);
+      setPendingJump({ sessionId, index });
+      setDrawer(false);
+    },
+    []
+  );
+
   /** 星图数据：节点=记忆（大小=有效权重），边=她自己建立的关联。布局交给组件实时算。 */
   const graph = useMemo(() => {
     const now = Date.now();
@@ -709,12 +752,49 @@ export function App() {
             className="filter"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            placeholder={sessions.length > 8 ? "找对话…" : ""}
+            placeholder="搜记忆和对话…"
           />
+          {filter.trim() ? (
+            <div className="results">
+              <p className="rsum">
+                {filter.trim()} · 记忆 {memHits.length} · 对话 {sessHits.length}
+              </p>
+              {memHits.map((h) => {
+                const rec = memories.find((m) => m.name === h.name);
+                return (
+                  <button
+                    key={"m" + h.name}
+                    className="rhit"
+                    onClick={() => {
+                      if (rec) setViewing(rec);
+                      setDrawer(false);
+                    }}
+                  >
+                    <span className="rt">{h.title}</span>
+                    <span className="rs">{h.snippet}</span>
+                  </button>
+                );
+              })}
+              {sessHits.map((h) =>
+                (h.hits.length > 0 ? h.hits : [{ index: 0, snippet: "标题命中" }]).map((hit, k) => (
+                  <button
+                    key={"s" + h.sessionId + k}
+                    className="rhit"
+                    onClick={() => void jumpTo(h.sessionId, hit.index)}
+                  >
+                    <span className="rt">
+                      {h.title}
+                      <em>第 {hit.index + 1} 块</em>
+                    </span>
+                    <span className="rs">{hit.snippet}</span>
+                  </button>
+                ))
+              )}
+              {memHits.length === 0 && sessHits.length === 0 && <p className="rsum">没找到。</p>}
+            </div>
+          ) : (
           <ul>
-            {sessions
-              .filter((s) => !filter.trim() || s.title.includes(filter.trim()))
-              .map((s) => (
+            {sessions.map((s) => (
               <li key={s.id} className={s.id === session?.id ? "on" : ""}>
                   <button className="row" onClick={() => void openSession(s.id)}>
                     <span className="st">{s.title}</span>
@@ -727,6 +807,7 @@ export function App() {
               ))}
             {sessions.length === 0 && <li className="none">还没有别的对话</li>}
           </ul>
+          )}
 
           <div className="mem">
             <div className="memHead">
@@ -935,7 +1016,7 @@ export function App() {
               {b.body}
             </p>
           ) : (
-            <article key={i} className={"bubble " + b.kind + (b.kind === "herta" ? " " + b.surface : "")}>
+            <article key={i} data-idx={i} className={"bubble " + b.kind + (b.kind === "herta" ? " " + b.surface : "")}>
               {b.kind === "herta" && b.surface === "thought" ? (
                 <details>
                   <summary>想法</summary>

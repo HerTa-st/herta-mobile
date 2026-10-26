@@ -10,6 +10,7 @@ export * from "./distill.ts";
 export * from "./weights.ts";
 export * from "./consolidate.ts";
 export * from "./layout.ts";
+export * from "./search.ts";
 export * from "./dream.ts";
 export type { DreamPrompt } from "./dream.ts";
 export * from "./openings.ts";
