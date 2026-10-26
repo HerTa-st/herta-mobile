@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Herta 对话导出器
 // @namespace    herta-mobile
-// @version      0.4.0
+// @version      0.5.0
 // @description  把 chat.deepseek.com 里的对话导出成 herta-import.v1.json，供 Herta 手机端导入
 // @match        https://chat.deepseek.com/*
 // @run-at       document-start
@@ -23,7 +23,7 @@
 (function () {
   "use strict";
 
-  const VERSION = "0.4.0";
+  const VERSION = "0.5.0";
   const STORE_KEY = "herta-export:v1";
   const FOCUS_KEY = "herta-export:focus";
   const COPY = "herta-import";
@@ -289,16 +289,30 @@
     return m.role + ":" + m.text.length + ":" + (h >>> 0).toString(36);
   }
 
-  function findScroller() {
-    const anyMsg = document.querySelector(SEL_MSG);
-    if (!anyMsg) return null;
-    let el = anyMsg.parentElement;
+  /**
+   * 找可滚动的那一层。
+   *
+   * 不能只拿"第一个 overflow 是 auto 的祖先"：DeepSeek 外面还裹着好几层容器，
+   * 很容易挑到一个滚不动的。这里把候选全收上来，取 scrollHeight 最大的那个
+   * ——真正装对话的那一层一定是"内容最多"的。
+   */
+  function scrollerCandidates() {
+    const out = [];
+    let el = document.querySelector(SEL_MSG)?.parentElement ?? null;
     while (el && el !== document.body) {
       const st = getComputedStyle(el);
-      if (/(auto|scroll)/.test(st.overflowY) && el.scrollHeight > el.clientHeight + 40) return el;
+      if (/(auto|scroll)/.test(st.overflowY) && el.scrollHeight > el.clientHeight + 40) out.push(el);
       el = el.parentElement;
     }
-    return document.scrollingElement;
+    if (document.scrollingElement) out.push(document.scrollingElement);
+    return out;
+  }
+
+  function findScroller() {
+    const list = scrollerCandidates();
+    if (list.length === 0) return null;
+    list.sort((a, b) => b.scrollHeight - a.scrollHeight);
+    return list[0];
   }
 
   let scanning = false;
@@ -316,6 +330,9 @@
     }
     scanning = true;
     stopFlag = false;
+    log(
+      "滚动容器：scrollHeight " + sc.scrollHeight + " / 视口 " + sc.clientHeight + "（如果这两个数差不多，说明找错了层）"
+    );
 
     const merged = [];
     let jumps = 0;
@@ -327,6 +344,7 @@
         merged.push(...tagged);
         return tagged.length;
       }
+      // 先试重叠：新窗口的尾巴应当接上已收列表的脑袋
       const maxK = Math.min(merged.length, tagged.length);
       for (let k = maxK; k >= 1; k -= 1) {
         let ok = true;
@@ -342,38 +360,74 @@
           return prefix.length;
         }
       }
-      // 没有重叠：可能是虚拟化跳了一屏。保守地接到前面，并记一次跳变。
+      // 没接上：虚拟化可能跳了一屏。按 hash 去掉已有的，剩下的接到前面。
+      const known = new Set(merged.map((m) => m.h));
+      const fresh = tagged.filter((m) => !known.has(m.h));
       jumps += 1;
-      merged.unshift(...tagged);
-      return tagged.length;
+      if (fresh.length) merged.unshift(...fresh);
+      return fresh.length;
     };
 
     // 从底部开始
     sc.scrollTop = sc.scrollHeight;
-    await sleep(700);
+    await sleep(800);
     mergeWindow(harvestDom());
+    scanCount = merged.length;
     render();
 
-    let guard = 0;
-    while (!stopFlag && guard < 400) {
-      guard += 1;
+    /**
+     * 停止条件**不能**看 scrollTop：上面加载历史时浏览器会做滚动锚定，
+     * scrollTop 经常不降反升，看上去像"滚不动了"，其实才走了一半。
+     * 改成看"连续几轮没有新消息"，并给每次加载留足时间。
+     */
+    let stall = 0;
+    let round = 0;
+    const STALL_LIMIT = 6;
+
+    while (!stopFlag && round < 600) {
+      round += 1;
       const before = sc.scrollTop;
-      sc.scrollTop = Math.max(0, before - sc.clientHeight * 0.75);
-      await sleep(420);
-      const added = mergeWindow(harvestDom());
-      if (added % 2 === 0 && guard % 10 === 0) {
-        log("已收 " + merged.length + " 条…");
+      const step = Math.max(200, sc.clientHeight * 0.8);
+      sc.scrollTop = Math.max(0, before - step);
+
+      // 等这一屏渲染/加载完：最多等 1.6 秒，但要早退
+      let added = 0;
+      for (let t = 0; t < 8; t += 1) {
+        await sleep(200);
+        added = mergeWindow(harvestDom());
+        if (added > 0) break;
+      }
+
+      if (added > 0) {
+        stall = 0;
+        scanCount = merged.length;
+        if (round % 5 === 0) {
+          log("已收 " + merged.length + " 条…");
+        }
         render();
+        continue;
       }
-      if (sc.scrollTop >= before) {
-        // 滚不动了 = 到顶
-        mergeWindow(harvestDom());
-        break;
+
+      stall += 1;
+      if (round % 3 === 0) render();
+
+      // 没动静时强力拉一次最顶，逼它加载更早的一页
+      if (stall % 2 === 1) {
+        sc.scrollTop = 0;
+        await sleep(1200);
+        if (mergeWindow(harvestDom()) > 0) {
+          stall = 0;
+          continue;
+        }
       }
+
+      if (stall >= STALL_LIMIT) break;
     }
 
     scanning = false;
 
+    scanCount = merged.length;
+    render();
     const id = currentSessionId() || "dom-" + Date.now().toString(36);
     const title = (document.title || "").split(" - ")[0].trim() || "未命名";
     const clean = merged.map((m) => ({ role: m.role, text: m.text, at: "" }));
@@ -381,6 +435,9 @@
       sessions.set(id, { id, title, startedAt: "", messages: clean });
       save();
       render();
+    }
+    if (clean.length < 5) {
+      log("只收到 " + clean.length + " 条，多半是没滚对容器。把上面的日志发给我。");
     }
     log(
       "扫描完成：" +
@@ -467,8 +524,15 @@
     return focusId ? all.filter((s) => s.id === focusId) : all;
   }
 
+  /** 扫描过程中的实时条数，让用户看得出它还活着。 */
+  let scanCount = 0;
+
   function render() {
     if (!statusEl) return;
+    if (scanning) {
+      statusEl.textContent = "扫描中… 已收 " + scanCount + " 条（别碰鼠标，让它自己滚）";
+      return;
+    }
     const shown = visibleSessions();
     const total = shown.reduce((n, s) => n + s.messages.length, 0);
     const withMsg = shown.filter((s) => s.messages.length > 0).length;
