@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Herta 对话导出器
 // @namespace    herta-mobile
-// @version      0.3.0
+// @version      0.4.0
 // @description  把 chat.deepseek.com 里的对话导出成 herta-import.v1.json，供 Herta 手机端导入
 // @match        https://chat.deepseek.com/*
 // @run-at       document-start
@@ -23,7 +23,7 @@
 (function () {
   "use strict";
 
-  const VERSION = "0.3.0";
+  const VERSION = "0.4.0";
   const STORE_KEY = "herta-export:v1";
   const FOCUS_KEY = "herta-export:focus";
   const COPY = "herta-import";
@@ -211,6 +211,186 @@
   WrappedXHR.prototype = OrigXHR.prototype;
   window.XMLHttpRequest = WrappedXHR;
 
+  /* ------------------------------------------------ 页面扫描（DOM 兜底） */
+
+  /**
+   * DeepSeek 的对话区是**虚拟滚动**：只有可视窗口附近的消息在 DOM 里，
+   * 滚走了就被回收。所以"截获接口"这条路在它现在这版上是死的（服务端直出 HTML，
+   * 根本没有 JSON 可截），必须自己滚、自己收、再按重叠拼接。
+   *
+   * 选择器是从真实页面核过的：
+   *   div.ds-message                       一条消息的包裹
+   *   .ds-assistant-message-main-content   她的正文（.ds-think-content 是思考，要跳过）
+   *   .fbb737a4                            用户气泡
+   */
+  const SEL_MSG = ".ds-message";
+  const SEL_MAIN = ".ds-assistant-message-main-content";
+  const SEL_USER = ".fbb737a4";
+
+  function textOf(node) {
+    return (node.textContent ?? "").replace(/\u00a0/g, " ").trim();
+  }
+
+  function renderBlock(el) {
+    const tag = el.tagName.toLowerCase();
+    if (tag === "p") return textOf(el);
+    if (tag === "pre") {
+      const code = el.querySelector("code");
+      const lang = [...(code?.classList ?? [])].find((c) => c.startsWith("language-"))?.slice(9) ?? "";
+      return "```" + lang + "\n" + (code?.textContent ?? el.textContent ?? "").replace(/\n+$/, "") + "\n```";
+    }
+    if (tag === "ul" || tag === "ol") {
+      return [...el.querySelectorAll("li")]
+        .map((li, i) => (tag === "ul" ? "- " : i + 1 + ". ") + textOf(li))
+        .join("\n");
+    }
+    if (/^h[1-4]$/.test(tag)) return "#".repeat(Number(tag[1])) + " " + textOf(el);
+    if (tag === "hr") return "---";
+    if (tag === "table") {
+      return [...el.querySelectorAll("tr")]
+        .map((tr) => "| " + [...tr.children].map((td) => textOf(td)).join(" | ") + " |")
+        .join("\n");
+    }
+    return textOf(el);
+  }
+
+  function renderContent(root) {
+    const blocks = [];
+    for (const child of root.children) {
+      const t = renderBlock(child);
+      if (t) blocks.push(t);
+    }
+    return blocks.length ? blocks.join("\n\n") : textOf(root);
+  }
+
+  /** 当前 DOM 里能看到的那些消息，按从上到下的顺序。 */
+  function harvestDom() {
+    const out = [];
+    for (const el of document.querySelectorAll(SEL_MSG)) {
+      const main = el.querySelector(SEL_MAIN);
+      if (main) {
+        const text = renderContent(main);
+        if (text) out.push({ role: "assistant", text });
+        continue;
+      }
+      const bubble = el.querySelector(SEL_USER);
+      if (bubble) {
+        const text = textOf(bubble);
+        if (text) out.push({ role: "user", text });
+      }
+    }
+    return out;
+  }
+
+  function msgHash(m) {
+    let h = 5381;
+    const s = m.role + "|" + m.text;
+    for (let i = 0; i < s.length; i += 1) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+    return m.role + ":" + m.text.length + ":" + (h >>> 0).toString(36);
+  }
+
+  function findScroller() {
+    const anyMsg = document.querySelector(SEL_MSG);
+    if (!anyMsg) return null;
+    let el = anyMsg.parentElement;
+    while (el && el !== document.body) {
+      const st = getComputedStyle(el);
+      if (/(auto|scroll)/.test(st.overflowY) && el.scrollHeight > el.clientHeight + 40) return el;
+      el = el.parentElement;
+    }
+    return document.scrollingElement;
+  }
+
+  let scanning = false;
+
+  /**
+   * 从底往上滚，每次收一屏，靠**重叠**把窗口拼起来。
+   * 拼接逻辑：新窗口的尾部应当与已收列表的头部一致，去掉重叠部分再往前面插。
+   */
+  async function scanAll() {
+    if (scanning) return;
+    const sc = findScroller();
+    if (!sc) {
+      log("页面上没找到对话区。先把要导出的对话点开。");
+      return;
+    }
+    scanning = true;
+    stopFlag = false;
+
+    const merged = [];
+    let jumps = 0;
+
+    const mergeWindow = (win) => {
+      if (win.length === 0) return 0;
+      const tagged = win.map((m) => ({ ...m, h: msgHash(m) }));
+      if (merged.length === 0) {
+        merged.push(...tagged);
+        return tagged.length;
+      }
+      const maxK = Math.min(merged.length, tagged.length);
+      for (let k = maxK; k >= 1; k -= 1) {
+        let ok = true;
+        for (let i = 0; i < k; i += 1) {
+          if (merged[i].h !== tagged[tagged.length - k + i].h) {
+            ok = false;
+            break;
+          }
+        }
+        if (ok) {
+          const prefix = tagged.slice(0, tagged.length - k);
+          merged.unshift(...prefix);
+          return prefix.length;
+        }
+      }
+      // 没有重叠：可能是虚拟化跳了一屏。保守地接到前面，并记一次跳变。
+      jumps += 1;
+      merged.unshift(...tagged);
+      return tagged.length;
+    };
+
+    // 从底部开始
+    sc.scrollTop = sc.scrollHeight;
+    await sleep(700);
+    mergeWindow(harvestDom());
+    render();
+
+    let guard = 0;
+    while (!stopFlag && guard < 400) {
+      guard += 1;
+      const before = sc.scrollTop;
+      sc.scrollTop = Math.max(0, before - sc.clientHeight * 0.75);
+      await sleep(420);
+      const added = mergeWindow(harvestDom());
+      if (added % 2 === 0 && guard % 10 === 0) {
+        log("已收 " + merged.length + " 条…");
+        render();
+      }
+      if (sc.scrollTop >= before) {
+        // 滚不动了 = 到顶
+        mergeWindow(harvestDom());
+        break;
+      }
+    }
+
+    scanning = false;
+
+    const id = currentSessionId() || "dom-" + Date.now().toString(36);
+    const title = (document.title || "").split(" - ")[0].trim() || "未命名";
+    const clean = merged.map((m) => ({ role: m.role, text: m.text, at: "" }));
+    if (clean.length > 0) {
+      sessions.set(id, { id, title, startedAt: "", messages: clean });
+      save();
+      render();
+    }
+    log(
+      "扫描完成：" +
+        clean.length +
+        " 条消息" +
+        (jumps ? "（有 " + jumps + " 次跳变，可能漏了几条，再扫一次会补上）" : "") +
+        "。点「导出 JSON 文件」拿走。"
+    );
+  }
+
   /* ------------------------------------------------------------- 自动翻页 */
 
   let crawling = false;
@@ -384,6 +564,7 @@
       <div class="st"></div>
       <button data-act="focus">只收当前这个</button>
       <button data-act="focusOff">改成全收</button>
+      <button data-act="scan">页面扫描（推荐·完整）</button>
       <button data-act="crawl">自动翻一遍（慢）</button>
       <button data-act="stop">停止</button>
       <button data-act="download">导出 JSON 文件</button>
@@ -424,7 +605,8 @@
         }
         render();
         log("改成全收了。");
-      } else if (act === "crawl") void crawl();
+      } else if (act === "scan") void scanAll();
+      else if (act === "crawl") void crawl();
       else if (act === "stop") {
         stopFlag = true;
         log("收到停止指令…");
