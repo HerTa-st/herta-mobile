@@ -5,7 +5,28 @@ Herta 的手机端。**双模**：离线时她是自己（人格 / 叙述 / 记�
 外加一件事：**从 DeepSeek 官方把你说过的话搬进来**——没有官方导出接口，所以采集端在 PC 上（油猴脚本），手机只负责接收、归一、归档、消化。
 
 - 设计决策与验收标准：[docs/设计-v1.md](docs/设计-v1.md)
-- 代码分五包：`protocol`（三端共用的类型与消息）/ `core`（人格、叙述、记忆、工具循环）/ `apps/phone`（UI）/ `packages/gateway`（连 PC）/ `tools/userscript`（抓历史）
+- 代码分五包：`protocol`（三端共用的类型与消息）/ `core`（人格、叙述、记忆、工具循环）/ `apps/phone`（UI）/ `packages/gateway`（连 PC，未开工）/ `tools/userscript`（抓历史，已被分享链接取代）
+
+### 目录
+
+```
+packages/protocol   Block / Session / ChatMessage / ToolSpec / ChatDelta
+packages/core       纯逻辑，Node 里能跑测试（87 项）
+  persona 人格装配    narrative 想/说拆分   supervisor 复核
+  dream 做梦          distill 消化长对话    memory 记忆库契约
+  weights 权重衰减    consolidate 整理      voice 语气笔记
+  presence 行踪       mood 心情             search 全文检索
+  import / share 导入 tools 工具循环        session 会话演化
+apps/phone
+  App.tsx           壳与回合编排
+  components/       Drawer · SettingsSheet · GraphView · MemoryViewer
+  MemoryGraph.tsx   实时物理星图（canvas）
+  transport.ts      原生/浏览器通道        devtools.ts  六件工具
+  storage.ts        会话落盘               memory-idb.ts 记忆落盘
+runtime/            桌面版原文（196 个提示词函数），别动
+assets/             自传、话术、41 条原声、4 篇种子
+tools/              打 APK、删种子、删素材字段、油猴脚本
+```
 
 ```bash
 npm install
