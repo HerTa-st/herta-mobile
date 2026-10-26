@@ -27,6 +27,8 @@ export interface ChatTransport {
   stream(req: ChatRequest): AsyncGenerator<string>;
   /** DeepSeek 官方搜索：POST /v1/tools/search。 */
   search(query: string, opts: { apiKey: string; baseUrl: string; count?: number }): Promise<SearchHit[]>;
+  /** 一次性 GET，整段文本返回（分享页的数据接口用）。 */
+  getText(url: string): Promise<string>;
 }
 
 export interface SearchHit {
@@ -87,6 +89,11 @@ export const browserTransport: ChatTransport = {
       }
     }
   },
+  async getText(url) {
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!res.ok) throw new Error("接口 " + res.status);
+    return res.text();
+  },
   async search(query, { apiKey, baseUrl, count = 5 }) {
     const res = await fetch(baseUrl.replace(/\/$/, "") + "/v1/tools/search", {
       method: "POST",
@@ -120,6 +127,7 @@ interface HertaHttpPlugin {
     headers: Record<string, string>;
     body: string;
   }): Promise<{ status: number }>;
+  get(options: { url: string }): Promise<{ status: number; body: string }>;
   cancel(options: { requestId: string }): Promise<void>;
   addListener(event: "chunk", cb: (data: HertaChunk) => void): Promise<PluginListenerHandle>;
 }
@@ -190,6 +198,13 @@ export const nativeTransport: ChatTransport = {
       await listener.remove();
       await HertaHttp.cancel({ requestId }).catch(() => undefined);
     }
+  },
+  async getText(url) {
+    const { status, body } = await HertaHttp.get({ url });
+    if (status < 200 || status >= 300) {
+      throw new Error("接口 " + status + "：" + String(body ?? "").slice(0, 200));
+    }
+    return body;
   },
   async search() {
     throw new Error("原生搜索通道未实现（M1 待办：HertaHttp 插件 + /v1/tools/search）");

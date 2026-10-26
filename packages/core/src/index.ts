@@ -3,6 +3,7 @@ export * from "./narrative.ts";
 export * from "./session.ts";
 export * from "./memory.ts";
 export * from "./import.ts";
+export * from "./share.ts";
 export * from "./dream.ts";
 export type { DreamPrompt } from "./dream.ts";
 export * from "./openings.ts";
