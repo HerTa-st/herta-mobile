@@ -67,8 +67,8 @@ export function useChatTurn(opts: {
   const [busy, setBusy] = useState(false);
   const [mood, setMood] = useState<string>(DEFAULT_MOOD);
   const abort = useRef<AbortController | null>(null);
-  const send = useCallback(async (text: string) => {
-    if (!text.trim() || busy || !session) return;
+  const send = useCallback(async (text: string, attachments?: { mediaType: string; data: string; name?: string }[]) => {
+    if ((!text.trim() && !attachments?.length) || busy || !session) return;
     if (!settings.apiKey) {
       onError("先填 API Key。她不会替你保管，只存在这台手机上。");
       onNeedKey();
@@ -78,7 +78,12 @@ export function useChatTurn(opts: {
     setBusy(true);
     
 
-    const userBlock: Block = { kind: "user", text, at: new Date().toISOString() };
+    const userBlock: Block = {
+      kind: "user",
+      text,
+      at: new Date().toISOString(),
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
+    };
     const history = appendBlocks(session, [userBlock]);
     setSession(history);
     void persist(history);

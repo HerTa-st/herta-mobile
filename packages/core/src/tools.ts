@@ -76,6 +76,7 @@ export function toProviderMessages(messages: readonly ChatMessage[]): Record<str
     if (m.role === "tool") {
       return { role: "tool", tool_call_id: m.tool_call_id, content: m.content };
     }
+    // content 可能是片段数组（带图那种），原样放行——接口认这个形状
     return { role: m.role, content: m.content };
   });
 }

@@ -88,9 +88,15 @@ export interface ToolCall {
   arguments: string;
 }
 
+/** 一条消息里的一段内容。现在只用到文字与图片两种。 */
+export type ChatPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
 export interface ChatMessage {
   role: MessageRole;
-  content: string;
+  /** 纯文字时是字符串；带图时是片段数组。 */
+  content: string | ChatPart[];
   /** assistant 消息里挂着的工具调用。 */
   tool_calls?: ToolCall[];
   /** role=tool 时，对应哪一次调用。 */
