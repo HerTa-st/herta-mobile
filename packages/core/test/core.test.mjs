@@ -26,6 +26,7 @@ import {
 } from "../src/weights.ts";
 import { applyConsolidatePlan, buildConsolidatePrompt, consolidateMemories, forgetMemories, parseConsolidatePlan } from "../src/consolidate.ts";
 import { layoutGraph } from "../src/layout.ts";
+import { searchMemories, searchSessions, snippetOf } from "../src/search.ts";
 
 /** 桌面版原文抽出来的 196 个函数：复核提示词与分隔符从它注入，不在 core 里重写。 */
 import * as H from "../../../runtime/prompts-code.zh.mjs";
@@ -835,6 +836,71 @@ test("星图：有连线的两条比没连线的更近", () => {
   const linked = d(pos.get("n0"), pos.get("n1"));
   const unlinked = d(pos.get("n2"), pos.get("n3"));
   assert.ok(linked < unlinked, "连线没起效：" + linked + " vs " + unlinked);
+});
+
+/* ---------------------------------------------------------------- 检索 */
+
+function sess(id, title, blocks) {
+  return { id, title, origin: "phone", createdAt: "", updatedAt: "", blocks };
+}
+
+test("检索：命中会话里的消息，给出块号与上下文", () => {
+  const s = sess("s1", "关于模拟宇宙", [
+    { kind: "user", text: "模拟宇宙到底是什么", at: "" },
+    { kind: "herta", surface: "speech", text: "一个被我推翻过很多次的东西。", at: "" },
+    { kind: "user", text: "那你在里面测什么", at: "" },
+  ]);
+  const got = searchSessions([s], "模拟宇宙");
+  assert.equal(got.length, 1);
+  assert.equal(got[0].sessionId, "s1");
+  assert.equal(got[0].hits.length, 1);
+  assert.equal(got[0].hits[0].index, 0);
+  assert.ok(got[0].hits[0].snippet.includes("模拟宇宙"));
+});
+
+test("检索：标题命中但正文没命中，也要列出来", () => {
+  const s = sess("s2", "关于模拟宇宙", [{ kind: "user", text: "在吗", at: "" }]);
+  const got = searchSessions([s], "模拟宇宙");
+  assert.equal(got.length, 1);
+  assert.equal(got[0].hits.length, 0);
+  assert.equal(got[0].score, 2);
+});
+
+test("检索：英文不分大小写，中文按子串", () => {
+  const s = sess("s3", "t", [{ kind: "user", text: "用 DeepSeek API 跑一下", at: "" }]);
+  assert.equal(searchSessions([s], "deepseek").length, 1);
+  assert.equal(searchSessions([s], "DEEPSEEK").length, 1);
+  assert.equal(searchSessions([s], "跑一下").length, 1);
+  assert.equal(searchSessions([s], "没出现").length, 0);
+});
+
+test("检索：单个会话最多给三条命中，空查询直接返回空", () => {
+  const blocks = Array.from({ length: 8 }, (_, i) => ({ kind: "user", text: "重复词 " + i, at: "" }));
+  const s = sess("s4", "t", blocks);
+  assert.equal(searchSessions([s], "重复词")[0].hits.length, 3);
+  assert.equal(searchSessions([s], "   ").length, 0);
+});
+
+test("检索：记忆按标题/正文命中，已遗忘的搜不到", () => {
+  // 真实记录的正文首行就是标题行，memoryTitle 是从那里取的
+  const records = [
+    { name: "### 废案_10：凉茶.txt", body: "### 废案_10：凉茶\n\n第三杯茶凉了。", createdAt: "" },
+    { name: "### 废案_11：旧事.txt", body: "### 废案_11：旧事\n\n他又提起凉茶。", createdAt: "" },
+    { name: "### 废案_12：忘的.txt", body: "### 废案_12：忘的\n\n凉茶凉茶凉茶。", createdAt: "", forgotten: true },
+  ];
+  const got = searchMemories(records, "凉茶");
+  assert.equal(got.length, 2, "已遗忘的应当被跳过");
+  assert.ok(got[0].score >= got[1].score);
+  assert.ok(got.some((h) => h.title === "凉茶"));
+});
+
+test("检索：片段围绕命中处截取，两端加省略号", () => {
+  const long = "前".repeat(80) + "目标词" + "后".repeat(80);
+  const s = snippetOf(long, "目标词", 10);
+  assert.ok(s.startsWith("…"));
+  assert.ok(s.endsWith("…"));
+  assert.ok(s.includes("目标词"));
+  assert.ok(s.length < 40);
 });
 
 /* -------------------------------------------------------------- 标签语法 */
