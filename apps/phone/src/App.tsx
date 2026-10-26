@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Block, ChatDelta, ImportBundle, Session } from "@herta/protocol";
+import type { Block, ImportBundle, Session } from "@herta/protocol";
 import {
   REVIEW_POLICY,
   appendBlocks,
@@ -44,7 +44,6 @@ import {
   vetoHints,
   voiceTextOf,
   type ChatMessage,
-  type DreamState,
   type MemoryRecord,
   type Opening,
 } from "@herta/core";
@@ -53,7 +52,9 @@ import { Drawer } from "./components/Drawer.tsx";
 import { GraphView } from "./components/GraphView.tsx";
 import { MemoryViewer } from "./components/MemoryViewer.tsx";
 import { SettingsSheet } from "./components/SettingsSheet.tsx";
+import { useMemory } from "./hooks/useMemory.ts";
 import { MemoryGraph } from "./MemoryGraph.tsx";
+import { collect } from "./stream.ts";
 import { buildTools } from "./devtools.ts";
 import { IdbMemoryStore } from "./memory-idb.ts";
 import { deleteSession, listSessions, loadSession, putSession, type SessionMeta } from "./storage.ts";
@@ -65,13 +66,6 @@ import { playVoice, stopVoice } from "./voice.ts";
 const assets = new BrowserAssetSource();
 const transport = pickTransport();
 const memoryStore = new IdbMemoryStore();
-
-/** 把一条流拼成整段正文。工具调用那些增量不算正文。 */
-async function collect(gen: AsyncGenerator<ChatDelta>): Promise<string> {
-  let out = "";
-  for await (const d of gen) if (d.type === "text") out += d.text;
-  return out;
-}
 
 /** 工具名 → 说人话的标签，给聊天里的"系统"块用。 */
 const TOOL_LABEL: Record<string, string> = {
@@ -90,12 +84,22 @@ export function App() {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const {
+    memories,
+    dreamState,
+    dreaming,
+    distilling,
+    distillNote,
+    maintaining,
+    refresh: refreshMemories,
+    removeMemory,
+    dreamNow,
+    distillNow,
+    maintainMemories,
+  } = useMemory(settings, { onError: setError });
   const [showSettings, setShowSettings] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [opening, setOpening] = useState<Opening | null>(null);
-  const [memories, setMemories] = useState<MemoryRecord[]>([]);
-  const [dreamState, setDreamState] = useState<DreamState | null>(null);
-  const [dreaming, setDreaming] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState("");
   const [importNote, setImportNote] = useState<string | null>(null);
@@ -106,12 +110,8 @@ export function App() {
   const [pendingJump, setPendingJump] = useState<{ sessionId: string; index: number } | null>(null);
   const [viewing, setViewing] = useState<MemoryRecord | null>(null);
   const [showGraph, setShowGraph] = useState(false);
-  const [maintaining, setMaintaining] = useState<string | null>(null);
   const [shareInput, setShareInput] = useState("");
   const [importBusy, setImportBusy] = useState(false);
-  const [distilling, setDistilling] = useState(false);
-  const [distillNote, setDistillNote] = useState<string | null>(null);
-  const distillingRef = useRef(false);
   const abort = useRef<AbortController | null>(null);
   const dreamingRef = useRef(false);
   /** 用户手动选给她读的文件：工具只能读这里，不能自己翻磁盘。 */
@@ -165,10 +165,7 @@ export function App() {
           }
           localStorage.setItem("herta.seeded.v1", "1");
         }
-        if (alive) {
-          setMemories(await memoryStore.list());
-          setDreamState(await memoryStore.state());
-        }
+        if (alive) await refreshMemories();
 
         const list = await listSessions();
         if (!alive) return;
@@ -218,10 +215,6 @@ export function App() {
     };
   }, [session?.id, session?.blocks.length]);
 
-  const removeMemory = useCallback(async (name: string) => {
-    await memoryStore.remove(name);
-    setMemories(await memoryStore.list());
-  }, []);
 
   const newSession = useCallback(async () => {
     const fresh = createSession();
@@ -268,148 +261,8 @@ export function App() {
     [refreshList]
   );
 
-  /** 语气重写：读她最近的记忆，写一段「我说话是什么样」。做梦和消化共用这一个实现。 */
-  const reviseVoiceImpl = useCallback(
-    async (records: MemoryRecord[], previous: string | null) => {
-      const { system, user } = buildVoiceRevisionPrompt(records, previous);
-      const raw = await collect(
-        transport.stream({
-          apiKey: settings.apiKey,
-          baseUrl: settings.baseUrl,
-          model: settings.model,
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: user },
-          ],
-          maxTokens: 800,
-        })
-      );
-      return cleanVoiceText(raw);
-    },
-    [settings.apiKey, settings.baseUrl, settings.model]
-  );
 
-  /**
-   * 做梦。`force` 是手动点按钮时给的：绕过"材料够不够 / 隔了多久"两道门槛，
-   * 但拦不住"值不值得记"——那道门是她自己的判断，不该被按钮跳过。
-   */
-  const dreamNow = useCallback(
-    async (target: Session, force = false) => {
-      if (dreamingRef.current || !settings.apiKey) return;
-      if (!target.blocks.length) return;
-      dreamingRef.current = true;
-      setDreaming(true);
-      try {
-        const [promptAssets, code] = await Promise.all([assets.promptAssets(), loadPromptCode()]);
-        const outcome = await runDreamPass(
-          {
-            store: memoryStore,
-            prompts: code,
-            scene: { env: buildPresenceNote(presenceAt(), timePhrase()), lang: "zh" },
-        // 攒够记忆就让她重读自己、重写语气笔记——这是"语气会变"的唯一来源
-        reviseVoice: reviseVoiceImpl,
-            chat: ({ system, user, maxTokens }) =>
-              collect(
-                transport.stream({
-                  apiKey: settings.apiKey,
-                  baseUrl: settings.baseUrl,
-                  model: settings.model,
-                  messages: system
-                    ? [
-                        { role: "system", content: system },
-                        { role: "user", content: user },
-                      ]
-                    : [{ role: "user", content: user }],
-                  maxTokens,
-                })
-              ),
-            now: () => Date.now(),
-          },
-          {
-            sessionId: target.id,
-            blocks: target.blocks,
-            config: force ? { minNewBlocks: 2, minGapMs: 0 } : undefined,
-          }
-        );
-        if (outcome.kind === "made") {
-          setMemories(await memoryStore.list());
-        }
-        setDreamState(await memoryStore.state());
-      } catch (e) {
-        setError("做梦失败：" + (e instanceof Error ? e.message : String(e)));
-      } finally {
-        dreamingRef.current = false;
-        setDreaming(false);
-      }
-    },
-    [reviseVoiceImpl, settings.apiKey, settings.baseUrl, settings.model]
-  );
 
-  /**
-   * 把一整段长对话消化成记忆。
-   * 与做梦的区别：不问她"值不值得记"——你已经明确说了要记，那道门就不该拦。
-   */
-  const distillNow = useCallback(
-    async (target: Session) => {
-      if (distillingRef.current || !settings.apiKey) return;
-      if (target.blocks.length < 12) {
-        setDistillNote("这段太短了，直接点「让她做梦」就行。");
-        return;
-      }
-      distillingRef.current = true;
-      setDistilling(true);
-      setDistillNote("开始整理…");
-      try {
-        const [promptAssets, code] = await Promise.all([assets.promptAssets(), loadPromptCode()]);
-        const chunks = Math.min(12, Math.max(2, Math.round(target.blocks.length / 40)));
-        const out = await distillSession(
-          {
-            store: memoryStore,
-            prompts: code,
-            scene: { env: buildPresenceNote(presenceAt(), timePhrase()), lang: "zh" },
-            chat: ({ system, user, maxTokens }) =>
-              collect(
-                transport.stream({
-                  apiKey: settings.apiKey,
-                  baseUrl: settings.baseUrl,
-                  model: settings.model,
-                  messages: system
-                    ? [
-                        { role: "system", content: system },
-                        { role: "user", content: user },
-                      ]
-                    : [{ role: "user", content: user }],
-                  maxTokens,
-                })
-              ),
-            now: () => Date.now(),
-            reviseVoice: reviseVoiceImpl,
-          },
-          {
-            sessionId: target.id,
-            blocks: target.blocks,
-            config: { chunks, minBlocksPerChunk: 6 },
-          },
-          (done, total, note) => setDistillNote(note + "（" + done + "/" + total + "）")
-        );
-        setMemories(await memoryStore.list());
-        setDreamState(await memoryStore.state());
-        setDistillNote(
-          "整理完了：写了 " +
-            out.made.length +
-            " 则记忆" +
-            (out.failed ? "，" + out.failed + " 段没写成" : "") +
-            (out.voiceUpdated ? "，语气笔记也重写了" : "")
-        );
-      } catch (e) {
-        setDistillNote("没整理成：" + (e instanceof Error ? e.message : String(e)));
-      } finally {
-        distillingRef.current = false;
-        setDistilling(false);
-      }
-    },
-    [reviseVoiceImpl, settings.apiKey, settings.baseUrl, settings.model]
-  );
 
   /** 真正落库：去重 → 只写新的。永远不覆盖已有会话。 */
   const applyBundle = useCallback(
@@ -474,69 +327,6 @@ export function App() {
     }
   }, [applyBundle, shareInput]);
 
-  /**
-   * 记忆的日常维护：到 20 条整理一次（关联 / 简化 / 加深），到 50 条忘掉最轻的 10 条。
-   * 两个动作都只在跨过阈值时发生，平时什么都不做。
-   */
-  const maintainMemories = useCallback(async () => {
-    if (maintaining) return;
-    try {
-      const state = await memoryStore.state();
-      const records = await memoryStore.list();
-      const active = records.filter((r) => !r.forgotten);
-
-      if (shouldForget(active.length)) {
-        setMaintaining("记忆太多了，正在忘掉最轻的十条…");
-        const victims = await forgetMemories(memoryStore, Date.now());
-        const st = await memoryStore.state();
-        await memoryStore.saveState({
-          ...st,
-          forgottenTotal: (st.forgottenTotal ?? 0) + victims.length,
-          lastNote: "忘掉了 " + victims.length + " 条（最轻的）",
-        });
-      }
-
-      const latest = await memoryStore.state();
-      if (shouldConsolidate(active.length, latest.lastConsolidatedCount ?? null)) {
-        setMaintaining("记忆攒到 " + active.length + " 条了，正在整理…");
-        const code = await loadPromptCode();
-        const out = await consolidateMemories(
-          {
-            store: memoryStore,
-            chat: ({ system, user, maxTokens }) =>
-              collect(
-                transport.stream({
-                  apiKey: settings.apiKey,
-                  baseUrl: settings.baseUrl,
-                  model: settings.model,
-                  messages: [
-                    { role: "system", content: system },
-                    { role: "user", content: user },
-                  ],
-                  maxTokens,
-                })
-              ),
-            now: () => Date.now(),
-          },
-          extractJson
-        );
-        const st = await memoryStore.state();
-        await memoryStore.saveState({
-          ...st,
-          lastConsolidatedCount: active.length,
-          lastNote: "整理了 " + out.touched + " 条：" + out.plan.links.length + " 条关联，" +
-            out.plan.simplify.length + " 条简化，" + out.plan.deepen.length + " 条加深",
-        });
-      }
-
-      setMemories(await memoryStore.list());
-      setDreamState(await memoryStore.state());
-    } catch (e) {
-      setDistillNote("记忆维护没做完：" + (e instanceof Error ? e.message : String(e)));
-    } finally {
-      setMaintaining(null);
-    }
-  }, [maintaining, settings.apiKey, settings.baseUrl, settings.model]);
 
   const send = useCallback(async () => {
     const text = draft.trim();
