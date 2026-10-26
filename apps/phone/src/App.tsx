@@ -57,6 +57,7 @@ export function App() {
     maintaining,
     refresh: refreshMemories,
     removeMemory,
+    consolidateNow,
     dreamNow,
     distillNow,
     maintainMemories,
@@ -295,6 +296,61 @@ export function App() {
     const timer = setInterval(tick, 60_000);
     return () => clearInterval(timer);
   }, [busy, distilling, dreamNow, dreaming, maintaining, session, settings.autoDream]);
+
+  /**
+   * 切到后台满十分钟：做梦，然后把记忆整理一遍。
+   *
+   * 为什么是"十分钟"而不是立刻：立刻整理等于你刚切走她就干活，电和额度都花在没人的时候；
+   * 而十分钟足够攒出一次像样的整理。
+   *
+   * 后台里能不能真跑，取决于系统给不给定时器。跑不动也不亏——回到前台时会补做一次
+   * （见下面的 visibilitychange），补做的判据是"后台待够了十分钟"。
+   */
+  const backgroundAtRef = useRef<number | null>(null);
+  const upkeepDoneRef = useRef(false);
+
+  const runUpkeep = useCallback(async () => {
+    if (session && !busy && !dreaming) await dreamNow(session, false);
+    try {
+      await consolidateNow(true);
+    } catch (e) {
+      setError("整理记忆失败：" + (e instanceof Error ? e.message : String(e)));
+    }
+  }, [busy, consolidateNow, dreamNow, dreaming, session]);
+
+  useEffect(() => {
+    if (!settings.autoDream) return;
+
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        if (backgroundAtRef.current === null) backgroundAtRef.current = Date.now();
+        upkeepDoneRef.current = false;
+        return;
+      }
+      const since = backgroundAtRef.current;
+      backgroundAtRef.current = null;
+      if (since !== null && Date.now() - since >= 10 * 60 * 1000 && !upkeepDoneRef.current) {
+        upkeepDoneRef.current = true;
+        void runUpkeep();
+      }
+    };
+
+    // 后台定时器可能被系统节流；能跑就跑，跑不动就等回到前台补
+    const timer = setInterval(() => {
+      if (document.visibilityState !== "hidden") return;
+      const since = backgroundAtRef.current;
+      if (since === null || upkeepDoneRef.current) return;
+      if (Date.now() - since < 10 * 60 * 1000) return;
+      upkeepDoneRef.current = true;
+      void runUpkeep();
+    }, 60_000);
+
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      clearInterval(timer);
+    };
+  }, [runUpkeep, settings.autoDream]);
 
   /** 打开 App 放了半天没说话的，进来二十秒后让她做一次梦。 */
   useEffect(() => {
