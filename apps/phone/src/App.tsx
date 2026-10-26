@@ -67,8 +67,29 @@ export function App() {
   const [importBusy, setImportBusy] = useState(false);
   const abort = useRef<AbortController | null>(null);
   const dreamingRef = useRef(false);
+  const feedRef = useRef<HTMLElement | null>(null);
+  /** 用户是不是"贴着底部"。他往上一翻就松手，不再跟着新消息跑。 */
+  const stickToBottom = useRef(true);
+  const [atBottom, setAtBottom] = useState(true);
 
   useEffect(() => saveSettings(settings), [settings]);
+
+  const scrollToBottom = useCallback((smooth = true) => {
+    const el = feedRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+    stickToBottom.current = true;
+    setAtBottom(true);
+  }, []);
+
+  const onFeedScroll = useCallback(() => {
+    const el = feedRef.current;
+    if (!el) return;
+    // 距离底部 80px 以内都算"贴底"——手指抖一下不该让它停止跟随
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    stickToBottom.current = near;
+    setAtBottom(near);
+  }, []);
 
   const refreshList = useCallback(async () => {
     setSessions(await listSessions());
@@ -446,6 +467,18 @@ export function App() {
   }, [busy, persist, session]);
 
   const blocks = useMemo(() => session?.blocks ?? [], [session]);
+
+  // 换了会话：直接落在最新一条，别让人自己找。
+  useEffect(() => {
+    stickToBottom.current = true;
+    requestAnimationFrame(() => scrollToBottom(false));
+  }, [session?.id, scrollToBottom]);
+
+  // 新消息进来：只有像平时那样贴着底才跟着走；用户翻上去看历史时不打断他。
+  useEffect(() => {
+    if (!stickToBottom.current) return;
+    requestAnimationFrame(() => scrollToBottom(false));
+  }, [blocks.length, scrollToBottom]);
   const showOpening = blocks.length === 0 && opening !== null;
 
   return (
@@ -598,7 +631,7 @@ export function App() {
         </div>
       )}
 
-      <main className="feed">
+      <main className="feed" ref={feedRef} onScroll={onFeedScroll}>
         {showOpening && opening && (
           <article className="bubble herta speech opening">
             <p>{opening.speech}</p>
@@ -631,6 +664,12 @@ export function App() {
         )}
         {error && <p className="error">{error}</p>}
       </main>
+
+      {!atBottom && (
+        <button className="jump" onClick={() => scrollToBottom(true)} aria-label="回到最新">
+          ↓ 最新
+        </button>
+      )}
 
       <footer className="composer">
         <textarea
