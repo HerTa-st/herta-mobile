@@ -15,6 +15,7 @@
  */
 
 import type { Block } from "../../protocol/src/index.ts";
+import { repairFeian } from "./feian.ts";
 import {
   EMPTY_STATE,
   memoryFileName,
@@ -212,10 +213,29 @@ export async function runDreamPass(
     return { kind: "failed", reason: note };
   }
 
-  /* 第三道门：格式 + 语气。格式是死规矩，语气是她的招牌。 */
+  /* 第三道门：格式 + 语气。格式是死规矩，语气是她的招牌。
+   *
+   * 但**格式可以机械修**：首行没写对、少了那根 ---，这些跟她像不像她毫无关系。
+   * 先就地修好再去问评审，省掉一次「改一遍」，也不至于为一道格式丢掉一段记忆。 */
+  const index = nextMemoryIndex(records);
+  const titleHint = tag || "无题";
+  let repaired: string | null = null;
+
+  const tryRepair = (): boolean => {
+    const fix = repairFeian(body, index, titleHint);
+    if (!fix.changed) return false;
+    if (!deps.prompts.validateFeian(fix.text).ok) return false;
+    body = fix.text;
+    repaired = fix.reason;
+    return true;
+  };
+
   let problems: string[] = [];
-  const check = deps.prompts.validateFeian(body);
-  if (!check.ok) problems = check.errors;
+  let check = deps.prompts.validateFeian(body);
+  if (!check.ok) {
+    if (!tryRepair()) problems = check.errors;
+    else check = deps.prompts.validateFeian(body);
+  }
 
   const critiqueRaw = (await askJson(
     deps,
@@ -239,15 +259,18 @@ export async function runDreamPass(
       body = String(refinedRaw.feian).trim();
       tag = String(refinedRaw.situationTag ?? tag).trim();
     }
-    const recheck = deps.prompts.validateFeian(body);
+    let recheck = deps.prompts.validateFeian(body);
     if (!recheck.ok) {
-      const note = "改了一遍还是不合格：" + recheck.errors.slice(0, 2).join("；");
-      await deps.store.saveState(advance(state, input.sessionId, nextCursor, { lastNote: note }));
-      return { kind: "failed", reason: note };
+      // 改完还只是格式问题 → 再机械修一次；真修不好才算失败。
+      if (!tryRepair()) {
+        const note = "改了一遍还是不合格：" + recheck.errors.slice(0, 2).join("；");
+        await deps.store.saveState(advance(state, input.sessionId, nextCursor, { lastNote: note }));
+        return { kind: "failed", reason: note };
+      }
+      recheck = deps.prompts.validateFeian(body);
     }
   }
 
-  const index = nextMemoryIndex(records);
   const title = memoryTitle({ name: "### 废案_00：新记忆.txt", body, createdAt: "", sessionId: input.sessionId });
   const record: MemoryRecord = {
     name: memoryFileName(index, title),
@@ -258,7 +281,7 @@ export async function runDreamPass(
   };
   await deps.store.write(record);
 
-  const note = "记住了一件事：" + title;
+  const note = "记住了一件事：" + title + (repaired ? "（格式我修了一下：" + repaired + "）" : "");
   await deps.store.saveState(
     advance(state, input.sessionId, nextCursor, { made: state.made + 1, lastPassAt: deps.now(), lastNote: note })
   );
