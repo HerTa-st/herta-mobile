@@ -27,6 +27,7 @@ import { GraphView } from "./components/GraphView.tsx";
 import { MemoryViewer } from "./components/MemoryViewer.tsx";
 import { SettingsSheet } from "./components/SettingsSheet.tsx";
 import { useChatTurn } from "./hooks/useChatTurn.ts";
+import { captionImage, compressImage } from "./vision.ts";
 import { useMemory } from "./hooks/useMemory.ts";
 import { MemoryGraph } from "./MemoryGraph.tsx";
 import { collect } from "./stream.ts";
@@ -72,6 +73,11 @@ export function App() {
   const [filter, setFilter] = useState("");
   const [allSessions, setAllSessions] = useState<Session[]>([]);
   const [pendingJump, setPendingJump] = useState<{ sessionId: string; index: number } | null>(null);
+  const [pendingImage, setPendingImage] = useState<{ mediaType: string; data: string; name: string; caption: string } | null>(
+    null
+  );
+  const [imageBusy, setImageBusy] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [viewing, setViewing] = useState<MemoryRecord | null>(null);
   const [showGraph, setShowGraph] = useState(false);
   const [shareInput, setShareInput] = useState("");
@@ -413,6 +419,16 @@ export function App() {
     await persist(cut);
   }, [busy, persist, session]);
 
+  /** 发出去：文字 + 待发的图（图会作为附件存进会话，描述并进正文）。 */
+  const dispatch = useCallback(() => {
+    const img = pendingImage;
+    const text = (draft.trim() + (img?.caption ? "\n\n" + img.caption : "")).trim();
+    if (!text && !img) return;
+    setDraft("");
+    setPendingImage(null);
+    void send(text, img ? [{ mediaType: img.mediaType, data: img.data, name: img.name }] : undefined);
+  }, [draft, pendingImage, send]);
+
   const blocks = useMemo(() => session?.blocks ?? [], [session]);
 
   /* 搜索需要在内存里扫全文，所以查的时候才把会话都读出来（几十条，几十万字，毫秒级）。 */
@@ -611,6 +627,9 @@ export function App() {
             </p>
           ) : (
             <article key={i} data-idx={i} className={"bubble " + b.kind + (b.kind === "herta" ? " " + b.surface : "")}>
+              {b.kind === "user" && b.attachments && b.attachments.length > 0 && (
+                <img className="shot" src={b.attachments[0].data} alt={b.attachments[0].name ?? "图"} />
+              )}
               {b.kind === "herta" && b.surface === "thought" ? (
                 <details>
                   <summary>想法</summary>
@@ -632,6 +651,44 @@ export function App() {
       )}
 
       <footer className="composer">
+        {pendingImage && (
+          <div className="shotPreview">
+            <img src={pendingImage.data} alt="待发送的图" />
+            <button onClick={() => setPendingImage(null)} aria-label="移除图片">
+              ✕
+            </button>
+          </div>
+        )}
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (!file) return;
+            setImageBusy(true);
+            void (async () => {
+              try {
+                const { dataUrl, mediaType } = await compressImage(file);
+                let caption = "";
+                if (settings.visionModel) {
+                  caption = await captionImage(
+                    transport,
+                    { apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.visionModel },
+                    dataUrl
+                  );
+                }
+                setPendingImage({ mediaType, data: dataUrl, name: file.name, caption });
+              } catch (err) {
+                setError("这张图没看明白：" + (err instanceof Error ? err.message : String(err)));
+              } finally {
+                setImageBusy(false);
+              }
+            })();
+          }}
+        />
         <textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -640,26 +697,25 @@ export function App() {
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              const text = draft;
-              setDraft("");
-              void send(text);
+              dispatch();
             }
           }}
         />
+        <button
+          className="ghost"
+          onClick={() => imageInputRef.current?.click()}
+          disabled={imageBusy}
+          title="给她看一张图"
+        >
+          {imageBusy ? "…" : "🖼"}
+        </button>
         <button className="ghost" onClick={() => void retract()} disabled={busy || blocks.length === 0} title="撤回上一轮">
           ↶
         </button>
         {busy ? (
           <button onClick={stop}>打断</button>
         ) : (
-          <button
-            onClick={() => {
-              const text = draft;
-              setDraft("");
-              void send(text);
-            }}
-            disabled={!draft.trim()}
-          >
+          <button onClick={dispatch} disabled={!draft.trim() && !pendingImage}>
             说
           </button>
         )}

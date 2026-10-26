@@ -16,6 +16,8 @@ export interface Settings {
   moodEnabled: boolean;
   /** 你离开一阵子之后，她自己做梦。关掉就只有手动按钮能做。 */
   autoDream: boolean;
+  /** 看图用的视觉模型。留空 = 不做图片识别（仍然能发图，只是她看不见内容）。 */
+  visionModel: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -27,6 +29,7 @@ export const DEFAULT_SETTINGS: Settings = {
   reviewEnabled: true,
   moodEnabled: true,
   autoDream: true,
+  visionModel: "",
 };
 
 const KEY = "herta.settings.v1";

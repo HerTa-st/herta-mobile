@@ -58,6 +58,14 @@ export function SettingsSheet({
         <span>说完先让她自己复核（关掉每轮省一次调用）</span>
       </label>
       <label>
+        视觉模型（看图用，留空则不识别）
+        <input
+          value={settings.visionModel}
+          onChange={(e) => onChange({ visionModel: e.target.value.trim() })}
+          placeholder="例如 deepseek-vl 或你服务商的多模态模型名"
+        />
+      </label>
+      <label>
         给她读的文件
         <input
           type="file"
