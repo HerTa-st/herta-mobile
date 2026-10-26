@@ -57,6 +57,8 @@ body {
   background: #12111a;
 }
 .sheet label { display: grid; gap: 4px; font-size: 13px; color: var(--dim); }
+.sheet label.check { display: flex; align-items: center; gap: 8px; color: var(--fg); }
+.sheet label.check input { width: auto; }
 .sheet input {
   background: #0b0b0f;
   border: 1px solid var(--line);

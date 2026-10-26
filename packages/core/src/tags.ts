@@ -7,6 +7,7 @@
  */
 
 import type { Block, SystemLabel } from "../../protocol/src/index.ts";
+import { parseNarrative } from "./narrative.ts";
 
 export type Surface = "thought" | "speech";
 
@@ -27,15 +28,13 @@ export function extractTagged(raw: string | null | undefined, surface: Surface):
   return m ? m[1].trim() : null;
 }
 
-/** 模型偶尔漏标签：剥掉首尾标签后整段当内容，不让一轮白跑。 */
+/**
+ * 取某一轨的内容。真正的切分逻辑在 narrative.ts —— 这里只是按 surface 选一路，
+ * 免得两处各写一套正则、然后一起错。
+ */
 export function parseTagged(raw: string | null | undefined, surface: Surface): string {
-  const strict = extractTagged(raw, surface);
-  if (strict !== null) return strict;
-  const t = TAG_OF[surface];
-  let text = String(raw ?? "");
-  text = text.replace(new RegExp("^\\s*（/?我\\s*" + t + "）\\s*"), "");
-  text = text.replace(new RegExp("\\s*（/我\\s*" + t + "）\\s*$"), "");
-  return text.trim();
+  const n = parseNarrative(raw);
+  return surface === "thought" ? n.thought : n.speech;
 }
 
 /**
