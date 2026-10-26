@@ -194,7 +194,36 @@ body {
   font: inherit;
 }
 .mem .dream:disabled { opacity: 0.5; }
-.memList { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 3px; }
+.memList {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  max-height: 180px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.memList li { display: flex; align-items: center; gap: 6px; }
+.memList .mt {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--dim);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.memList .mx {
+  flex: none;
+  background: none;
+  border: 0;
+  color: #5b5566;
+  padding: 2px 4px;
+  font-size: 11px;
+  line-height: 1;
+}
+.memList .none { color: var(--dim); }
 .voice { margin-top: 8px; }
 .voice summary { font-size: 12px; color: var(--dim); cursor: pointer; list-style: none; }
 .voice p {
@@ -207,13 +236,7 @@ body {
   overflow-y: auto;
 }
 
-.memList li {
-  font-size: 12px;
-  color: var(--dim);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
+
 
 .drawer .filter {
   width: 100%;

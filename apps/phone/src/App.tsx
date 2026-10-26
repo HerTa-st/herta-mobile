@@ -103,16 +103,21 @@ export function App() {
     let alive = true;
     void (async () => {
       try {
-        // 记忆库：第一次启动时把随包的 13 篇废案种子搬进来。
-        if ((await memoryStore.list()).length === 0) {
-          const names = await assets.seedFiles();
-          const at = new Date().toISOString();
-          for (const name of names) {
-            const body = await assets.readSeed(name);
-            if (body && body.trim()) {
-              await memoryStore.write({ name, body, createdAt: at });
+        // 种子只在**真正第一次**启动时搬一次，用标记记住。
+        // 否则用户把记忆全删光之后，下次启动会被原样复活——"我删了它又回来了"这种惊吓不能有。
+        const seeded = localStorage.getItem("herta.seeded.v1") === "1";
+        if (!seeded) {
+          if ((await memoryStore.list()).length === 0) {
+            const names = await assets.seedFiles();
+            const at = new Date().toISOString();
+            for (const name of names) {
+              const body = await assets.readSeed(name);
+              if (body && body.trim()) {
+                await memoryStore.write({ name, body, createdAt: at });
+              }
             }
           }
+          localStorage.setItem("herta.seeded.v1", "1");
         }
         if (alive) {
           setMemories(await memoryStore.list());
@@ -166,6 +171,11 @@ export function App() {
       stopVoice();
     };
   }, [session?.id, session?.blocks.length]);
+
+  const removeMemory = useCallback(async (name: string) => {
+    await memoryStore.remove(name);
+    setMemories(await memoryStore.list());
+  }, []);
 
   const newSession = useCallback(async () => {
     const fresh = createSession();
@@ -554,12 +564,15 @@ export function App() {
               {dreaming ? "她正在想…" : "让她做梦"}
             </button>
             <ul className="memList">
-              {memories
-                .slice(-8)
-                .reverse()
-                .map((m) => (
-                  <li key={m.name}>{memoryTitle(m)}</li>
-                ))}
+              {[...memories].reverse().map((m) => (
+                <li key={m.name}>
+                  <span className="mt">{memoryTitle(m)}</span>
+                  <button className="mx" onClick={() => void removeMemory(m.name)} aria-label="删掉这条记忆">
+                    ✕
+                  </button>
+                </li>
+              ))}
+              {memories.length === 0 && <li className="none">记忆库是空的</li>}
             </ul>
             {dreamState?.voice ? (
               <details className="voice">
