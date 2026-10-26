@@ -17,6 +17,19 @@ export interface MemoryRecord {
   sessionId?: string;
   /** 情境标签，供"别写重复的"那道门用。 */
   tag?: string;
+  /** 权重 0..1。没写就按来源给默认值（见 weights.ts）。 */
+  weight?: number;
+  /** 被召回次数。 */
+  recalls?: number;
+  lastRecallAt?: string;
+  /** 和其他记忆的关联（存 name）。 */
+  links?: string[];
+  /** 简化后的要点：进提示词时优先用它，正文还留着给她自己看。 */
+  gist?: string;
+  /** 加深时她自己写的一句"这条还能怎么长"。 */
+  deepenNote?: string;
+  /** 忘了：不进提示词，默认不在列表里显示，但没删掉。 */
+  forgotten?: boolean;
 }
 
 export interface DreamState {
@@ -31,6 +44,10 @@ export interface DreamState {
   skipped: number;
   /** 最近一次的结论，写成一句话给 UI。 */
   lastNote: string | null;
+  /** 上次整理时的记忆条数。没整理过就是 null。 */
+  lastConsolidatedCount: number | null;
+  /** 累计忘掉了几条。 */
+  forgottenTotal: number;
 }
 
 export const EMPTY_STATE: DreamState = {
@@ -40,6 +57,8 @@ export const EMPTY_STATE: DreamState = {
   made: 0,
   skipped: 0,
   lastNote: null,
+  lastConsolidatedCount: null,
+  forgottenTotal: 0,
 };
 
 export interface MemoryStore {
