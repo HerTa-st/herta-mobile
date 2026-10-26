@@ -27,6 +27,7 @@ import {
 import { applyConsolidatePlan, buildConsolidatePrompt, consolidateMemories, forgetMemories, parseConsolidatePlan } from "../src/consolidate.ts";
 import { layoutGraph } from "../src/layout.ts";
 import { searchMemories, searchSessions, snippetOf } from "../src/search.ts";
+import { runToolLoop } from "../src/tools.ts";
 
 /** 桌面版原文抽出来的 196 个函数：复核提示词与分隔符从它注入，不在 core 里重写。 */
 import * as H from "../../../runtime/prompts-code.zh.mjs";
@@ -901,6 +902,107 @@ test("检索：片段围绕命中处截取，两端加省略号", () => {
   assert.ok(s.endsWith("…"));
   assert.ok(s.includes("目标词"));
   assert.ok(s.length < 40);
+});
+
+/* ---------------------------------------------------------------- 工具 */
+
+function toolStream(script) {
+  // script: 每轮的增量数组
+  let round = 0;
+  return async function* () {
+    const deltas = script[round] ?? [{ type: "text", text: "没了" }, { type: "done", finishReason: "stop" }];
+    round += 1;
+    for (const d of deltas) yield d;
+  };
+}
+
+function fakeTool(name, fn) {
+  return { spec: { name, description: "", parameters: { type: "object", properties: {} } }, run: fn };
+}
+
+test("工具循环：不调工具，就是一次普通回答", async () => {
+  const gen = toolStream([[{ type: "text", text: "在。" }, { type: "done", finishReason: "stop" }]]);
+  const out = await runToolLoop({ tools: [], stream: () => gen() }, [{ role: "user", content: "在吗" }]);
+  assert.equal(out.text, "在。");
+  assert.equal(out.rounds, 1);
+  assert.equal(out.results.length, 0);
+});
+
+test("工具循环：调一次工具，结果回灌后再回答", async () => {
+  const seen = [];
+  const gen = toolStream([
+    [
+      { type: "tool_call", index: 0, id: "c1", name: "now", arguments: "{}" },
+      { type: "done", finishReason: "tool_calls" },
+    ],
+    [{ type: "text", text: "现在下午三点。" }, { type: "done", finishReason: "stop" }],
+  ]);
+  const out = await runToolLoop(
+    {
+      tools: [fakeTool("now", async () => "15:00")],
+      stream: (r) => {
+        seen.push(r.messages.length);
+        return gen();
+      },
+    },
+    [{ role: "user", content: "几点了" }]
+  );
+  assert.equal(out.text, "现在下午三点。");
+  assert.equal(out.results.length, 1);
+  assert.equal(out.results[0].content, "15:00");
+  assert.equal(seen[1], 3, "第二轮应带上 assistant(工具调用) 与 tool 结果：" + seen.join(","));
+});
+
+test("工具循环：参数分几段到也能拼起来", async () => {
+  let got = null;
+  const gen = toolStream([
+    [
+      { type: "tool_call", index: 0, id: "c1", name: "calc", arguments: '{"co' },
+      { type: "tool_call", index: 0, name: "calc", arguments: 'de":"1+1"}' },
+      { type: "done", finishReason: "tool_calls" },
+    ],
+    [{ type: "text", text: "算完了" }, { type: "done", finishReason: "stop" }],
+  ]);
+  await runToolLoop(
+    { tools: [fakeTool("calc", async (args) => { got = args; return String(args.code); })], stream: () => gen() },
+    [{ role: "user", content: "算一下" }]
+  );
+  assert.deepEqual(got, { code: "1+1" });
+});
+
+test("工具循环：工具抛错与工具不存在都记成失败，不中断这一轮", async () => {
+  const gen = toolStream([
+    [
+      { type: "tool_call", index: 0, id: "c1", name: "boom", arguments: "{}" },
+      { type: "tool_call", index: 1, id: "c2", name: "nope", arguments: "{}" },
+      { type: "done", finishReason: "tool_calls" },
+    ],
+    [{ type: "text", text: "都没成。" }, { type: "done", finishReason: "stop" }],
+  ]);
+  const out = await runToolLoop(
+    {
+      tools: [fakeTool("boom", async () => { throw new Error("炸了"); })],
+      stream: () => gen(),
+    },
+    [{ role: "user", content: "试试" }]
+  );
+  assert.equal(out.results.length, 2);
+  assert.equal(out.results[0].ok, false);
+  assert.ok(out.results[0].content.includes("炸了"));
+  assert.equal(out.results[1].ok, false);
+  assert.ok(out.results[1].content.includes("没有这个工具"));
+  assert.equal(out.text, "都没成。");
+});
+
+test("工具循环：轮数封顶，不让一个想不清楚的模型烧光额度", async () => {
+  const one = [{ type: "tool_call", index: 0, id: "c", name: "now", arguments: "{}" }, { type: "done", finishReason: "tool_calls" }];
+  const gen = toolStream([one, one, one, one, one]);
+  const out = await runToolLoop(
+    { tools: [fakeTool("now", async () => "x")], stream: () => gen(), maxRounds: 3 },
+    [{ role: "user", content: "循环" }]
+  );
+  assert.equal(out.rounds, 3);
+  assert.equal(out.results.length, 3);
 });
 
 /* -------------------------------------------------------------- 标签语法 */

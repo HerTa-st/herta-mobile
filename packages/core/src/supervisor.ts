@@ -8,13 +8,10 @@
  * 打回的话术（supervisor_veto / rethink / respeak）也来自素材的 hints。
  */
 
-import type { Block } from "../../protocol/src/index.ts";
+import type { Block, ChatMessage } from "../../protocol/src/index.ts";
 import type { Verdict } from "./tags.ts";
 
-export interface ChatMessage {
-  role: "system" | "user" | "assistant";
-  content: string;
-}
+export type { ChatMessage };
 
 /** 素材包提供的桌面版原文函数。core 不直接 import 那 824KB，由调用方注入。 */
 export interface PromptCode {

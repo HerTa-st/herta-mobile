@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Block, ImportBundle, Session } from "@herta/protocol";
+import type { Block, ChatDelta, ImportBundle, Session } from "@herta/protocol";
 import {
   REVIEW_POLICY,
   appendBlocks,
@@ -29,6 +29,7 @@ import {
   shareIdFromInput,
   SHARE_API,
   runDreamPass,
+  runToolLoop,
   searchMemories,
   searchSessions,
   serializeRecord,
@@ -42,6 +43,7 @@ import {
 } from "@herta/core";
 import { BrowserAssetSource } from "./assets-browser.ts";
 import { MemoryGraph } from "./MemoryGraph.tsx";
+import { buildTools } from "./devtools.ts";
 import { IdbMemoryStore } from "./memory-idb.ts";
 import { deleteSession, listSessions, loadSession, putSession, type SessionMeta } from "./storage.ts";
 import { loadSettings, saveSettings, type Settings } from "./settings.ts";
@@ -53,11 +55,22 @@ const assets = new BrowserAssetSource();
 const transport = pickTransport();
 const memoryStore = new IdbMemoryStore();
 
-async function collect(gen: AsyncGenerator<string>): Promise<string> {
+/** 把一条流拼成整段正文。工具调用那些增量不算正文。 */
+async function collect(gen: AsyncGenerator<ChatDelta>): Promise<string> {
   let out = "";
-  for await (const piece of gen) out += piece;
+  for await (const d of gen) if (d.type === "text") out += d.text;
   return out;
 }
+
+/** 工具名 → 说人话的标签，给聊天里的"系统"块用。 */
+const TOOL_LABEL: Record<string, string> = {
+  now: "看了时间",
+  clipboard: "动了剪贴板",
+  calc: "算了一下",
+  web_search: "上网查了",
+  device: "看了手机状态",
+  read_file: "读了文件",
+};
 
 export function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings);
@@ -75,6 +88,7 @@ export function App() {
   const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState("");
   const [importNote, setImportNote] = useState<string | null>(null);
+  const [fileNames, setFileNames] = useState<string[]>([]);
   const [filter, setFilter] = useState("");
   const [allSessions, setAllSessions] = useState<Session[]>([]);
   const [pendingJump, setPendingJump] = useState<{ sessionId: string; index: number } | null>(null);
@@ -88,6 +102,8 @@ export function App() {
   const distillingRef = useRef(false);
   const abort = useRef<AbortController | null>(null);
   const dreamingRef = useRef(false);
+  /** 用户手动选给她读的文件：工具只能读这里，不能自己翻磁盘。 */
+  const filesRef = useRef(new Map<string, string>());
   const feedRef = useRef<HTMLElement | null>(null);
   /** 用户是不是"贴着底部"。他往上一翻就松手，不再跟着新消息跑。 */
   const stickToBottom = useRef(true);
@@ -551,16 +567,60 @@ export function App() {
         { role: "user", content: serializeRecord(context, { maxBlocks: 0 }) },
       ];
 
-      for await (const piece of transport.stream({ ...base, messages: mainMessages, maxTokens: 2048 })) {
-        raw += piece;
-        const live = parseNarrative(raw).speech;
-        if (live) {
-          setSession({
-            ...history,
-            blocks: [...history.blocks, { kind: "herta", surface: "speech", text: live, at: new Date().toISOString() }],
-          });
-        }
-      }
+      // 带上她的手：她可以在这一轮里自己决定查时间、搜网、算一段、读文件。
+      const tools = buildTools({
+        transport,
+        apiKey: settings.apiKey,
+        baseUrl: settings.baseUrl,
+        files: filesRef.current,
+      });
+      const toolNotes: Block[] = [];
+
+      const loop = await runToolLoop(
+        {
+          tools,
+          stream: (r) =>
+            transport.stream({
+              apiKey: settings.apiKey,
+              baseUrl: settings.baseUrl,
+              model: settings.model,
+              messages: r.messages,
+              tools: r.tools,
+              maxTokens: r.maxTokens,
+              signal: ctl.signal,
+            }),
+          onText: (piece) => {
+            raw += piece;
+            const live = parseNarrative(raw).speech;
+            if (!live) return;
+            setSession({
+              ...history,
+              blocks: [
+                ...history.blocks,
+                ...toolNotes,
+                { kind: "herta", surface: "speech", text: live, at: new Date().toISOString() },
+              ],
+            });
+          },
+          onToolResult: (result) => {
+            const note: Block = {
+              kind: "system",
+              label: "系统",
+              body:
+                "（" +
+                (TOOL_LABEL[result.name] ?? "用了 " + result.name) +
+                "：" +
+                String(result.content).replace(/\s+/g, " ").slice(0, 140) +
+                "）",
+              at: new Date().toISOString(),
+            };
+            toolNotes.push(note);
+            setSession({ ...history, blocks: [...history.blocks, ...toolNotes] });
+          },
+        },
+        mainMessages
+      );
+      raw = loop.text;
 
       const parsed = parseNarrative(raw);
       let thought = parsed.thought;
@@ -613,7 +673,10 @@ export function App() {
         speech = again.speech || speech;
       }
 
-      const tail: Block[] = [];
+      const tail: Block[] = [
+        // 先把这一轮她用过的工具记下来：她"查过什么"本身也是上下文
+        ...toolNotes,
+      ];
       if (thought) tail.push({ kind: "herta", surface: "thought", text: thought, at: new Date().toISOString() });
       if (speech) tail.push({ kind: "herta", surface: "speech", text: speech, at: new Date().toISOString() });
 
@@ -994,6 +1057,24 @@ export function App() {
             />
             <span>说完先让她自己复核（关掉每轮省一次调用）</span>
           </label>
+          <label>
+            给她读的文件
+            <input
+              type="file"
+              accept=".txt,.md,.json,.csv,.log,text/*"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                void file.text().then((text) => {
+                  filesRef.current.set(file.name, text);
+                  setFileNames([...filesRef.current.keys()]);
+                });
+              }}
+            />
+          </label>
+          <p className="memNote">
+            {fileNames.length > 0 ? "她能读：" + fileNames.join("、") : "还没给她文件。只能读你在这里选的，不能自己翻手机。"}
+          </p>
         </div>
       )}
 
