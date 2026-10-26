@@ -29,7 +29,12 @@ export declare const USER_MESSAGE_SEPARATOR: string;
 export declare function buildSupervisorPrompt(input: SupervisorPromptInput): { prompt: string };
 
 export declare function buildEpisodeDigest(blocks: RenderBlock[]): string;
-export declare function buildWorthinessPrompt(digest: string, summaries: unknown[], env: string, lang?: string): string;
+export interface PromptPair {
+  systemPrompt: string;
+  userPayload: string;
+}
+
+export declare function buildWorthinessPrompt(digest: string, summaries: unknown[], env: string, lang?: string): PromptPair;
 export declare function buildGenerationPrompt(
   digest: string,
   exemplars: string[],
@@ -37,7 +42,7 @@ export declare function buildGenerationPrompt(
   guide: string,
   env: string,
   lang?: string
-): string;
-export declare function buildCritiquePrompt(draft: string, guide: string, lang?: string, digest?: string): string;
-export declare function buildRefinePrompt(draft: string, errors: readonly string[], guide: string, lang?: string): string;
+): PromptPair;
+export declare function buildCritiquePrompt(draft: string, guide: string, lang?: string, digest?: string): PromptPair;
+export declare function buildRefinePrompt(draft: string, errors: readonly string[], guide: string, lang?: string): PromptPair;
 export declare function validateFeian(text: string): { ok: true } | { ok: false; errors: string[] };

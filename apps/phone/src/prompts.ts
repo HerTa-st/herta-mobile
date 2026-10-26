@@ -12,7 +12,12 @@ import type { PromptCode } from "@herta/core";
 
 export interface PromptModule extends PromptCode {
   buildEpisodeDigest(blocks: unknown[]): string;
-  buildWorthinessPrompt(digest: string, summaries: readonly { title: string; tag: string }[], env: string, lang?: string): string;
+  buildWorthinessPrompt(
+    digest: string,
+    summaries: readonly { title: string; tag: string }[],
+    env: string,
+    lang?: string
+  ): { systemPrompt: string; userPayload: string };
   buildGenerationPrompt(
     digest: string,
     exemplars: readonly string[],
@@ -20,9 +25,9 @@ export interface PromptModule extends PromptCode {
     guide: string,
     env: string,
     lang?: string
-  ): string;
-  buildCritiquePrompt(draft: string, guide: string, lang?: string, digest?: string): string;
-  buildRefinePrompt(draft: string, errors: readonly string[], guide: string, lang?: string): string;
+  ): { systemPrompt: string; userPayload: string };
+  buildCritiquePrompt(draft: string, guide: string, lang?: string, digest?: string): { systemPrompt: string; userPayload: string };
+  buildRefinePrompt(draft: string, errors: readonly string[], guide: string, lang?: string): { systemPrompt: string; userPayload: string };
   validateFeian(text: string): { ok: true } | { ok: false; errors: string[] };
 }
 

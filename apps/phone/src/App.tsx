@@ -194,13 +194,18 @@ export function App() {
             store: memoryStore,
             prompts: code,
             scene: { env: promptAssets.envSet, guide: promptAssets.hertaGuide, lang: "zh" },
-            chat: ({ prompt, maxTokens }) =>
+            chat: ({ system, user, maxTokens }) =>
               collect(
                 transport.stream({
                   apiKey: settings.apiKey,
                   baseUrl: settings.baseUrl,
                   model: settings.model,
-                  messages: [{ role: "user", content: prompt }],
+                  messages: system
+                    ? [
+                        { role: "system", content: system },
+                        { role: "user", content: user },
+                      ]
+                    : [{ role: "user", content: user }],
                   maxTokens,
                 })
               ),

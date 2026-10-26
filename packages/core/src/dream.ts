@@ -25,6 +25,18 @@ import {
   type MemoryStore,
 } from "./memory.ts";
 
+/**
+ * 桌面版的建造函数返回的是 **两条消息**：`{ systemPrompt, userPayload }`，
+ * 不是一整段字符串。照 `buildSupervisorPrompt` 的形状来就对了。
+ *
+ * 第一版把返回值直接当 content 塞进 messages，请求体里 content 成了对象，
+ * 服务端回 422 Invalid Parameters——教训：**这类"看起来像字符串"的东西先打出来看一眼**。
+ */
+export interface DreamPrompt {
+  systemPrompt: string;
+  userPayload: string;
+}
+
 export interface DreamPrompts {
   buildEpisodeDigest(blocks: Block[]): string;
   buildWorthinessPrompt(
@@ -32,7 +44,7 @@ export interface DreamPrompts {
     summaries: readonly { title: string; tag: string }[],
     env: string,
     lang?: string
-  ): string;
+  ): DreamPrompt | string;
   buildGenerationPrompt(
     digest: string,
     exemplars: readonly string[],
@@ -40,10 +52,15 @@ export interface DreamPrompts {
     guide: string,
     env: string,
     lang?: string
-  ): string;
-  buildCritiquePrompt(draft: string, guide: string, lang?: string, digest?: string): string;
-  buildRefinePrompt(draft: string, errors: readonly string[], guide: string, lang?: string): string;
+  ): DreamPrompt | string;
+  buildCritiquePrompt(draft: string, guide: string, lang?: string, digest?: string): DreamPrompt | string;
+  buildRefinePrompt(draft: string, errors: readonly string[], guide: string, lang?: string): DreamPrompt | string;
   validateFeian(text: string): { ok: true } | { ok: false; errors: string[] };
+}
+
+/** 兼容两种返回形状：字符串当 user，对象原样拆。 */
+function asPrompt(value: DreamPrompt | string): DreamPrompt {
+  return typeof value === "string" ? { systemPrompt: "", userPayload: value } : value;
 }
 
 export interface DreamDeps {
@@ -51,7 +68,8 @@ export interface DreamDeps {
   prompts: DreamPrompts;
   /** 桌面版的 envSet 与 hertaGuide —— 做梦提示词里把这两段原样喂回去。 */
   scene: { env: string; guide: string; lang: string };
-  chat(input: { prompt: string; maxTokens: number }): Promise<string>;
+  /** 发一次请求。`system` 为空时就只发 user。 */
+  chat(input: { system: string; user: string; maxTokens: number }): Promise<string>;
   now(): number;
 }
 
@@ -117,8 +135,13 @@ export function extractJson(raw: string): unknown {
   }
 }
 
-async function askJson(deps: DreamDeps, prompt: string, maxTokens: number): Promise<Record<string, unknown> | null> {
-  const raw = await deps.chat({ prompt, maxTokens });
+async function askJson(
+  deps: DreamDeps,
+  prompt: DreamPrompt | string,
+  maxTokens: number
+): Promise<Record<string, unknown> | null> {
+  const { systemPrompt, userPayload } = asPrompt(prompt);
+  const raw = await deps.chat({ system: systemPrompt, user: userPayload, maxTokens });
   const parsed = extractJson(raw);
   return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
 }
