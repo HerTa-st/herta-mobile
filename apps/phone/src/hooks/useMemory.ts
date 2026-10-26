@@ -199,6 +199,67 @@ export function useMemory(settings: Settings, opts: { onError(message: string): 
   );
 
   /**
+   * 现在就整理一遍（关联 / 简化 / 加深）。
+   *
+   * `force` 给后台补做用：不等攒到 20 条。仍然守住两条底线——
+   * 至少 4 条记忆，且距上次整理过了 10 分钟；否则每次切后台都会白烧一次调用。
+   */
+  const consolidateNow = useCallback(
+    async (force = false) => {
+      const records = await memoryStore.list();
+      const active = records.filter((r) => !r.forgotten);
+      if (active.length < (force ? 4 : 20)) return false;
+
+      const st = await memoryStore.state();
+      const lastAt = st.lastConsolidationAt ?? 0;
+      if (force && Date.now() - lastAt < 10 * 60 * 1000) return false;
+
+      setMaintaining("正在整理 " + active.length + " 条记忆…");
+      const code = await loadPromptCode();
+      const out = await consolidateMemories(
+        {
+          store: memoryStore,
+          chat: ({ system, user, maxTokens }) =>
+            collect(
+              transport.stream({
+                apiKey: settings.apiKey,
+                baseUrl: settings.baseUrl,
+                model: settings.model,
+                messages: [
+                  { role: "system", content: system },
+                  { role: "user", content: user },
+                ],
+                maxTokens,
+              })
+            ),
+          now: () => Date.now(),
+        },
+        extractJson
+      );
+      const fresh = await memoryStore.state();
+      await memoryStore.saveState({
+        ...fresh,
+        lastConsolidatedCount: active.length,
+        lastConsolidationAt: Date.now(),
+        lastNote:
+          "整理了 " +
+          out.touched +
+          " 条：" +
+          out.plan.links.length +
+          " 条关联，" +
+          out.plan.simplify.length +
+          " 条简化，" +
+          out.plan.deepen.length +
+          " 条加深",
+      });
+      setMemories(await memoryStore.list());
+      setDreamState(await memoryStore.state());
+      return true;
+    },
+    [settings.apiKey, settings.baseUrl, settings.model]
+  );
+
+  /**
    * 记忆的日常维护：到 20 条整理一次（关联 / 简化 / 加深），到 50 条忘掉最轻的 10 条。
    * 两个动作都只在跨过阈值时发生，平时什么都不做。
    */
@@ -248,6 +309,7 @@ export function useMemory(settings: Settings, opts: { onError(message: string): 
         await memoryStore.saveState({
           ...st,
           lastConsolidatedCount: active.length,
+          lastConsolidationAt: Date.now(),
           lastNote: "整理了 " + out.touched + " 条：" + out.plan.links.length + " 条关联，" +
             out.plan.simplify.length + " 条简化，" + out.plan.deepen.length + " 条加深",
         });
@@ -271,6 +333,7 @@ export function useMemory(settings: Settings, opts: { onError(message: string): 
     maintaining,
     refresh,
     removeMemory,
+    consolidateNow,
     dreamNow,
     distillNow,
     maintainMemories,

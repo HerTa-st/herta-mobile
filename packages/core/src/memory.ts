@@ -46,6 +46,8 @@ export interface DreamState {
   lastNote: string | null;
   /** 上次整理时的记忆条数。没整理过就是 null。 */
   lastConsolidatedCount: number | null;
+  /** 上次整理的时间（毫秒）。后台补做时用它防重复。 */
+  lastConsolidationAt: number | null;
   /** 累计忘掉了几条。 */
   forgottenTotal: number;
 }
@@ -58,6 +60,7 @@ export const EMPTY_STATE: DreamState = {
   skipped: 0,
   lastNote: null,
   lastConsolidatedCount: null,
+  lastConsolidationAt: null,
   forgottenTotal: 0,
 };
 
