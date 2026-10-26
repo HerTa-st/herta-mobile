@@ -345,7 +345,7 @@ export function MemoryGraph({
       const bodies = bodiesRef.current;
       const byName = new Map(bodies.map((b) => [b.name, b]));
 
-      ctx.strokeStyle = "rgba(122,101,170,0.55)";
+      ctx.strokeStyle = "rgba(96,132,152,0.38)";
       ctx.lineWidth = 1.2 / v.scale;
       for (const e of edges) {
         const a = byName.get(e.a);
@@ -375,13 +375,13 @@ export function MemoryGraph({
         ctx.fillStyle = grad;
         ctx.fill();
         ctx.lineWidth = (b.held ? 2.6 : 1) / v.scale;
-        ctx.strokeStyle = b.held ? "#e6d9ff" : "rgba(180,160,220,0.7)";
+        ctx.strokeStyle = b.held ? "#2f3a45" : "rgba(146,178,192,0.85)";
         ctx.stroke();
       }
 
       const top = [...bodies].sort((a, b) => b.weight - a.weight).slice(0, 6);
       ctx.textAlign = "center";
-      ctx.fillStyle = "#d6cfe4";
+      ctx.fillStyle = "#4a5560";
       for (const b of top) {
         ctx.font = 11 / v.scale + "px system-ui, sans-serif";
         ctx.fillText(b.title.slice(0, 8), b.x, b.y - radiusOf(b.weight) - 7 / v.scale);
@@ -391,7 +391,7 @@ export function MemoryGraph({
 
       if (edges.length === 0 && bodies.length > 0) {
         ctx.textAlign = "center";
-        ctx.fillStyle = "rgba(200,190,215,0.6)";
+        ctx.fillStyle = "rgba(120,138,150,0.75)";
         ctx.font = "12px system-ui, sans-serif";
         ctx.fillText("还没有连线——攒到 20 条时她会把相关的自己串起来", width / 2, height - 16);
       }
