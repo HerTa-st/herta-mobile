@@ -8,6 +8,7 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "test": "node packages/core/test/core.test.mjs",
+    "typecheck": "node node_modules/typescript/bin/tsc -p apps/phone/tsconfig.json --noEmit",
     "test:watch": "node --watch packages/core/test/core.test.mjs",
     "dev:phone": "npm -w @herta/phone run dev",
     "build:phone": "npm -w @herta/phone run build",

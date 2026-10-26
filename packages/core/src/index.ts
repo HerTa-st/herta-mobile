@@ -1,5 +1,6 @@
 export * from "./assets.ts";
 export * from "./narrative.ts";
+export * from "./session.ts";
 export * from "./openings.ts";
 export * from "./persona.ts";
 export * from "./tags.ts";

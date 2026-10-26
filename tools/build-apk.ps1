@@ -16,19 +16,23 @@ $root = Resolve-Path "$PSScriptRoot\.."
 $app = Join-Path $root 'apps\phone'
 
 if (-not $SkipWeb) {
-  Write-Host '[1/3] 构建 web'
+  Write-Host '[1/4] 类型检查'
   Push-Location $root
   $env:npm_config_cache = Join-Path $root '.npm-cache'
+  node node_modules\typescript\bin\tsc -p apps\phone\tsconfig.json --noEmit
+  if ($LASTEXITCODE -ne 0) { throw '类型检查没过，不打包' }
+
+  Write-Host '[2/4] 构建 web'
   npm run build:phone
   Pop-Location
 }
 
-Write-Host '[2/3] 同步进 android 工程'
+Write-Host '[3/4] 同步进 android 工程'
 Push-Location $app
 node (Join-Path $root 'node_modules\@capacitor\cli\bin\capacitor') sync android
 Pop-Location
 
-Write-Host '[3/3] 打包'
+Write-Host '[4/4] 打包'
 $env:GRADLE_USER_HOME = Join-Path $root '.gradle-home'
 $env:ANDROID_HOME = 'E:\android-sdk'
 Push-Location (Join-Path $app 'android')

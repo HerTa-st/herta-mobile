@@ -1,31 +1,33 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Block } from "@herta/protocol";
+import type { Block, Session } from "@herta/protocol";
 import {
   REVIEW_POLICY,
+  appendBlocks,
   buildReviewMessages,
   buildStaticPrefix,
+  createSession,
   decideReview,
   listOpenings,
   parseNarrative,
   parseSupervisorVerdict,
   pickOpening,
+  retractLastTurn,
   serializeRecord,
+  trimForContext,
   vetoHints,
   type ChatMessage,
   type Opening,
 } from "@herta/core";
 import { BrowserAssetSource } from "./assets-browser.ts";
-import { playVoice, stopVoice } from "./voice.ts";
-import { loadPromptCode } from "./prompts.ts";
+import { deleteSession, listSessions, loadSession, putSession, type SessionMeta } from "./storage.ts";
 import { loadSettings, saveSettings, type Settings } from "./settings.ts";
 import { pickTransport } from "./transport.ts";
+import { loadPromptCode } from "./prompts.ts";
+import { playVoice, stopVoice } from "./voice.ts";
 
 const assets = new BrowserAssetSource();
 const transport = pickTransport();
 
-const at = () => new Date().toISOString();
-
-/** 把一条流拼成整段：复核必须看完整句，不能看半截。 */
 async function collect(gen: AsyncGenerator<string>): Promise<string> {
   let out = "";
   for await (const piece of gen) out += piece;
@@ -34,19 +36,59 @@ async function collect(gen: AsyncGenerator<string>): Promise<string> {
 
 export function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings);
-  const [blocks, setBlocks] = useState<Block[]>([]);
+  const [session, setSession] = useState<Session | null>(null);
+  const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [drawer, setDrawer] = useState(false);
   const [opening, setOpening] = useState<Opening | null>(null);
   const abort = useRef<AbortController | null>(null);
 
   useEffect(() => saveSettings(settings), [settings]);
 
-  // 每次打开都是一个新的开场：桌面版也是这个规矩。
-  // 只在挂载时跑一次——重渲染不该让她重说一遍。
+  const refreshList = useCallback(async () => {
+    setSessions(await listSessions());
+  }, []);
+
+  /* 启动：取最近一条会话；一条都没有就开一条。 */
   useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const list = await listSessions();
+        if (!alive) return;
+        if (list.length > 0) {
+          const s = await loadSession(list[0].id);
+          if (alive && s) {
+            setSession(s);
+            setSessions(list);
+            return;
+          }
+        }
+        const fresh = createSession();
+        await putSession(fresh);
+        if (alive) {
+          setSession(fresh);
+          await refreshList();
+        }
+      } catch (e) {
+        if (alive) setError(e instanceof Error ? e.message : String(e));
+      }
+    })();
+    return () => {
+      alive = false;
+      stopVoice();
+    };
+  }, [refreshList]);
+
+  /* 开场独白只在「空会话」上出现，且换会话时重新挑一篇。 */
+  useEffect(() => {
+    if (!session || session.blocks.length > 0) {
+      setOpening(null);
+      return;
+    }
     let alive = true;
     void (async () => {
       try {
@@ -61,11 +103,56 @@ export function App() {
       alive = false;
       stopVoice();
     };
+  }, [session?.id, session?.blocks.length]);
+
+  const newSession = useCallback(async () => {
+    const fresh = createSession();
+    await putSession(fresh);
+    setSession(fresh);
+    setOpening(null);
+    setDrawer(false);
+    await refreshList();
+  }, [refreshList]);
+
+  const openSession = useCallback(async (id: string) => {
+    const s = await loadSession(id);
+    if (s) {
+      setSession(s);
+      setDrawer(false);
+    }
   }, []);
+
+  const removeSession = useCallback(
+    async (id: string) => {
+      await deleteSession(id);
+      const rest = await listSessions();
+      setSessions(rest);
+      if (session?.id === id) {
+        if (rest.length > 0) {
+          const next = await loadSession(rest[0].id);
+          setSession(next);
+        } else {
+          const fresh = createSession();
+          await putSession(fresh);
+          setSession(fresh);
+          await refreshList();
+        }
+      }
+    },
+    [refreshList, session?.id]
+  );
+
+  const persist = useCallback(
+    async (s: Session) => {
+      await putSession(s);
+      await refreshList();
+    },
+    [refreshList]
+  );
 
   const send = useCallback(async () => {
     const text = draft.trim();
-    if (!text || busy) return;
+    if (!text || busy || !session) return;
     if (!settings.apiKey) {
       setError("先填 API Key。她不会替你保管，只存在这台手机上。");
       setShowSettings(true);
@@ -75,9 +162,10 @@ export function App() {
     setBusy(true);
     setDraft("");
 
-    const userBlock: Block = { kind: "user", text, at: at() };
-    const history: Block[] = [...blocks, userBlock];
-    setBlocks(history);
+    const userBlock: Block = { kind: "user", text, at: new Date().toISOString() };
+    const history = appendBlocks(session, [userBlock]);
+    setSession(history);
+    void persist(history);
 
     const ctl = new AbortController();
     abort.current = ctl;
@@ -89,32 +177,36 @@ export function App() {
       signal: ctl.signal,
     };
 
+    let raw = "";
     try {
       const promptAssets = await assets.promptAssets();
       const prefix = buildStaticPrefix({ assets: promptAssets, seeds: [] });
+      const context = trimForContext(history.blocks, settings.contextBlocks);
       const mainMessages: ChatMessage[] = [
         { role: "system", content: prefix },
-        { role: "user", content: serializeRecord(history, { maxBlocks: settings.contextBlocks }) },
+        // 已经按整轮边界截过了，序列化层不要再截一次——那会从她话中间切开。
+        { role: "user", content: serializeRecord(context, { maxBlocks: 0 }) },
       ];
 
-      // 第一趟：她说。边流边显示，但不解析——半截标签解析出来是错的。
-      let raw = "";
       for await (const piece of transport.stream({ ...base, messages: mainMessages, maxTokens: 2048 })) {
         raw += piece;
         const live = parseNarrative(raw).speech;
-        if (live) setBlocks([...history, { kind: "herta", surface: "speech", text: live, at: at() }]);
+        if (live) {
+          setSession({
+            ...history,
+            blocks: [...history.blocks, { kind: "herta", surface: "speech", text: live, at: new Date().toISOString() }],
+          });
+        }
       }
 
-      let parsed = parseNarrative(raw);
+      const parsed = parseNarrative(raw);
       let thought = parsed.thought;
       let speech = parsed.speech;
-      const out: Block[] = [...history];
-      if (thought) out.push({ kind: "herta", surface: "thought", text: thought, at: at() });
 
-      // 第二趟：她自己回头看这句话。这是桌面版最像她的一环。
-      // 关掉开关就整段跳过——连那 766KB 的提示词都不下载。
       const code = settings.reviewEnabled ? await loadPromptCode() : null;
       const hints = vetoHints(promptAssets.hints, null);
+      let withRedos = history;
+
       for (let attempt = 0; code && attempt < REVIEW_POLICY.maxRetries; attempt += 1) {
         const verdictRaw = await collect(
           transport.stream({
@@ -124,7 +216,7 @@ export function App() {
                 feianFewShots: [],
                 lang: "zh",
                 currentState: "默认",
-                recentRecord: history,
+                recentRecord: trimForContext(history.blocks, 12),
                 currentTurnThought: thought,
                 candidateSpeech: speech,
               },
@@ -136,13 +228,14 @@ export function App() {
         const verdict = parseSupervisorVerdict(verdictRaw);
         if (decideReview(verdict, attempt, speech) === "pass") break;
 
-        out.push({
-          kind: "system",
-          label: "系统",
-          body: "她打回了上一句：" + (verdict.reason ?? ""),
-          at: at(),
-        });
-        setBlocks([...out, { kind: "herta", surface: "speech", text: speech, at: at() }]);
+        withRedos = appendBlocks(withRedos, [
+          {
+            kind: "system",
+            label: "系统",
+            body: "她打回了上一句：" + (verdict.reason ?? ""),
+            at: new Date().toISOString(),
+          },
+        ]);
 
         const redo = await collect(
           transport.stream({
@@ -157,31 +250,79 @@ export function App() {
         speech = again.speech || speech;
       }
 
-      out.push({ kind: "herta", surface: "speech", text: speech, at: at() });
-      setBlocks(out);
+      const tail: Block[] = [];
+      if (thought) tail.push({ kind: "herta", surface: "thought", text: thought, at: new Date().toISOString() });
+      if (speech) tail.push({ kind: "herta", surface: "speech", text: speech, at: new Date().toISOString() });
+
+      const final = appendBlocks(withRedos, tail);
+      setSession(final);
+      await persist(final);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setBlocks(history);
+      if (ctl.signal.aborted) {
+        // 打断不是错误：留下已经说出口的半句，别把红字糊她脸上。
+        const partial = parseNarrative(raw).speech;
+        const kept = partial ? appendBlocks(history, [{ kind: "herta", surface: "speech", text: partial, at: new Date().toISOString() }]) : history;
+        setSession(kept);
+        await persist(kept);
+      } else {
+        setError(e instanceof Error ? e.message : String(e));
+        setSession(history);
+        await persist(history);
+      }
     } finally {
       abort.current = null;
       setBusy(false);
     }
-  }, [blocks, busy, draft, settings]);
+  }, [busy, draft, persist, session, settings]);
 
   const stop = useCallback(() => abort.current?.abort(), []);
-  const visible = useMemo(() => blocks, [blocks]);
+
+  const retract = useCallback(async () => {
+    if (!session || busy) return;
+    const cut = retractLastTurn(session);
+    setSession(cut);
+    await persist(cut);
+  }, [busy, persist, session]);
+
+  const blocks = useMemo(() => session?.blocks ?? [], [session]);
+  const showOpening = blocks.length === 0 && opening !== null;
 
   return (
     <div className="app">
       <header className="bar">
-        <span className="title">Herta</span>
+        <button className="link left" onClick={() => setDrawer((v) => !v)} aria-label="会话列表">
+          ☰
+        </button>
+        <span className="title">{session?.title ?? "Herta"}</span>
         <span className={"tag " + (transport.name === "native" ? "ok" : "warn")}>
-          {transport.name === "native" ? "原生通道" : "浏览器通道"}
+          {transport.name === "native" ? "原生" : "浏览器"}
         </span>
         <button className="link" onClick={() => setShowSettings((v) => !v)}>
           设置
         </button>
       </header>
+
+      {drawer && (
+        <div className="drawer">
+          <button className="new" onClick={() => void newSession()}>
+            ＋ 新的对话
+          </button>
+          <ul>
+            {sessions.map((s) => (
+              <li key={s.id} className={s.id === session?.id ? "on" : ""}>
+                <button className="row" onClick={() => void openSession(s.id)}>
+                  <span className="st">{s.title}</span>
+                  <span className="sm">{s.blocks} 块</span>
+                </button>
+                <button className="del" onClick={() => void removeSession(s.id)} aria-label="删除">
+                  ✕
+                </button>
+              </li>
+            ))}
+            {sessions.length === 0 && <li className="none">还没有别的对话</li>}
+          </ul>
+        </div>
+      )}
 
       {showSettings && (
         <div className="sheet">
@@ -203,7 +344,7 @@ export function App() {
             <input value={settings.model} onChange={(e) => setSettings({ ...settings, model: e.target.value.trim() })} />
           </label>
           <label>
-            带多少条历史
+            带多少块历史
             <input
               type="number"
               value={settings.contextBlocks}
@@ -222,7 +363,7 @@ export function App() {
       )}
 
       <main className="feed">
-        {visible.length === 0 && opening && (
+        {showOpening && opening && (
           <article className="bubble herta speech opening">
             <p>{opening.speech}</p>
             {opening.audio && (
@@ -232,10 +373,13 @@ export function App() {
             )}
           </article>
         )}
-        {visible.length === 0 && !opening && <p className="empty">她还没开口。说点什么。</p>}
-        {visible.map((b, i) =>
+        {blocks.length === 0 && !opening && <p className="empty">她还没开口。说点什么。</p>}
+
+        {blocks.map((b, i) =>
           b.kind === "system" ? (
-            <p key={i} className="note">{b.body}</p>
+            <p key={i} className="note">
+              {b.body}
+            </p>
           ) : (
             <article key={i} className={"bubble " + b.kind + (b.kind === "herta" ? " " + b.surface : "")}>
               {b.kind === "herta" && b.surface === "thought" ? (
@@ -265,6 +409,9 @@ export function App() {
             }
           }}
         />
+        <button className="ghost" onClick={() => void retract()} disabled={busy || blocks.length === 0} title="撤回上一轮">
+          ↶
+        </button>
         {busy ? <button onClick={stop}>打断</button> : <button onClick={() => void send()} disabled={!draft.trim()}>说</button>}
       </footer>
     </div>

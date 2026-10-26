@@ -13,20 +13,22 @@ npm test          # core 的纯 Node 测试（吃不依赖浏览器的真素材�
 npm run dev:phone # 浏览器里跑 UI
 ```
 
-## M1 现状（2026-10-26）
-
-跑得通的：
+## 现状（v0.2.0，2026-10-26）
 
 | 能力 | 状态 |
 |---|---|
 | 人格装配（自传 + 废案 + 设定 + 手机处境 + 输出契约） | ✅ 单测覆盖 |
-| 双轨叙述解析（想 / 说） | ✅ 单测覆盖 |
-| 复核（桌面版原文 `buildSupervisorPrompt` + 四步评分 + 最多打回两次） | ✅ 单测覆盖，UI 已接线 |
+| 双轨叙述解析（想 / 说），缺闭合标签也不会把心里话当台词 | ✅ 单测覆盖 |
+| 复核（桌面版原文 `buildSupervisorPrompt` + 四步评分 + 最多打回两次） | ✅ 可开关 |
 | 开局独白（36 篇 + 原声播放） | ✅ |
-| 原生 HTTP 通道（OkHttp 插件，绕开 CORS） | ✅ 已编译进 APK |
-| Capacitor Android 工程 | ✅ |
+| 原生 HTTP 通道（HttpURLConnection 插件，绕开 CORS） | ✅ 已编译进 APK |
+| 会话持久化（IndexedDB） | ✅ 关掉 App 再开，记录还在 |
+| 多会话（列表 / 新建 / 切换 / 删除 / 自动标题） | ✅ |
+| 撤回上一轮 | ✅ |
+| 打断 | ✅ 留下已说出口的半句，不报错 |
+| 类型检查 | ✅ `npm run typecheck`（打包脚本第一步就跑） |
 
-还没做的（M1 剩余 → M2）：会话持久化、记忆 / dream、图片、多会话、设置联网校验、TTS 云端档。
+下一步（M2）：记忆 / dream、图片、8 种心情、云端 TTS。
 
 ### 打 APK
 
@@ -35,7 +37,7 @@ pwsh -File tools\build-apk.ps1
 ```
 
 产物在 `apps/phone/android/app/build/outputs/apk/debug/app-debug.apk`，
-也会拷一份到 `dist-apk/Herta-mobile-v0.1.1-debug.apk`。
+也会拷一份到 `dist-apk/`。
 
 脚本会先把依赖缓存指到仓库内 `.gradle-home`，因为这个工作区的沙箱不让写
 gradle 默认的 `G:\gradle-home`（构建会死在 `.lck` 打开的权限上）。
