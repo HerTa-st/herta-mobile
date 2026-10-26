@@ -8,17 +8,23 @@ import {
   createSession,
   decideReview,
   listOpenings,
+  memoryTitle,
   parseNarrative,
   parseSupervisorVerdict,
   pickOpening,
+  pickSeeds,
   retractLastTurn,
+  runDreamPass,
   serializeRecord,
   trimForContext,
   vetoHints,
   type ChatMessage,
+  type DreamState,
+  type MemoryRecord,
   type Opening,
 } from "@herta/core";
 import { BrowserAssetSource } from "./assets-browser.ts";
+import { IdbMemoryStore } from "./memory-idb.ts";
 import { deleteSession, listSessions, loadSession, putSession, type SessionMeta } from "./storage.ts";
 import { loadSettings, saveSettings, type Settings } from "./settings.ts";
 import { pickTransport } from "./transport.ts";
@@ -27,6 +33,7 @@ import { playVoice, stopVoice } from "./voice.ts";
 
 const assets = new BrowserAssetSource();
 const transport = pickTransport();
+const memoryStore = new IdbMemoryStore();
 
 async function collect(gen: AsyncGenerator<string>): Promise<string> {
   let out = "";
@@ -44,7 +51,11 @@ export function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [opening, setOpening] = useState<Opening | null>(null);
+  const [memories, setMemories] = useState<MemoryRecord[]>([]);
+  const [dreamState, setDreamState] = useState<DreamState | null>(null);
+  const [dreaming, setDreaming] = useState(false);
   const abort = useRef<AbortController | null>(null);
+  const dreamingRef = useRef(false);
 
   useEffect(() => saveSettings(settings), [settings]);
 
@@ -57,6 +68,22 @@ export function App() {
     let alive = true;
     void (async () => {
       try {
+        // 记忆库：第一次启动时把随包的 13 篇废案种子搬进来。
+        if ((await memoryStore.list()).length === 0) {
+          const names = await assets.seedFiles();
+          const at = new Date().toISOString();
+          for (const name of names) {
+            const body = await assets.readSeed(name);
+            if (body && body.trim()) {
+              await memoryStore.write({ name, body, createdAt: at });
+            }
+          }
+        }
+        if (alive) {
+          setMemories(await memoryStore.list());
+          setDreamState(await memoryStore.state());
+        }
+
         const list = await listSessions();
         if (!alive) return;
         if (list.length > 0) {
@@ -150,6 +177,55 @@ export function App() {
     [refreshList]
   );
 
+  /**
+   * 做梦。`force` 是手动点按钮时给的：绕过"材料够不够 / 隔了多久"两道门槛，
+   * 但拦不住"值不值得记"——那道门是她自己的判断，不该被按钮跳过。
+   */
+  const dreamNow = useCallback(
+    async (target: Session, force = false) => {
+      if (dreamingRef.current || !settings.apiKey) return;
+      if (!target.blocks.length) return;
+      dreamingRef.current = true;
+      setDreaming(true);
+      try {
+        const [promptAssets, code] = await Promise.all([assets.promptAssets(), loadPromptCode()]);
+        const outcome = await runDreamPass(
+          {
+            store: memoryStore,
+            prompts: code,
+            scene: { env: promptAssets.envSet, guide: promptAssets.hertaGuide, lang: "zh" },
+            chat: ({ prompt, maxTokens }) =>
+              collect(
+                transport.stream({
+                  apiKey: settings.apiKey,
+                  baseUrl: settings.baseUrl,
+                  model: settings.model,
+                  messages: [{ role: "user", content: prompt }],
+                  maxTokens,
+                })
+              ),
+            now: () => Date.now(),
+          },
+          {
+            sessionId: target.id,
+            blocks: target.blocks,
+            config: force ? { minNewBlocks: 2, minGapMs: 0 } : undefined,
+          }
+        );
+        if (outcome.kind === "made") {
+          setMemories(await memoryStore.list());
+        }
+        setDreamState(await memoryStore.state());
+      } catch (e) {
+        setError("做梦失败：" + (e instanceof Error ? e.message : String(e)));
+      } finally {
+        dreamingRef.current = false;
+        setDreaming(false);
+      }
+    },
+    [settings.apiKey, settings.baseUrl, settings.model]
+  );
+
   const send = useCallback(async () => {
     const text = draft.trim();
     if (!text || busy || !session) return;
@@ -180,8 +256,11 @@ export function App() {
     let raw = "";
     try {
       const promptAssets = await assets.promptAssets();
-      const prefix = buildStaticPrefix({ assets: promptAssets, seeds: [] });
+      // 这一轮用哪几篇记忆：开局定死，想 / 说 / 复核共用同一批（否则三趟看到的她不一样）。
+      const pool = memories.map((m) => ({ file: m.name, body: m.body }));
+      const seeds = pickSeeds(pool, text, settings.memorySeeds);
       const context = trimForContext(history.blocks, settings.contextBlocks);
+      const prefix = buildStaticPrefix({ assets: promptAssets, seeds });
       const mainMessages: ChatMessage[] = [
         { role: "system", content: prefix },
         // 已经按整轮边界截过了，序列化层不要再截一次——那会从她话中间切开。
@@ -257,6 +336,9 @@ export function App() {
       const final = appendBlocks(withRedos, tail);
       setSession(final);
       await persist(final);
+
+      // 说完才做梦：材料是这一轮结束后的整条会话，不等用户再操作。
+      void dreamNow(final);
     } catch (e) {
       if (ctl.signal.aborted) {
         // 打断不是错误：留下已经说出口的半句，别把红字糊她脸上。
@@ -273,7 +355,7 @@ export function App() {
       abort.current = null;
       setBusy(false);
     }
-  }, [busy, draft, persist, session, settings]);
+  }, [busy, draft, dreamNow, memories, persist, session, settings]);
 
   const stop = useCallback(() => abort.current?.abort(), []);
 
@@ -321,6 +403,25 @@ export function App() {
             ))}
             {sessions.length === 0 && <li className="none">还没有别的对话</li>}
           </ul>
+
+          <div className="mem">
+            <div className="memHead">
+              <span>记忆 {memories.length} 篇</span>
+              {dreamState?.made ? <span className="sm">自己造的 {dreamState.made}</span> : null}
+            </div>
+            {dreamState?.lastNote && <p className="memNote">{dreamState.lastNote}</p>}
+            <button className="dream" onClick={() => void (session && dreamNow(session, true))} disabled={dreaming}>
+              {dreaming ? "她正在想…" : "让她做梦"}
+            </button>
+            <ul className="memList">
+              {memories
+                .slice(-8)
+                .reverse()
+                .map((m) => (
+                  <li key={m.name}>{memoryTitle(m)}</li>
+                ))}
+            </ul>
+          </div>
         </div>
       )}
 
