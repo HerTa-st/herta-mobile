@@ -25,7 +25,7 @@ const src = new NodeAssetSource(ASSETS, "zh");
 
 /* ------------------------------------------------------------------ 素材 */
 
-test("素材齐：《自传、设定、话术、41 条原声、13 篇记忆》", async () => {
+test("素材齐：《自传、设定、话术、41 条原声、4 篇记忆》", async () => {
   const a = await src.promptAssets();
   assert.ok(a.hertaBio.length > 5000, "自传太短，多半读错了文件");
   assert.ok(a.envSet.length > 0);
@@ -35,7 +35,8 @@ test("素材齐：《自传、设定、话术、41 条原声、13 篇记忆》",
   assert.equal(Object.keys(v.openings).length, 36);
   assert.equal(v.veto.length, 4);
 
-  assert.equal((await src.seedFiles()).length, 13);
+  // 13 篇种子里的「远程办公的一百种无聊方式」那 9 篇按用户要求删掉了
+  assert.equal((await src.seedFiles()).length, 4);
 });
 
 /* ------------------------------------------------------------ 人格装配 */
