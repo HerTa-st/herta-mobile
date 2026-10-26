@@ -59,12 +59,11 @@ export function useChatTurn(opts: {
   persist(session: Session): Promise<void>;
   memories: MemoryRecord[];
   dreamState: DreamState | null;
-  dreamNow(session: Session, force?: boolean): Promise<void>;
   files: Map<string, string>;
   onError(message: string | null): void;
   onNeedKey(): void;
 }) {
-  const { settings, session, setSession, persist, memories, dreamState, dreamNow, files, onError, onNeedKey } = opts;
+  const { settings, session, setSession, persist, memories, dreamState, files, onError, onNeedKey } = opts;
   const [busy, setBusy] = useState(false);
   const [mood, setMood] = useState<string>(DEFAULT_MOOD);
   const abort = useRef<AbortController | null>(null);
@@ -261,8 +260,8 @@ export function useChatTurn(opts: {
       setSession(final);
       await persist(final);
 
-      // 说完才做梦：材料是这一轮结束后的整条会话，不等用户再操作。
-      void dreamNow(final);
+      // 注意：这里**不**做梦。做梦要等她闲下来（见 App 里的空闲调度）——
+      // 刚说完话就去做梦，等于你还没走她就当着你的面发呆。
     } catch (e) {
       if (ctl.signal.aborted) {
         // 打断不是错误：留下已经说出口的半句，别把红字糊她脸上。
@@ -279,7 +278,7 @@ export function useChatTurn(opts: {
       abort.current = null;
       setBusy(false);
     }
-  }, [busy, dreamNow, files, memories, onError, onNeedKey, persist, session, settings]);
+  }, [busy, files, memories, onError, onNeedKey, persist, session, settings]);
 
   const stop = useCallback(() => abort.current?.abort(), []);
 

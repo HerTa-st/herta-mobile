@@ -46,6 +46,10 @@ export function SettingsSheet({
         <span>每轮先判心情（现在是：{mood}）</span>
       </label>
       <label className="check">
+        <input type="checkbox" checked={settings.autoDream} onChange={(e) => onChange({ autoDream: e.target.checked })} />
+        <span>我走开之后她自己做梦（关掉就只有手动按钮）</span>
+      </label>
+      <label className="check">
         <input
           type="checkbox"
           checked={settings.reviewEnabled}
