@@ -1,13 +1,19 @@
 import { useEffect, useRef } from "react";
 
 /**
- * 记忆星图（实时物理）。
+ * 记忆星图（实时物理 + 手势）。
  *
- * 上一版是把布局算完再画一次，得到一张静态图。这里是**每帧算力、每帧重画**：
- * 点会自己散开、会随手指拖动、有连线的会被彼此拉住，松手后继续收敛。
+ * 上一版的两个硬伤，都写在这里的原因里：
  *
- * 用 canvas 而不是 SVG：每帧重建几十个 DOM 节点的代价太高，手机上会卡。
- * 物理状态放在 ref 里，不进 React state——每帧 setState 会把主线程拖死。
+ * 1. **断触**：canvas 的 `touch-action` 没关。浏览器把"按住拖动"当成滚动/缩放手势，
+ *    手指一动就发 pointercancel 把手势收走——表现就是拖到一半球被扔掉。
+ *    现在 CSS 里 `touch-action: none`，并显式 preventDefault。
+ *
+ * 2. **多指乱飞**：原来是单个 dragRef，第二根手指一按就把第一根的记录覆盖了，
+ *    被按住的那个球永远 `held`（于是被钉在原地），后面又来一个 pan，
+ *    两种模式同时改坐标——看着就是乱飞。
+ *    现在按 pointerId 记账：一根手指才可能是"拖球"或"平移"，两根手指一律进缩放，
+ *    进缩放前先把手里的球松开。
  */
 
 export interface GraphNode {
@@ -29,16 +35,18 @@ interface Body {
   y: number;
   vx: number;
   vy: number;
-  /** 被手指按住时锁在这里 */
   held: boolean;
 }
 
-const REPULSION = 5200;
+const REPULSION = 2600;
 const SPRING = 0.012;
-const SPRING_LEN = 130;
+const SPRING_LEN = 120;
 const GRAVITY = 0.0016;
-const DAMPING = 0.86;
-const MAX_SPEED = 14;
+const DAMPING = 0.84;
+const MAX_SPEED = 9;
+const MAX_PAIR_FORCE = 3.2;
+
+const radiusOf = (w: number) => 9 + Math.max(0, Math.min(1, w)) * 16;
 
 export function MemoryGraph({
   nodes,
@@ -52,23 +60,14 @@ export function MemoryGraph({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const bodiesRef = useRef<Body[]>([]);
   const viewRef = useRef({ scale: 1, tx: 0, ty: 0 });
-  const dragRef = useRef<{
-    mode: "node" | "pan";
-    name?: string;
-    sx: number;
-    sy: number;
-    lastX: number;
-    lastY: number;
-    moved: boolean;
-  } | null>(null);
-  const pinchRef = useRef<{ dist: number; scale: number } | null>(null);
   const openRef = useRef(onOpen);
   openRef.current = onOpen;
 
-  /* 节点集合变了就把新记忆接进来（老节点保留位置，别整张图重排） */
+  /* 节点集合变了就接进来：老节点保留位置，别整张图重排 */
   useEffect(() => {
     const old = new Map(bodiesRef.current.map((b) => [b.name, b]));
     const w = canvasRef.current?.clientWidth ?? 320;
+    const h = canvasRef.current?.clientHeight ?? 320;
     bodiesRef.current = nodes.map((n, i) => {
       const prev = old.get(n.name);
       if (prev) return { ...prev, title: n.title, weight: n.weight };
@@ -77,8 +76,8 @@ export function MemoryGraph({
         name: n.name,
         title: n.title,
         weight: n.weight,
-        x: w / 2 + Math.cos(angle) * (w * 0.28),
-        y: w / 2 + Math.sin(angle) * (w * 0.28),
+        x: w / 2 + Math.cos(angle) * Math.min(w, h) * 0.3,
+        y: h / 2 + Math.sin(angle) * Math.min(w, h) * 0.3,
         vx: 0,
         vy: 0,
         held: false,
@@ -109,13 +108,19 @@ export function MemoryGraph({
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
 
+    /* ------------------------------------------------------------ 手势状态 */
+    const pointers = new Map<number, { x: number; y: number }>();
+    let mode: "idle" | "node" | "pan" | "pinch" = "idle";
+    let held: Body | null = null;
+    let panLast = { x: 0, y: 0 };
+    let downAt = { x: 0, y: 0 };
+    let moved = false;
+    let pinchStart = { dist: 0, scale: 1 };
+
     const toWorld = (clientX: number, clientY: number) => {
       const rect = canvas.getBoundingClientRect();
       const v = viewRef.current;
-      return {
-        x: (clientX - rect.left - v.tx) / v.scale,
-        y: (clientY - rect.top - v.ty) / v.scale,
-      };
+      return { x: (clientX - rect.left - v.tx) / v.scale, y: (clientY - rect.top - v.ty) / v.scale };
     };
 
     const hitTest = (x: number, y: number): Body | null => {
@@ -123,8 +128,7 @@ export function MemoryGraph({
       let bestD = Infinity;
       for (const b of bodiesRef.current) {
         const d = Math.hypot(b.x - x, b.y - y);
-        const r = radiusOf(b.weight) + 14; // 手指比鼠标粗，判定放宽
-        if (d < r && d < bestD) {
+        if (d < radiusOf(b.weight) + 18 && d < bestD) {
           best = b;
           bestD = d;
         }
@@ -132,13 +136,126 @@ export function MemoryGraph({
       return best;
     };
 
-    const radiusOf = (w: number) => 9 + Math.max(0, Math.min(1, w)) * 16;
+    const twoPointers = () => [...pointers.values()].slice(0, 2);
 
+    const releaseHeld = () => {
+      if (held) {
+        held.held = false;
+        held.vx = 0;
+        held.vy = 0;
+        held = null;
+      }
+    };
+
+    const onDown = (e: PointerEvent) => {
+      e.preventDefault();
+      canvas.setPointerCapture(e.pointerId);
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (pointers.size >= 2) {
+        // 第二根手指进来：立刻退出拖球/平移，改成缩放
+        releaseHeld();
+        mode = "pinch";
+        const [a, b] = twoPointers();
+        pinchStart = {
+          dist: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+          scale: viewRef.current.scale,
+        };
+        return;
+      }
+
+      const p = toWorld(e.clientX, e.clientY);
+      const hit = hitTest(p.x, p.y);
+      downAt = { x: e.clientX, y: e.clientY };
+      moved = false;
+
+      if (hit) {
+        hit.held = true;
+        held = hit;
+        mode = "node";
+      } else {
+        mode = "pan";
+        panLast = { x: e.clientX, y: e.clientY };
+      }
+    };
+
+    const onMove = (e: PointerEvent) => {
+      if (!pointers.has(e.pointerId)) return;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (mode === "pinch") {
+        if (pointers.size < 2) return;
+        const [a, b] = twoPointers();
+        const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+        const v = viewRef.current;
+        v.scale = Math.min(2.4, Math.max(0.55, (pinchStart.scale * dist) / pinchStart.dist));
+        return;
+      }
+
+      if (Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > 6) moved = true;
+
+      if (mode === "node" && held) {
+        const p = toWorld(e.clientX, e.clientY);
+        held.x = p.x;
+        held.y = p.y;
+        return;
+      }
+
+      if (mode === "pan") {
+        const v = viewRef.current;
+        v.tx += e.clientX - panLast.x;
+        v.ty += e.clientY - panLast.y;
+        panLast = { x: e.clientX, y: e.clientY };
+      }
+    };
+
+    const endPointer = (e: PointerEvent) => {
+      pointers.delete(e.pointerId);
+
+      if (mode === "node" && held) {
+        const name = held.name;
+        releaseHeld();
+        // 没挪动过 = 点了一下 → 打开这条记忆
+        if (!moved) openRef.current(name);
+      }
+
+      if (pointers.size === 0) {
+        mode = "idle";
+        moved = false;
+      } else if (mode === "pinch" && pointers.size === 1) {
+        // 从双指回到单指：接着平移，别跳
+        const [only] = [...pointers.values()];
+        panLast = { x: only.x, y: only.y };
+        mode = "pan";
+      }
+    };
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const v = viewRef.current;
+      const next = Math.min(2.4, Math.max(0.55, v.scale * (e.deltaY > 0 ? 0.92 : 1.08)));
+      const rect = canvas.getBoundingClientRect();
+      const px = e.clientX - rect.left;
+      const py = e.clientY - rect.top;
+      v.tx = px - ((px - v.tx) * next) / v.scale;
+      v.ty = py - ((py - v.ty) * next) / v.scale;
+      v.scale = next;
+    };
+
+    const onContextMenu = (e: Event) => e.preventDefault();
+
+    canvas.addEventListener("pointerdown", onDown);
+    canvas.addEventListener("pointermove", onMove);
+    canvas.addEventListener("pointerup", endPointer);
+    canvas.addEventListener("pointercancel", endPointer);
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    canvas.addEventListener("contextmenu", onContextMenu);
+
+    /* -------------------------------------------------------------- 物理 */
     const step = () => {
       const bodies = bodiesRef.current;
       const n = bodies.length;
 
-      // 斥力：两两之间
       for (let i = 0; i < n; i += 1) {
         for (let j = i + 1; j < n; j += 1) {
           const a = bodies[i];
@@ -147,12 +264,13 @@ export function MemoryGraph({
           let dy = a.y - b.y;
           let d2 = dx * dx + dy * dy;
           if (d2 < 1e-3) {
-            dx = (i % 3) - 1 + 0.5;
-            dy = (j % 3) - 1 + 0.5;
+            dx = ((i % 3) - 1) + 0.5;
+            dy = ((j % 3) - 1) + 0.5;
             d2 = dx * dx + dy * dy;
           }
           const d = Math.sqrt(d2);
-          const f = REPULSION / (d2 + 400);
+          // 力要封顶，否则两个几乎重合的点会把彼此弹飞，整张图抖成癫痫
+          const f = Math.min(REPULSION / (d2 + 400), MAX_PAIR_FORCE);
           const ux = (dx / d) * f;
           const uy = (dy / d) * f;
           a.vx += ux;
@@ -162,7 +280,6 @@ export function MemoryGraph({
         }
       }
 
-      // 引力：有连线的互相拉
       for (const e of edges) {
         const a = bodies.find((b) => b.name === e.a);
         const b = bodies.find((x) => x.name === e.b);
@@ -179,7 +296,6 @@ export function MemoryGraph({
         b.vy -= uy;
       }
 
-      // 向心 + 阻尼 + 边界
       const cx = width / 2;
       const cy = height / 2;
       for (const b of bodies) {
@@ -202,19 +318,19 @@ export function MemoryGraph({
         const pad = 24;
         if (b.x < pad) {
           b.x = pad;
-          b.vx = Math.abs(b.vx) * 0.4;
+          b.vx = Math.abs(b.vx) * 0.3;
         }
         if (b.x > width - pad) {
           b.x = width - pad;
-          b.vx = -Math.abs(b.vx) * 0.4;
+          b.vx = -Math.abs(b.vx) * 0.3;
         }
         if (b.y < pad) {
           b.y = pad;
-          b.vy = Math.abs(b.vy) * 0.4;
+          b.vy = Math.abs(b.vy) * 0.3;
         }
         if (b.y > height - pad) {
           b.y = height - pad;
-          b.vy = -Math.abs(b.vy) * 0.4;
+          b.vy = -Math.abs(b.vy) * 0.3;
         }
       }
     };
@@ -229,7 +345,6 @@ export function MemoryGraph({
       const bodies = bodiesRef.current;
       const byName = new Map(bodies.map((b) => [b.name, b]));
 
-      // 连线
       ctx.strokeStyle = "rgba(122,101,170,0.55)";
       ctx.lineWidth = 1.2 / v.scale;
       for (const e of edges) {
@@ -242,7 +357,6 @@ export function MemoryGraph({
         ctx.stroke();
       }
 
-      // 节点
       for (const b of bodies) {
         const r = radiusOf(b.weight);
         const grad = ctx.createRadialGradient(b.x - r * 0.3, b.y - r * 0.3, r * 0.2, b.x, b.y, r);
@@ -260,23 +374,21 @@ export function MemoryGraph({
         ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
         ctx.fillStyle = grad;
         ctx.fill();
-        ctx.lineWidth = (b.held ? 2.4 : 1) / v.scale;
-        ctx.strokeStyle = b.held ? "#d9c8ff" : "rgba(180,160,220,0.7)";
+        ctx.lineWidth = (b.held ? 2.6 : 1) / v.scale;
+        ctx.strokeStyle = b.held ? "#e6d9ff" : "rgba(180,160,220,0.7)";
         ctx.stroke();
       }
 
-      // 只给最大的几个标名字，否则会糊成一片
       const top = [...bodies].sort((a, b) => b.weight - a.weight).slice(0, 6);
       ctx.textAlign = "center";
       ctx.fillStyle = "#d6cfe4";
       for (const b of top) {
         ctx.font = 11 / v.scale + "px system-ui, sans-serif";
-        ctx.fillText(b.title.slice(0, 8), b.x, b.y - radiusOf(b.weight) - 6 / v.scale);
+        ctx.fillText(b.title.slice(0, 8), b.x, b.y - radiusOf(b.weight) - 7 / v.scale);
       }
 
       ctx.restore();
 
-      // 没有连线时给一句解释（画在屏幕层，不跟着缩放）
       if (edges.length === 0 && bodies.length > 0) {
         ctx.textAlign = "center";
         ctx.fillStyle = "rgba(200,190,215,0.6)";
@@ -292,124 +404,17 @@ export function MemoryGraph({
     };
     loop();
 
-    /* ------------------------------------------------------ 手势 */
-    const onDown = (e: PointerEvent) => {
-      canvas.setPointerCapture(e.pointerId);
-      const p = toWorld(e.clientX, e.clientY);
-      const hit = hitTest(p.x, p.y);
-      if (hit) {
-        hit.held = true;
-        dragRef.current = {
-          mode: "node",
-          name: hit.name,
-          sx: e.clientX,
-          sy: e.clientY,
-          lastX: e.clientX,
-          lastY: e.clientY,
-          moved: false,
-        };
-      } else {
-        dragRef.current = { mode: "pan", sx: e.clientX, sy: e.clientY, lastX: e.clientX, lastY: e.clientY, moved: false };
-      }
-    };
-
-    const onMove = (e: PointerEvent) => {
-      const drag = dragRef.current;
-      if (!drag) return;
-      const dx = e.clientX - drag.sx;
-      const dy = e.clientY - drag.sy;
-      if (Math.hypot(dx, dy) > 6) drag.moved = true;
-
-      if (drag.mode === "node" && drag.name) {
-        const p = toWorld(e.clientX, e.clientY);
-        const body = bodiesRef.current.find((b) => b.name === drag.name);
-        if (body) {
-          body.x = p.x;
-          body.y = p.y;
-        }
-      } else {
-        // 不能用 e.movementX：触摸事件里它常常是 0，手机上会"拖不动"
-        const v = viewRef.current;
-        v.tx += e.clientX - drag.lastX;
-        v.ty += e.clientY - drag.lastY;
-      }
-      drag.lastX = e.clientX;
-      drag.lastY = e.clientY;
-    };
-
-    const onUp = (e: PointerEvent) => {
-      const drag = dragRef.current;
-      dragRef.current = null;
-      if (!drag) return;
-      if (drag.mode === "node" && drag.name) {
-        const body = bodiesRef.current.find((b) => b.name === drag.name);
-        if (body) {
-          body.held = false;
-          // 松手给它一点初速度，会自己荡回去
-          body.vx = 0;
-          body.vy = 0;
-        }
-        if (!drag.moved) openRef.current(drag.name);
-      }
-      void e;
-    };
-
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const v = viewRef.current;
-      const next = Math.min(2.4, Math.max(0.5, v.scale * (e.deltaY > 0 ? 0.92 : 1.08)));
-      // 以指针为中心缩放
-      const rect = canvas.getBoundingClientRect();
-      const px = e.clientX - rect.left;
-      const py = e.clientY - rect.top;
-      v.tx = px - ((px - v.tx) * next) / v.scale;
-      v.ty = py - ((py - v.ty) * next) / v.scale;
-      v.scale = next;
-    };
-
-    canvas.addEventListener("pointerdown", onDown);
-    canvas.addEventListener("pointermove", onMove);
-    canvas.addEventListener("pointerup", onUp);
-    canvas.addEventListener("pointercancel", onUp);
-    canvas.addEventListener("wheel", onWheel, { passive: false });
-
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
       canvas.removeEventListener("pointerdown", onDown);
       canvas.removeEventListener("pointermove", onMove);
-      canvas.removeEventListener("pointerup", onUp);
-      canvas.removeEventListener("pointercancel", onUp);
+      canvas.removeEventListener("pointerup", endPointer);
+      canvas.removeEventListener("pointercancel", endPointer);
       canvas.removeEventListener("wheel", onWheel);
+      canvas.removeEventListener("contextmenu", onContextMenu);
     };
   }, [edges]);
 
-  /* 双指缩放 */
-  const onTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length === 2) {
-      const [a, b] = [e.touches[0], e.touches[1]];
-      pinchRef.current = { dist: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), scale: viewRef.current.scale };
-    }
-  };
-  const onTouchMove = (e: React.TouchEvent) => {
-    const pinch = pinchRef.current;
-    if (!pinch || e.touches.length !== 2) return;
-    const [a, b] = [e.touches[0], e.touches[1]];
-    const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-    const v = viewRef.current;
-    v.scale = Math.min(2.4, Math.max(0.5, (pinch.scale * dist) / (pinch.dist || dist)));
-  };
-  const onTouchEnd = () => {
-    pinchRef.current = null;
-  };
-
-  return (
-    <canvas
-      ref={canvasRef}
-      className="gcanvas"
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
-    />
-  );
+  return <canvas ref={canvasRef} className="gcanvas" />;
 }
