@@ -204,7 +204,16 @@ body {
   background: #0b0b10;
   padding: calc(env(safe-area-inset-top) + 10px) 12px calc(env(safe-area-inset-bottom) + 10px);
 }
-.graph .gcanvas { flex: 1; width: 100%; min-height: 0; touch-action: manipulation; }
+.graph .gcanvas {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  /* 必须彻底关掉浏览器的触摸手势：否则按住的球一动就被浏览器抢走（pointercancel） */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
 .graph .vh { display: flex; align-items: center; gap: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
 .graph .vt { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 600; }
 .graph .vx {
