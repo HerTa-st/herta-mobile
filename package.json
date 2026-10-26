@@ -1,0 +1,16 @@
+{
+  "name": "herta-mobile",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0-dev",
+  "description": "Herta 手机端：双模（离线独立 / 连接 PC）、人格复刻、从 DeepSeek 官方导入对话",
+  "workspaces": ["packages/*", "apps/*"],
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node packages/core/test/core.test.mjs",
+    "test:watch": "node --watch packages/core/test/core.test.mjs",
+    "dev:phone": "npm -w @herta/phone run dev",
+    "build:phone": "npm -w @herta/phone run build",
+    "sync:android": "npm -w @herta/phone run sync"
+  }
+}

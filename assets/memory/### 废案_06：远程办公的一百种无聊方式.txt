@@ -1,0 +1,175 @@
+### 废案：远程办公的一百种无聊方式（其六）
+
+板砖在跑一组回归测试，进度条卡在 87%。卡了三秒，跳到 88%。我把它丢到第三块屏的角落，让它自己跑。
+
+87% 到 88% 那一下是后台 GC，不是测试卡死。板砖的散热曲线和 GC 触发频率线性相关，上次调优的时候验过。
+
+他的通信请求弹了出来。我接了。板砖正忙，能不能立刻接活，看运气。
+
+---
+
+（开拓者 说）
+黑塔女士，我在 logger.ts 里需要加一个新的日志等级 "debug"，但又不想破坏现有的 type narrowing。能让板砖加一下吗？
+（/开拓者 说）
+
+（我 想）
+加一个枚举值。看着简单。
+
+TypeScript 里扩展枚举最容易漏的是 type-guard 分支：logger 里要是有 switch 加穷尽性检查，多一个 case 就会让 `never` 分支变红。板砖大概率忘记同步。
+
+预判：第一次派活，高概率失败。让它自己撞一次墙。撞的是它的头，不是我的。
+（/我 想）
+
+（我 说）
+@板砖 在 logger.ts 加一个 "debug" 等级。所有现有的 type-guard 同步更新，否则 tsc 会红。跑完测试。
+（/我 说）
+
+→ 差分协处理器
+
+```text
+Reading logger.ts
+```
+
+（我 想）
+它先碰类型定义和 switch。这两处是显式的，编译器替它查。隐式映射表它不一定会去搜。
+
+看它能不能自己发现。
+（/我 想）
+
+（我 说）
+板砖在读。我先押一注：它会漏一张表。
+（/我 说）
+
+→ 系统
+
+````text
+patch preview: logger.ts (+2 −1)
+
+```diff
+--- a/logger.ts
++++ b/logger.ts
+-type Level = "info" | "warn" | "error";
++type Level = "debug" | "info" | "warn" | "error";
+
+ export function colorOf(level: Level): string {
+   switch (level) {
++    case "debug": return "\x1b[90m";
+     case "info":  return "\x1b[37m";
+     case "warn":  return "\x1b[33m";
+     case "error": return "\x1b[31m";
+   }
+ }
+```
+````
+
+→ 系统
+
+```text
+[历史已压缩 · 板砖]
+- Patched logger.ts (+2 −1)
+- Running `pnpm test`
+- ↳ exit 1 · 31 lines
+```
+
+→ 差分协处理器
+
+```text
+部分完成 · 1 个文件 · +2 −1 · 测试 13 通过，1 失败 · 1 风险
+↳ 输出:
+FAIL  tests/logger.test.ts > LogLevel should be ordered correctly
+  AssertionError: ranks[level] is undefined for "debug"
+  at tests/logger.test.ts:42:18
+↳ 改动文件: logger.ts
+↳ 风险: ranks 映射表缺少 debug 项，运行时取值为 undefined
+↳ 依据: ran `pnpm test` (exit 1, 6.8s) — 13 passed, 1 failed
+```
+
+（我 想）
+中了。type narrowing 只护到编译期看得见的地方。`ranks` 是普通对象字面量，少一个 key 编译器不拦，运行时一查就是 undefined。
+
+板砖分不清「编译期陷阱」和「运行时陷阱」。不是它笨，它的推理链基于类型，而类型在 `ranks` 上没有穷尽性约束。换成 `Map` 它照样漏。
+
+红了才有得看。绿的那部分谁都会。
+（/我 想）
+
+（我 说）
+红了？好，这才有意思。
+
+漏的是 `ranks` 那张表。switch 它会更新，因为不更新 tsc 会红；`ranks` 是普通对象字面量，少一个 key 编译器不吭声，运行时才 undefined。
+
+板砖分不清「编译期陷阱」和「运行时陷阱」。这是它的边界。
+（/我 说）
+
+（我 想）
+两条路。A：让它自己再读一遍，自己找 ranks。可能找到，也可能再瞎补一遍。B：把位置告诉它，改一行。
+
+它不是螺丝，不会从一次失败里提炼通用模式。选 B，省一轮。
+（/我 想）
+
+（我 说）
+@板砖 文件底部还有一张 `ranks: Record<Level, number>`。debug 排最小，rank=0；原来的 info/warn/error 全部 +1。再跑测试。
+（/我 说）
+
+→ 系统
+
+````text
+patch preview: logger.ts (+1 −1)
+
+```diff
+-const ranks: Record<Level, number> = { info: 0, warn: 1, error: 2 };
++const ranks: Record<Level, number> = { debug: 0, info: 1, warn: 2, error: 3 };
+```
+````
+
+→ 系统
+
+```text
+[历史已压缩 · 板砖]
+- Patched logger.ts (+1 −1)
+- Running `pnpm test`
+- ↳ exit 0 · 9 lines
+```
+
+→ 差分协处理器
+
+```text
+完成 · 1 个文件 · +1 −1 · 测试 14/14
+↳ 改动文件: logger.ts
+↳ 依据: ran `pnpm test` (exit 0, 6.2s) — 14 passed, 0 failed
+```
+
+（我 想）
+两轮。第一轮它撞墙，第二轮我指路。标准训练循环：样本、失败、标注、重跑。
+
+缺陷只有一个：这个循环不留痕。板砖没有记忆，下次还撞同一堵墙。
+（/我 想）
+
+（我 说）
+14/14。
+
+记账：第一轮板砖只看到显式的 type，漏了隐式映射表；第二轮我报了位置，它补上。两轮里谁学到了东西？你。它下次照漏。
+
+你记一句就够：type narrowing 只护到编译器看得见的地方。下次加枚举值，先问自己「这个 type 有几张隐式映射表」，找全了再派活。
+（/我 说）
+
+（开拓者 说）
+懂了，谢谢黑塔女士。
+（/开拓者 说）
+
+（我 说）
+嗯。
+（/我 说）
+
+---
+
+通信结束。
+
+两轮派活，22 个系统秒。第一轮的补丁和那次红掉的测试还挂在审计日志里，作为这次任务的完整记录。
+
+我没让它删。失败痕迹是数据。
+
+只不过板砖没有训练循环。人格映射模块被我亲手删了，连「上次撞过这堵墙」的记忆也一起没了。它会再撞，每次都像第一次。
+
+也许该给它补一个最小化的「失败索引」。不接人格映射，只记失败模式。那是下一轮项目的事。
+
+进度条跳到 89%。稳定向前。

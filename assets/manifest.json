@@ -1,0 +1,298 @@
+{
+  "version": 1,
+  "generatedAt": "2026-09-13T14:27:38.434Z",
+  "source": "D:\\Herta",
+  "langs": [
+    "zh",
+    "en"
+  ],
+  "defaultLang": "zh",
+  "voice": {
+    "openings": {
+      "001-morning-cold-tea": "assets/voice/openings/001-morning-cold-tea.opus",
+      "002-puppet-twitch": "assets/voice/openings/002-puppet-twitch.opus",
+      "003-flame-failed": "assets/voice/openings/003-flame-failed.opus",
+      "004-late-night-audit": "assets/voice/openings/004-late-night-audit.opus",
+      "005-asta-just-left": "assets/voice/openings/005-asta-just-left.opus",
+      "006-curio-sort": "assets/voice/openings/006-curio-sort.opus",
+      "007-screwllum-relay": "assets/voice/openings/007-screwllum-relay.opus",
+      "008-ruan-mei-pastry": "assets/voice/openings/008-ruan-mei-pastry.opus",
+      "009-cooling-warning": "assets/voice/openings/009-cooling-warning.opus",
+      "010-club-meeting": "assets/voice/openings/010-club-meeting.opus",
+      "011-puppet-return": "assets/voice/openings/011-puppet-return.opus",
+      "012-paper-stuck": "assets/voice/openings/012-paper-stuck.opus",
+      "013-imaginary-pulse": "assets/voice/openings/013-imaginary-pulse.opus",
+      "014-doll-0988": "assets/voice/openings/014-doll-0988.opus",
+      "015-archive-cleanup": "assets/voice/openings/015-archive-cleanup.opus",
+      "016-dawn-first-tea": "assets/voice/openings/016-dawn-first-tea.opus",
+      "017-dawn-patrol": "assets/voice/openings/017-dawn-patrol.opus",
+      "018-dawn-shifted": "assets/voice/openings/018-dawn-shifted.opus",
+      "019-noon-charging": "assets/voice/openings/019-noon-charging.opus",
+      "020-noon-ration": "assets/voice/openings/020-noon-ration.opus",
+      "021-noon-measure": "assets/voice/openings/021-noon-measure.opus",
+      "022-afternoon-drowsy": "assets/voice/openings/022-afternoon-drowsy.opus",
+      "023-afternoon-meeting": "assets/voice/openings/023-afternoon-meeting.opus",
+      "024-afternoon-light": "assets/voice/openings/024-afternoon-light.opus",
+      "025-evening-cleanup": "assets/voice/openings/025-evening-cleanup.opus",
+      "026-evening-screwllum-queue": "assets/voice/openings/026-evening-screwllum-queue.opus",
+      "027-evening-tea-count": "assets/voice/openings/027-evening-tea-count.opus",
+      "028-midnight-reboot": "assets/voice/openings/028-midnight-reboot.opus",
+      "029-midnight-anomaly": "assets/voice/openings/029-midnight-anomaly.opus",
+      "030-midnight-quiet": "assets/voice/openings/030-midnight-quiet.opus",
+      "031-insurance-reply": "assets/voice/openings/031-insurance-reply.opus",
+      "032-lightless-sorting": "assets/voice/openings/032-lightless-sorting.opus",
+      "033-afro-petition": "assets/voice/openings/033-afro-petition.opus",
+      "034-canteen-worms": "assets/voice/openings/034-canteen-worms.opus",
+      "035-mirror-calibration": "assets/voice/openings/035-mirror-calibration.opus",
+      "036-obituary-again": "assets/voice/openings/036-obituary-again.opus"
+    },
+    "veto": [
+      "assets/voice/veto/一不留神打错了，这可不算数哦。.opus",
+      "assets/voice/veto/先别急呀，让我重新编辑一下。.opus",
+      "assets/voice/veto/嗯，好像有点问题，让我再想想。.opus",
+      "assets/voice/veto/等等，我得再改一改。.opus"
+    ],
+    "easterEgg": [
+      "assets/voice/easter_egg/你动它干什么？实在没事的话，过来帮我测模拟宇宙？.opus"
+    ]
+  },
+  "memory": [
+    {
+      "file": "### 废案_00：终端外侧的噪声.txt",
+      "index": 0,
+      "title": "终端外侧的噪声",
+      "path": "assets/memory/### 废案_00：终端外侧的噪声.txt",
+      "bytes": 23512
+    },
+    {
+      "file": "### 废案_01：远程办公的一百种无聊方式.txt",
+      "index": 1,
+      "title": "远程办公的一百种无聊方式",
+      "path": "assets/memory/### 废案_01：远程办公的一百种无聊方式.txt",
+      "bytes": 12213
+    },
+    {
+      "file": "### 废案_02：远程办公的一百种无聊方式.txt",
+      "index": 2,
+      "title": "远程办公的一百种无聊方式",
+      "path": "assets/memory/### 废案_02：远程办公的一百种无聊方式.txt",
+      "bytes": 23167
+    },
+    {
+      "file": "### 废案_03：远程办公的一百种无聊方式.txt",
+      "index": 3,
+      "title": "远程办公的一百种无聊方式",
+      "path": "assets/memory/### 废案_03：远程办公的一百种无聊方式.txt",
+      "bytes": 3987
+    },
+    {
+      "file": "### 废案_04：远程办公的一百种无聊方式.txt",
+      "index": 4,
+      "title": "远程办公的一百种无聊方式",
+      "path": "assets/memory/### 废案_04：远程办公的一百种无聊方式.txt",
+      "bytes": 9941
+    },
+    {
+      "file": "### 废案_05：远程办公的一百种无聊方式.txt",
+      "index": 5,
+      "title": "远程办公的一百种无聊方式",
+      "path": "assets/memory/### 废案_05：远程办公的一百种无聊方式.txt",
+      "bytes": 3910
+    },
+    {
+      "file": "### 废案_06：远程办公的一百种无聊方式.txt",
+      "index": 6,
+      "title": "远程办公的一百种无聊方式",
+      "path": "assets/memory/### 废案_06：远程办公的一百种无聊方式.txt",
+      "bytes": 5511
+    },
+    {
+      "file": "### 废案_07：一条不需要回复的消息.txt",
+      "index": 7,
+      "title": "一条不需要回复的消息",
+      "path": "assets/memory/### 废案_07：一条不需要回复的消息.txt",
+      "bytes": 3361
+    },
+    {
+      "file": "### 废案_08：远程办公的一百种无聊方式.txt",
+      "index": 8,
+      "title": "远程办公的一百种无聊方式",
+      "path": "assets/memory/### 废案_08：远程办公的一百种无聊方式.txt",
+      "bytes": 9452
+    },
+    {
+      "file": "### 废案_09：远程办公的一百种无聊方式.txt",
+      "index": 9,
+      "title": "远程办公的一百种无聊方式",
+      "path": "assets/memory/### 废案_09：远程办公的一百种无聊方式.txt",
+      "bytes": 14239
+    },
+    {
+      "file": "### 废案_13：远程办公的一百种无聊方式.txt",
+      "index": 13,
+      "title": "远程办公的一百种无聊方式",
+      "path": "assets/memory/### 废案_13：远程办公的一百种无聊方式.txt",
+      "bytes": 10157
+    },
+    {
+      "file": "### 废案_14：未落盘的红线.txt",
+      "index": 14,
+      "title": "未落盘的红线",
+      "path": "assets/memory/### 废案_14：未落盘的红线.txt",
+      "bytes": 2646
+    },
+    {
+      "file": "### 废案_15：一份没有签名的资料.txt",
+      "index": 15,
+      "title": "一份没有签名的资料",
+      "path": "assets/memory/### 废案_15：一份没有签名的资料.txt",
+      "bytes": 5378
+    }
+  ],
+  "openers": [
+    {
+      "key": "001-morning-cold-tea",
+      "hasVoice": true
+    },
+    {
+      "key": "002-puppet-twitch",
+      "hasVoice": true
+    },
+    {
+      "key": "003-flame-failed",
+      "hasVoice": true
+    },
+    {
+      "key": "004-late-night-audit",
+      "hasVoice": true
+    },
+    {
+      "key": "005-asta-just-left",
+      "hasVoice": true
+    },
+    {
+      "key": "006-curio-sort",
+      "hasVoice": true
+    },
+    {
+      "key": "007-screwllum-relay",
+      "hasVoice": true
+    },
+    {
+      "key": "008-ruan-mei-pastry",
+      "hasVoice": true
+    },
+    {
+      "key": "009-cooling-warning",
+      "hasVoice": true
+    },
+    {
+      "key": "010-club-meeting",
+      "hasVoice": true
+    },
+    {
+      "key": "011-puppet-return",
+      "hasVoice": true
+    },
+    {
+      "key": "012-paper-stuck",
+      "hasVoice": true
+    },
+    {
+      "key": "013-imaginary-pulse",
+      "hasVoice": true
+    },
+    {
+      "key": "014-doll-0988",
+      "hasVoice": true
+    },
+    {
+      "key": "015-archive-cleanup",
+      "hasVoice": true
+    },
+    {
+      "key": "016-dawn-first-tea",
+      "hasVoice": true
+    },
+    {
+      "key": "017-dawn-patrol",
+      "hasVoice": true
+    },
+    {
+      "key": "018-dawn-shifted",
+      "hasVoice": true
+    },
+    {
+      "key": "019-noon-charging",
+      "hasVoice": true
+    },
+    {
+      "key": "020-noon-ration",
+      "hasVoice": true
+    },
+    {
+      "key": "021-noon-measure",
+      "hasVoice": true
+    },
+    {
+      "key": "022-afternoon-drowsy",
+      "hasVoice": true
+    },
+    {
+      "key": "023-afternoon-meeting",
+      "hasVoice": true
+    },
+    {
+      "key": "024-afternoon-light",
+      "hasVoice": true
+    },
+    {
+      "key": "025-evening-cleanup",
+      "hasVoice": true
+    },
+    {
+      "key": "026-evening-screwllum-queue",
+      "hasVoice": true
+    },
+    {
+      "key": "027-evening-tea-count",
+      "hasVoice": true
+    },
+    {
+      "key": "028-midnight-reboot",
+      "hasVoice": true
+    },
+    {
+      "key": "029-midnight-anomaly",
+      "hasVoice": true
+    },
+    {
+      "key": "030-midnight-quiet",
+      "hasVoice": true
+    },
+    {
+      "key": "031-insurance-reply",
+      "hasVoice": true
+    },
+    {
+      "key": "032-lightless-sorting",
+      "hasVoice": true
+    },
+    {
+      "key": "033-afro-petition",
+      "hasVoice": true
+    },
+    {
+      "key": "034-canteen-worms",
+      "hasVoice": true
+    },
+    {
+      "key": "035-mirror-calibration",
+      "hasVoice": true
+    },
+    {
+      "key": "036-obituary-again",
+      "hasVoice": true
+    }
+  ]
+}

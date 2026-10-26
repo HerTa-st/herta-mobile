@@ -1,0 +1,7 @@
+{
+  "appId": "com.personacli.herta.mobile",
+  "appName": "Herta",
+  "webDir": "dist",
+  "android": { "allowMixedContent": false },
+  "server": { "androidScheme": "https" }
+}
