@@ -29,6 +29,7 @@ import { layoutGraph } from "../src/layout.ts";
 import { searchMemories, searchSessions, snippetOf } from "../src/search.ts";
 import { runToolLoop, toProviderMessages, toProviderTools } from "../src/tools.ts";
 import { buildMoodPrompt, parseMood } from "../src/mood.ts";
+import { buildPresenceNote, presenceAt, timePhrase } from "../src/presence.ts";
 
 /** 桌面版原文抽出来的 196 个函数：复核提示词与分隔符从它注入，不在 core 里重写。 */
 import * as H from "../../../runtime/prompts-code.zh.mjs";
@@ -38,10 +39,12 @@ const src = new NodeAssetSource(ASSETS, "zh");
 
 /* ------------------------------------------------------------------ 素材 */
 
-test("素材齐：《自传、设定、话术、41 条原声、4 篇记忆》", async () => {
+test("素材齐：《自传、话术、41 条原声、4 篇记忆》（设定与指南已不在包里）", async () => {
   const a = await src.promptAssets();
   assert.ok(a.hertaBio.length > 5000, "自传太短，多半读错了文件");
-  assert.ok(a.envSet.length > 0);
+  // 办公室设定与语气指南都删了：她不再永远坐在同一个房间，语气也不是别人写死的
+  assert.equal("envSet" in a, false, "办公室设定又被打进包了");
+  assert.equal("hertaGuide" in a, false, "语气指南又被打进包了");
   assert.ok(Object.keys(a.hints).length >= 10);
 
   const v = await src.voice();
@@ -64,11 +67,15 @@ test("静态前缀：自传在最前，输出契约在最后", async () => {
   assert.ok(prefix.indexOf(MOBILE_NOTE) < prefix.indexOf(FORMAT_CONTRACT));
 });
 
-test("静态前缀：插了种子后顺序不变，设定仍在处境之前", async () => {
+test("静态前缀：顺序是 自传 → 种子 → 此刻在哪 → 处境 → 契约", async () => {
   const a = await src.promptAssets();
-  const prefix = buildStaticPrefix({ assets: a, seeds: ["### 废案_01：测试\n正文"] });
-  assert.ok(prefix.indexOf("### 废案_01：测试") > prefix.indexOf(a.hertaBio.slice(0, 200)));
-  assert.ok(prefix.indexOf(a.envSet) > prefix.indexOf("### 废案_01：测试"));
+  const presence = buildPresenceNote(presenceAt(new Date(2026, 9, 27, 14, 0)), "现在是下午2点");
+  const prefix = buildStaticPrefix({ assets: a, seeds: ["### 废案_01：测试\n正文"], presence });
+  const iSeed = prefix.indexOf("### 废案_01：测试");
+  const iPresence = prefix.indexOf("### 你此刻在哪");
+  assert.ok(iSeed > prefix.indexOf(a.hertaBio.slice(0, 200)), "种子跑到了自传前面");
+  assert.ok(iPresence > iSeed, "行踪跑到了种子前面");
+  assert.ok(iPresence < prefix.indexOf(MOBILE_NOTE), "行踪应排在处境之前");
 });
 
 test("挑种子：确定性（rng 固定时同一输入同一结果）且不超过上限", async () => {
@@ -331,14 +338,15 @@ test("做梦：建造函数只给字符串时也能发（兼容两种返回形�
 
 test("做梦：真实建造函数的返回形状是两条消息（422 那次的根因）", async () => {
   const a = await src.promptAssets();
-  const worth = H.buildWorthinessPrompt("开拓者：在吗\n我：在。", [{ title: "旧记忆", tag: "日常" }], a.envSet, "zh");
+  const env = "### 你此刻在哪\n\n现在是下午2点。你在实验室。";
+  const worth = H.buildWorthinessPrompt("开拓者：在吗\n我：在。", [{ title: "旧记忆", tag: "日常" }], env, "zh");
   assert.equal(typeof worth, "object", "建造函数改了返回形状");
   assert.equal(typeof worth.systemPrompt, "string");
   assert.equal(typeof worth.userPayload, "string");
   assert.ok(worth.systemPrompt.length > 1000, "系统段太短");
   assert.ok(worth.userPayload.includes("在吗"), "用户段没带上对话摘录");
 
-  const gen = H.buildGenerationPrompt("摘要", [], [], "", a.envSet, "zh");
+  const gen = H.buildGenerationPrompt("摘要", [], [], "", env, "zh");
   assert.equal(typeof gen.systemPrompt, "string");
   assert.equal(typeof gen.userPayload, "string");
 
@@ -1052,6 +1060,43 @@ test("心情：旁注取不到就返回 null，不瞎安一个", async () => {
   assert.equal(moodStyleNote(a, "不存在的心情"), null);
   const anyMood = Object.keys(a.metaThink?.preThink ?? {})[0];
   if (anyMood) assert.ok((moodStyleNote(a, anyMood) ?? "").length > 0);
+});
+
+/* ---------------------------------------------------------------- 行踪 */
+
+test("行踪：按钟点给出地点与动作", () => {
+  const at = (h) => presenceAt(new Date(2026, 9, 27, h, 30));
+  assert.ok(at(2).phase === "凌晨");
+  assert.ok(at(9).phase === "上午");
+  assert.ok(at(12).phase === "中午");
+  assert.ok(at(23).phase === "夜里");
+  for (const h of [0, 6, 9, 12, 15, 18, 21, 23]) {
+    const p = at(h);
+    assert.ok(p.place.length > 0 && p.doing.length > 0, h + " 点没有行踪");
+  }
+});
+
+test("行踪：同一天同一时段是确定的，隔天才可能换", () => {
+  const a1 = presenceAt(new Date(2026, 9, 27, 14, 5));
+  const a2 = presenceAt(new Date(2026, 9, 27, 14, 55));
+  assert.deepEqual(a1, a2, "同一天同一时段给了两种说法");
+  const days = [];
+  for (let d = 1; d <= 10; d += 1) days.push(presenceAt(new Date(2026, 9, d, 14, 0)).doing);
+  assert.ok(new Set(days).size > 1, "十天里一次都没换过，等于静止布景");
+});
+
+test("行踪：说出来的时间像人话", () => {
+  assert.ok(timePhrase(new Date(2026, 9, 27, 1, 5)).startsWith("现在是凌晨1点"));
+  assert.ok(timePhrase(new Date(2026, 9, 27, 12, 30)).includes("半"));
+  assert.ok(timePhrase(new Date(2026, 9, 27, 23, 50)).startsWith("现在是深夜11点"));
+});
+
+test("行踪：拼出来的段落带地点、动作与「这不是设定」这句提醒", () => {
+  const p = presenceAt(new Date(2026, 9, 27, 14, 0));
+  const note = buildPresenceNote(p, timePhrase(new Date(2026, 9, 27, 14, 0)));
+  assert.ok(note.includes(p.place));
+  assert.ok(note.includes(p.doing));
+  assert.ok(note.includes("这不是设定"));
 });
 
 /* -------------------------------------------------------------- 标签语法 */
