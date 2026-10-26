@@ -77,6 +77,42 @@ export interface ImportedMessage {
   at?: string;
 }
 
+/* ------------------------------------------------------------- 模型调用 */
+
+export type MessageRole = "system" | "user" | "assistant" | "tool";
+
+/** 模型发起的工具调用（OpenAI 函数调用格式，arguments 是 JSON 字符串）。 */
+export interface ToolCall {
+  id: string;
+  name: string;
+  arguments: string;
+}
+
+export interface ChatMessage {
+  role: MessageRole;
+  content: string;
+  /** assistant 消息里挂着的工具调用。 */
+  tool_calls?: ToolCall[];
+  /** role=tool 时，对应哪一次调用。 */
+  tool_call_id?: string;
+  /** 工具名，给 UI 显示用（协议里不要求，模型也不看）。 */
+  name?: string;
+}
+
+/** 工具声明。 */
+export interface ToolSpec {
+  name: string;
+  description: string;
+  /** JSON Schema。 */
+  parameters: Record<string, unknown>;
+}
+
+/** 流里吐出来的东西：文字、工具调用增量、结束标记。 */
+export type ChatDelta =
+  | { type: "text"; text: string }
+  | { type: "tool_call"; index: number; id?: string; name?: string; arguments?: string }
+  | { type: "done"; finishReason: string | null };
+
 /* ------------------------------------------------------------ 网关协议 v2 */
 
 /** 手机 → PC。 */

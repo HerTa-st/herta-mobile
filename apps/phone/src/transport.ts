@@ -1,16 +1,15 @@
 /**
  * 模型通道。
  *
- * 这是整个 M1 的卡点：Capacitor 的 origin 是 https://localhost，
- * 如果 api.deepseek.com 不回 CORS 头，浏览器里的 fetch 会被 WebView 直接掐掉。
- * 所以生产路径走原生（Android OkHttp），浏览器 fetch 只作为开发期兜底。
+ * 原生通道存在的唯一理由：WebView 的 origin 是 https://localhost，
+ * 如果 api.deepseek.com 不回 CORS 头，页面里的 fetch 会被直接掐掉。
  *
- * 现在原生插件的 Kotlin 侧还没写——没写就明确报错，不许静默降级成 fetch
- * 让"在真机上能聊"这件事变成假象。
+ * 注意这里吐的是**结构化的流**（`ChatDelta`），不是纯文本：
+ * 带工具之后，模型可能不下文字而是发一次 tool_call，那时正文是空的。
  */
 
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
-import type { ChatMessage } from "@herta/core";
+import type { ChatDelta, ChatMessage, ToolSpec } from "@herta/protocol";
 
 export interface ChatRequest {
   apiKey: string;
@@ -18,17 +17,9 @@ export interface ChatRequest {
   model: string;
   messages: ChatMessage[];
   maxTokens: number;
+  /** 给她一只手：工具声明。 */
+  tools?: ToolSpec[];
   signal?: AbortSignal;
-}
-
-export interface ChatTransport {
-  readonly name: string;
-  /** 逐段吐字；上层负责拼成一句再解析标签。 */
-  stream(req: ChatRequest): AsyncGenerator<string>;
-  /** DeepSeek 官方搜索：POST /v1/tools/search。 */
-  search(query: string, opts: { apiKey: string; baseUrl: string; count?: number }): Promise<SearchHit[]>;
-  /** 一次性 GET，整段文本返回（分享页的数据接口用）。 */
-  getText(url: string): Promise<string>;
 }
 
 export interface SearchHit {
@@ -37,18 +28,62 @@ export interface SearchHit {
   summary: string;
 }
 
-/* --------------------------------------------------------- 浏览器兜底实现 */
+export interface ChatTransport {
+  readonly name: string;
+  stream(req: ChatRequest): AsyncGenerator<ChatDelta>;
+  /** DeepSeek 官方搜索：POST /v1/tools/search。 */
+  search(query: string, opts: { apiKey: string; baseUrl: string; count?: number }): Promise<SearchHit[]>;
+  /** 一次性 GET，整段文本返回（分享页的数据接口用）。 */
+  getText(url: string): Promise<string>;
+}
 
-function sseData(chunk: string): string[] {
-  const out: string[] = [];
+function parseSseChunk(chunk: string): ChatDelta[] {
+  const out: ChatDelta[] = [];
   for (const line of chunk.split("\n")) {
     const t = line.trim();
     if (!t.startsWith("data:")) continue;
     const payload = t.slice(5).trim();
-    if (payload && payload !== "[DONE]") out.push(payload);
+    if (!payload) continue;
+    if (payload === "[DONE]") {
+      out.push({ type: "done", finishReason: null });
+      continue;
+    }
+    try {
+      const j = JSON.parse(payload);
+      const choice = j?.choices?.[0];
+      const piece = choice?.delta?.content;
+      if (typeof piece === "string" && piece) out.push({ type: "text", text: piece });
+      const calls = choice?.delta?.tool_calls;
+      if (Array.isArray(calls)) {
+        for (const c of calls) {
+          out.push({
+            type: "tool_call",
+            index: typeof c.index === "number" ? c.index : 0,
+            id: c.id,
+            name: c.function?.name,
+            arguments: c.function?.arguments,
+          });
+        }
+      }
+      if (choice?.finish_reason) out.push({ type: "done", finishReason: String(choice.finish_reason) });
+    } catch {
+      /* 半截 JSON，下一批再拼 */
+    }
   }
   return out;
 }
+
+function requestBody(req: ChatRequest): string {
+  return JSON.stringify({
+    model: req.model,
+    messages: req.messages,
+    max_tokens: req.maxTokens,
+    stream: true,
+    ...(req.tools && req.tools.length > 0 ? { tools: req.tools, tool_choice: "auto" } : {}),
+  });
+}
+
+/* --------------------------------------------------------- 浏览器兜底实现 */
 
 export const browserTransport: ChatTransport = {
   name: "fetch",
@@ -56,12 +91,7 @@ export const browserTransport: ChatTransport = {
     const res = await fetch(req.baseUrl.replace(/\/$/, "") + "/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer " + req.apiKey },
-      body: JSON.stringify({
-        model: req.model,
-        messages: req.messages,
-        max_tokens: req.maxTokens,
-        stream: true,
-      }),
+      body: requestBody(req),
       signal: req.signal,
     });
     if (!res.ok || !res.body) {
@@ -78,15 +108,7 @@ export const browserTransport: ChatTransport = {
       if (cut < 0) continue;
       const ready = buf.slice(0, cut);
       buf = buf.slice(cut + 1);
-      for (const payload of sseData(ready)) {
-        try {
-          const j = JSON.parse(payload);
-          const piece = j?.choices?.[0]?.delta?.content;
-          if (typeof piece === "string" && piece) yield piece;
-        } catch {
-          /* 半截 JSON：下一轮再拼 */
-        }
-      }
+      for (const d of parseSseChunk(ready)) yield d;
     }
   },
   async getText(url) {
@@ -115,11 +137,6 @@ interface HertaChunk {
   error?: string;
 }
 
-/**
- * 原生插件只有三个方法。
- * 注意 addListener 是**插件上**的，不是全局 Capacitor.addListener —— 后者是桥级事件，
- * 传插件名进去只会静默收不到任何东西（第一版就这么写错过一次）。
- */
 interface HertaHttpPlugin {
   stream(options: {
     requestId: string;
@@ -128,6 +145,7 @@ interface HertaHttpPlugin {
     body: string;
   }): Promise<{ status: number }>;
   get(options: { url: string }): Promise<{ status: number; body: string }>;
+  post(options: { url: string; headers: Record<string, string>; body: string }): Promise<{ status: number; body: string }>;
   cancel(options: { requestId: string }): Promise<void>;
   addListener(event: "chunk", cb: (data: HertaChunk) => void): Promise<PluginListenerHandle>;
 }
@@ -154,16 +172,9 @@ export const nativeTransport: ChatTransport = {
         requestId,
         url: req.baseUrl.replace(/\/$/, "") + "/chat/completions",
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + req.apiKey },
-        body: JSON.stringify({
-          model: req.model,
-          messages: req.messages,
-          max_tokens: req.maxTokens,
-          stream: true,
-        }),
+        body: requestBody(req),
       });
-      // 非 2xx 时**不能立刻抛**：服务端把错误原因写在响应体里，而原生产生的是
-      // 一串 chunk。先把它收完，再把真正的原因带出去——否则用户只看到一个光秃秃的
-      // 状态码（422 那次就是这么瞎猜的）。
+
       const bad = status < 200 || status >= 300;
       let errText = "";
 
@@ -175,15 +186,7 @@ export const nativeTransport: ChatTransport = {
             errText += next;
             continue;
           }
-          for (const payload of sseData(next)) {
-            try {
-              const j = JSON.parse(payload);
-              const piece = j?.choices?.[0]?.delta?.content;
-              if (typeof piece === "string" && piece) yield piece;
-            } catch {
-              /* 半截 JSON */
-            }
-          }
+          for (const d of parseSseChunk(next)) yield d;
           continue;
         }
         if (closed) break;
@@ -201,13 +204,18 @@ export const nativeTransport: ChatTransport = {
   },
   async getText(url) {
     const { status, body } = await HertaHttp.get({ url });
-    if (status < 200 || status >= 300) {
-      throw new Error("接口 " + status + "：" + String(body ?? "").slice(0, 200));
-    }
+    if (status < 200 || status >= 300) throw new Error("接口 " + status + "：" + String(body ?? "").slice(0, 200));
     return body;
   },
-  async search() {
-    throw new Error("原生搜索通道未实现（M1 待办：HertaHttp 插件 + /v1/tools/search）");
+  async search(query, { apiKey, baseUrl, count = 5 }) {
+    const { status, body } = await HertaHttp.post({
+      url: baseUrl.replace(/\/$/, "") + "/v1/tools/search",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
+      body: JSON.stringify({ query, count, need_content: true }),
+    });
+    if (status < 200 || status >= 300) throw new Error("搜索接口 " + status + "：" + String(body ?? "").slice(0, 200));
+    const j = JSON.parse(body) as { results?: SearchHit[] };
+    return j.results ?? [];
   },
 };
 
