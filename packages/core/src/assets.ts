@@ -1,0 +1,57 @@
+/**
+ * 素材接缝。
+ *
+ * 桌面版把人格、复核、dream 全部泡在提示词里；这些东西是**素材**，不是算法。
+ * 所以核心只声明"我需要什么素材"，由调用方（Node 测试 / 浏览器 / Capacitor）提供。
+ * 好处：core 里没有一行 fs、没有一行 fetch，Node 里能直接测。
+ */
+
+import type { Lang } from "../../protocol/src/index.ts";
+
+export interface PromptAssets {
+  /** 她的自传（hertaBio），约 9.5k 字。人格的本体。 */
+  hertaBio: string;
+  /** 办公室设定（envSet）。 */
+  envSet: string;
+  /** 引导语（hertaGuide）。 */
+  hertaGuide: string;
+  /** 21 条输出话术：phase2_thought、supervisor_veto 等，按 key 取。 */
+  hints: Record<string, string>;
+  /** 八种心情各自的 preThink / preSpeak 基线。 */
+  metaThink?: { preThink?: Record<string, string>; preSpeak?: Record<string, string> };
+  /** 打包自带的废案种子（无记忆库时的兜底）。 */
+  feianSeeds?: Record<string, string>;
+  /** 退役/被取代的种子，导入时要按 sha1 排除。 */
+  retiredFeian?: string[];
+  supersededFeianSha1?: string[];
+}
+
+export interface MoodPack {
+  version: number;
+  system: string;
+  userInstruction: string;
+  moods: string[];
+  sampleAnswer?: string;
+}
+
+export interface VoiceManifestEntry {
+  path: string;
+  [k: string]: unknown;
+}
+
+export interface VoicePack {
+  /** 开局独白 id → opus 相对路径。 */
+  openings: Record<string, string>;
+  veto: string[];
+  easterEgg?: string[];
+}
+
+export interface AssetSource {
+  readonly lang: Lang;
+  promptAssets(): Promise<PromptAssets>;
+  mood(): Promise<MoodPack | null>;
+  /** 记忆库里现存的废案文件名（排序稳定）。 */
+  seedFiles(): Promise<string[]>;
+  readSeed(file: string): Promise<string | null>;
+  voice(): Promise<VoicePack>;
+}
