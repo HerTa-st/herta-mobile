@@ -6,6 +6,7 @@
  */
 
 import type { PromptAssets } from "./assets.ts";
+import { VOICE_HEADING } from "./voice.ts";
 
 /**
  * 输出契约：标签规则讲死。
@@ -54,12 +55,19 @@ export interface StaticPrefixInput {
   seeds?: readonly string[];
   /** 额外插入的处境段（连接模式会追加一段"电脑那双手回来了"）。 */
   extraNotes?: readonly string[];
+  /**
+   * 她自己攒的语气笔记。空着就不插——**包里不带指南**，
+   * 她一开始就是"自传 + 记忆"撑着，写得出来什么样子是她的事。
+   */
+  voiceText?: string | null;
 }
 
-export function buildStaticPrefix({ assets, seeds = [], extraNotes = [] }: StaticPrefixInput): string {
+export function buildStaticPrefix({ assets, seeds = [], extraNotes = [], voiceText = null }: StaticPrefixInput): string {
   const parts: string[] = [assets.hertaBio];
   for (const seed of seeds) if (seed && seed.trim()) parts.push(seed);
   parts.push(assets.envSet);
+  // 位置在设定之后、处境之前：先"我在哪"，再"我怎么说话"，最后"现在这个终端是什么样"。
+  if (voiceText && voiceText.trim()) parts.push(VOICE_HEADING + "\n\n" + voiceText.trim());
   for (const note of extraNotes) if (note && note.trim()) parts.push(note);
   parts.push(MOBILE_NOTE, FORMAT_CONTRACT);
   return parts.filter((p) => p && p.trim()).join("\n\n");

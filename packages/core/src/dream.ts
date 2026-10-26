@@ -67,8 +67,13 @@ function asPrompt(value: DreamPrompt | string): DreamPrompt {
 export interface DreamDeps {
   store: MemoryStore;
   prompts: DreamPrompts;
-  /** 桌面版的 envSet 与 hertaGuide —— 做梦提示词里把这两段原样喂回去。 */
-  scene: { env: string; guide: string; lang: string };
+  /** 只剩环境设定：语气指南不再打包，也不再喂给提示词。 */
+  scene: { env: string; lang: string };
+  /**
+   * 记忆攒够之后，让她重读自己的记忆、重写「我说话的方式」。
+   * 由调用方注入（提示词与清洗都在 voice.ts）。
+   */
+  reviseVoice?(records: readonly MemoryRecord[], previous: string | null): Promise<string | null>;
   /** 发一次请求。`system` 为空时就只发 user。 */
   chat(input: { system: string; user: string; maxTokens: number }): Promise<string>;
   now(): number;
@@ -81,6 +86,8 @@ export interface DreamPassConfig {
   minGapMs: number;
   /** 生成时给几篇既有废案当范例。 */
   exemplarCount: number;
+  /** 每攒够几篇记忆，重写一次语气笔记。 */
+  voiceEvery: number;
   /** 语气分低于这个值就改。 */
   minVoice: number;
   /** 忠实度分低于这个值就改。 */
@@ -91,6 +98,7 @@ export const DREAM_PASS_DEFAULTS: DreamPassConfig = {
   minNewBlocks: 6,
   minGapMs: 10 * 60 * 1000,
   exemplarCount: 3,
+  voiceEvery: 3,
   minVoice: 0.7,
   minFaithfulness: 0.6,
 };
@@ -151,6 +159,7 @@ function advance(state: DreamState, sessionId: string, cursor: number, patch: Pa
   return {
     ...state,
     cursors: { ...state.cursors, [sessionId]: cursor },
+    voice: patch.voice ?? state.voice,
     lastPassAt: patch.lastPassAt ?? state.lastPassAt,
     made: patch.made ?? state.made,
     skipped: patch.skipped ?? state.skipped,
@@ -197,11 +206,15 @@ export async function runDreamPass(
     return { kind: "rejected", reason: note };
   }
 
+  /* 写作与评审的"语气基线"不再是一份固定指南，而是**她自己写的那段笔记**。
+   * 没有笔记时传空串——提示词里会退化成"按语气不变量与范例来"，也说得通。 */
+  const voiceGuide = state.voice?.text ?? "";
+
   /* 第二道门：写一稿 */
   const exemplars = records.slice(-cfg.exemplarCount).map((r) => r.body);
   const draftRaw = (await askJson(
     deps,
-    deps.prompts.buildGenerationPrompt(digest, exemplars, summaries, deps.scene.guide, deps.scene.env, deps.scene.lang),
+    deps.prompts.buildGenerationPrompt(digest, exemplars, summaries, voiceGuide, deps.scene.env, deps.scene.lang),
     4000
   ) ?? {}) as Draft;
 
@@ -239,7 +252,7 @@ export async function runDreamPass(
 
   const critiqueRaw = (await askJson(
     deps,
-    deps.prompts.buildCritiquePrompt(body, deps.scene.guide, deps.scene.lang, digest),
+    deps.prompts.buildCritiquePrompt(body, voiceGuide, deps.scene.lang, digest),
     900
   ) ?? {}) as Critique;
   const voice = Number(critiqueRaw.voice ?? 0);
@@ -252,7 +265,7 @@ export async function runDreamPass(
   if (problems.length > 0) {
     const refinedRaw = (await askJson(
       deps,
-      deps.prompts.buildRefinePrompt(body, problems, deps.scene.guide, deps.scene.lang),
+      deps.prompts.buildRefinePrompt(body, problems, voiceGuide, deps.scene.lang),
       4000
     ) ?? {}) as Draft;
     if (refinedRaw.feian) {
@@ -281,9 +294,30 @@ export async function runDreamPass(
   };
   await deps.store.write(record);
 
-  const note = "记住了一件事：" + title + (repaired ? "（格式我修了一下：" + repaired + "）" : "");
+  /* 攒够几篇，就让她重读一遍自己的记忆、重写「我说话的方式」。 */
+  const nextMade = state.made + 1;
+  let voiceProfile = state.voice;
+  let voiceNote = "";
+  if (deps.reviseVoice && nextMade % cfg.voiceEvery === 0) {
+    try {
+      const written = await deps.reviseVoice([...records, record], state.voice?.text ?? null);
+      if (written && written.trim()) {
+        voiceProfile = { text: written.trim(), updatedAt: new Date(deps.now()).toISOString(), basis: records.length + 1 };
+        voiceNote = "，顺手改了自己说话的方式";
+      }
+    } catch {
+      // 语气笔记没写成不算这次做梦失败——记忆已经落库了，别把它一起废掉
+    }
+  }
+
+  const note = "记住了一件事：" + title + (repaired ? "（格式我修了一下：" + repaired + "）" : "") + voiceNote;
   await deps.store.saveState(
-    advance(state, input.sessionId, nextCursor, { made: state.made + 1, lastPassAt: deps.now(), lastNote: note })
+    advance(state, input.sessionId, nextCursor, {
+      made: nextMade,
+      lastPassAt: deps.now(),
+      lastNote: note,
+      voice: voiceProfile,
+    })
   );
   return { kind: "made", record };
 }
