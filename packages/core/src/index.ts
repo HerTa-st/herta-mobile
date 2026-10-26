@@ -1,4 +1,5 @@
 export * from "./assets.ts";
+export * from "./openings.ts";
 export * from "./persona.ts";
 export * from "./tags.ts";
 export * from "./supervisor.ts";

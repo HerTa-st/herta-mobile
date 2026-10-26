@@ -104,6 +104,19 @@ body {
 
 .error { color: #e2707a; font-size: 13px; }
 
+.bubble.opening { border-left: 2px solid var(--herta); }
+
+.play {
+  margin-top: 8px;
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--dim);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+}
+
 .note {
   align-self: center;
   color: var(--dim);

@@ -11,7 +11,9 @@ import {
   vetoHints,
   type ChatMessage,
 } from "@herta/core";
+import { listOpenings, pickOpening, type Opening } from "@herta/core";
 import { BrowserAssetSource } from "./assets-browser.ts";
+import { playVoice, stopVoice } from "./voice.ts";
 import { loadPromptCode } from "./prompts.ts";
 import { loadSettings, saveSettings, type Settings } from "./settings.ts";
 import { pickTransport } from "./transport.ts";
@@ -35,9 +37,29 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [opening, setOpening] = useState<Opening | null>(null);
   const abort = useRef<AbortController | null>(null);
 
   useEffect(() => saveSettings(settings), [settings]);
+
+  // 每次打开都是一个新的开场：桌面版也是这个规矩。
+  // 只在挂载时跑一次——重渲染不该让她重说一遍。
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const [a, v] = await Promise.all([assets.promptAssets(), assets.voice()]);
+        const picked = pickOpening(listOpenings(a.openings ?? {}, v));
+        if (alive) setOpening(picked);
+      } catch {
+        /* 素材没进来就不开场，别把启动挡住 */
+      }
+    })();
+    return () => {
+      alive = false;
+      stopVoice();
+    };
+  }, []);
 
   const send = useCallback(async () => {
     const text = draft.trim();
@@ -181,7 +203,17 @@ export function App() {
       )}
 
       <main className="feed">
-        {visible.length === 0 && <p className="empty">她还没开口。说点什么。</p>}
+        {visible.length === 0 && opening && (
+          <article className="bubble herta speech opening">
+            <p>{opening.speech}</p>
+            {opening.audio && (
+              <button className="play" onClick={() => void playVoice(opening.audio as string)}>
+                ▶ 听这一段
+              </button>
+            )}
+          </article>
+        )}
+        {visible.length === 0 && !opening && <p className="empty">她还没开口。说点什么。</p>}
         {visible.map((b, i) =>
           b.kind === "system" ? (
             <p key={i} className="note">{b.body}</p>

@@ -6,3 +6,9 @@ apps/phone/android/
 apps/phone/ios/
 .env
 .npm-cache/
+.gradle-home/
+.gradle-dist/
+apps/phone/android/local.properties
+apps/phone/android/debug.keystore
+build.log
+dist-apk/
