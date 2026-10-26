@@ -7,8 +7,16 @@ import {
   buildStaticPrefix,
   buildVoiceRevisionPrompt,
   cleanVoiceText,
+  consolidateMemories,
   createSession,
   distillSession,
+  effectiveWeight,
+  extractJson,
+  forgetMemories,
+  layoutGraph,
+  nodeRadius,
+  shouldConsolidate,
+  shouldForget,
   decideReview,
   listOpenings,
   memoryTitle,
@@ -68,6 +76,8 @@ export function App() {
   const [importNote, setImportNote] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [viewing, setViewing] = useState<MemoryRecord | null>(null);
+  const [showGraph, setShowGraph] = useState(false);
+  const [maintaining, setMaintaining] = useState<string | null>(null);
   const [shareInput, setShareInput] = useState("");
   const [importBusy, setImportBusy] = useState(false);
   const [distilling, setDistilling] = useState(false);
@@ -433,6 +443,70 @@ export function App() {
     }
   }, [applyBundle, shareInput]);
 
+  /**
+   * 记忆的日常维护：到 20 条整理一次（关联 / 简化 / 加深），到 50 条忘掉最轻的 10 条。
+   * 两个动作都只在跨过阈值时发生，平时什么都不做。
+   */
+  const maintainMemories = useCallback(async () => {
+    if (maintaining) return;
+    try {
+      const state = await memoryStore.state();
+      const records = await memoryStore.list();
+      const active = records.filter((r) => !r.forgotten);
+
+      if (shouldForget(active.length)) {
+        setMaintaining("记忆太多了，正在忘掉最轻的十条…");
+        const victims = await forgetMemories(memoryStore, Date.now());
+        const st = await memoryStore.state();
+        await memoryStore.saveState({
+          ...st,
+          forgottenTotal: (st.forgottenTotal ?? 0) + victims.length,
+          lastNote: "忘掉了 " + victims.length + " 条（最轻的）",
+        });
+      }
+
+      const latest = await memoryStore.state();
+      if (shouldConsolidate(active.length, latest.lastConsolidatedCount ?? null)) {
+        setMaintaining("记忆攒到 " + active.length + " 条了，正在整理…");
+        const code = await loadPromptCode();
+        const out = await consolidateMemories(
+          {
+            store: memoryStore,
+            chat: ({ system, user, maxTokens }) =>
+              collect(
+                transport.stream({
+                  apiKey: settings.apiKey,
+                  baseUrl: settings.baseUrl,
+                  model: settings.model,
+                  messages: [
+                    { role: "system", content: system },
+                    { role: "user", content: user },
+                  ],
+                  maxTokens,
+                })
+              ),
+            now: () => Date.now(),
+          },
+          extractJson
+        );
+        const st = await memoryStore.state();
+        await memoryStore.saveState({
+          ...st,
+          lastConsolidatedCount: active.length,
+          lastNote: "整理了 " + out.touched + " 条：" + out.plan.links.length + " 条关联，" +
+            out.plan.simplify.length + " 条简化，" + out.plan.deepen.length + " 条加深",
+        });
+      }
+
+      setMemories(await memoryStore.list());
+      setDreamState(await memoryStore.state());
+    } catch (e) {
+      setDistillNote("记忆维护没做完：" + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setMaintaining(null);
+    }
+  }, [maintaining, settings.apiKey, settings.baseUrl, settings.model]);
+
   const send = useCallback(async () => {
     const text = draft.trim();
     if (!text || busy || !session) return;
@@ -575,6 +649,37 @@ export function App() {
 
   const blocks = useMemo(() => session?.blocks ?? [], [session]);
 
+  /** 星图：节点=记忆（圆大小=有效权重），边=她自己建立的关联。 */
+  const graph = useMemo(() => {
+    const now = Date.now();
+    const active = memories.filter((m) => !m.forgotten);
+    const nodes = active.map((m) => ({ name: m.name, weight: effectiveWeight(m, now), title: memoryTitle(m) }));
+    const names = new Set(nodes.map((n) => n.name));
+    const edges = [];
+    for (const m of active) {
+      for (const l of m.links ?? []) {
+        if (names.has(l) && m.name < l) edges.push({ a: m.name, b: l });
+      }
+    }
+    const pos = layoutGraph(nodes, edges);
+    const labelled = new Set(
+      [...nodes]
+        .sort((a, b) => b.weight - a.weight)
+        .slice(0, 6)
+        .map((n) => n.name)
+    );
+    return { nodes, edges, pos, labelled };
+  }, [memories]);
+
+  // 记忆跨过阈值就自动整理/遗忘。整理要用模型，没填 Key 就不动。
+  useEffect(() => {
+    if (!settings.apiKey || maintaining || memories.length === 0) return;
+    const active = memories.filter((m) => !m.forgotten).length;
+    if (shouldForget(active) || shouldConsolidate(active, dreamState?.lastConsolidatedCount ?? null)) {
+      void maintainMemories();
+    }
+  }, [memories, dreamState, maintaining, maintainMemories, settings.apiKey]);
+
   // 换了会话：直接落在最新一条，别让人自己找。
   useEffect(() => {
     stickToBottom.current = true;
@@ -633,9 +738,13 @@ export function App() {
 
           <div className="mem">
             <div className="memHead">
-              <span>记忆 {memories.length} 篇</span>
-              {dreamState?.made ? <span className="sm">自己造的 {dreamState.made}</span> : null}
+              <span>记忆 {memories.filter((m) => !m.forgotten).length} 篇</span>
+              {dreamState?.forgottenTotal ? <span className="sm">已忘 {dreamState.forgottenTotal}</span> : null}
+              <button className="mgraph" onClick={() => setShowGraph(true)} disabled={memories.length === 0}>
+                星图
+              </button>
             </div>
+            {maintaining && <p className="memNote">{maintaining}</p>}
             {dreamState?.lastNote && <p className="memNote">{dreamState.lastNote}</p>}
             <button className="dream" onClick={() => void (session && dreamNow(session, true))} disabled={dreaming || distilling}>
               {dreaming ? "她正在想…" : "让她做梦"}
@@ -649,11 +758,16 @@ export function App() {
             </button>
             {distillNote && <p className="memNote">{distillNote}</p>}
             <ul className="memList">
-              {[...memories].reverse().map((m) => (
+              {[...memories]
+                .filter((m) => !m.forgotten)
+                .reverse()
+                .map((m) => (
                 <li key={m.name}>
+                  <span className="mw">{effectiveWeight(m, Date.now()).toFixed(2)}</span>
                   <button className="mt" onClick={() => setViewing(m)} title={memoryTitle(m)}>
                     {memoryTitle(m)}
                   </button>
+                  {(m.links?.length ?? 0) > 0 && <span className="ml">↔{m.links?.length}</span>}
                   <button className="mx" onClick={() => void removeMemory(m.name)} aria-label="删掉这条记忆">
                     ✕
                   </button>
@@ -718,6 +832,52 @@ export function App() {
               </>
             )}
           </div>
+        </div>
+      )}
+
+      {showGraph && (
+        <div className="graph" role="dialog" aria-label="记忆星图">
+          <header className="vh">
+            <span className="vt">记忆星图 · {graph.nodes.length} 条</span>
+            <button className="vx" onClick={() => setShowGraph(false)}>
+              关闭
+            </button>
+          </header>
+          <svg className="gcanvas" viewBox="0 0 1 1" preserveAspectRatio="xMidYMid meet">
+            {graph.edges.map((e, i) => {
+              const p = graph.pos.get(e.a);
+              const q = graph.pos.get(e.b);
+              if (!p || !q) return null;
+              return <line key={"e" + i} x1={p.x} y1={p.y} x2={q.x} y2={q.y} stroke="#5b4a86" strokeWidth={0.0022} />;
+            })}
+            {graph.nodes.map((n) => {
+              const p = graph.pos.get(n.name);
+              if (!p) return null;
+              const r = nodeRadius(n.weight);
+              const rec = memories.find((m) => m.name === n.name);
+              return (
+                <g key={n.name}>
+                  <circle
+                    cx={p.x}
+                    cy={p.y}
+                    r={r}
+                    fill={n.weight > 0.7 ? "#6d4aff" : n.weight > 0.4 ? "#3f6f8f" : "#2a4257"}
+                    stroke="#9a86c8"
+                    strokeWidth={0.0016}
+                    onClick={() => rec && setViewing(rec)}
+                  />
+                  {graph.labelled.has(n.name) && (
+                    <text x={p.x} y={p.y - r - 0.012} fontSize={0.028} fill="#c9c3d6" textAnchor="middle">
+                      {n.title.slice(0, 10)}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
+          </svg>
+          <p className="glegend">
+            圆越大 = 权重越高（越常被想起、越没凉）。线 = 她自己串起来的关联。点圆看全文。
+          </p>
         </div>
       )}
 

@@ -181,6 +181,31 @@ body {
   border-top: 1px solid var(--line);
 }
 .memHead { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--dim); }
+.memHead .mgraph {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--fg);
+  border-radius: 8px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+}
+.memHead .mgraph:disabled { opacity: 0.4; }
+.memList .mw { flex: none; width: 30px; font-size: 10px; color: #6f6880; font-variant-numeric: tabular-nums; }
+.memList .ml { flex: none; font-size: 10px; color: #7b6aa8; }
+
+.graph {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: flex;
+  flex-direction: column;
+  background: #0b0b10;
+  padding: calc(env(safe-area-inset-top) + 10px) 12px calc(env(safe-area-inset-bottom) + 10px);
+}
+.graph .gcanvas { flex: 1; width: 100%; min-height: 0; touch-action: manipulation; }
+.graph .glegend { margin: 8px 0 0; font-size: 12px; color: var(--dim); line-height: 1.6; }
 .memHead .sm { margin-left: auto; font-size: 12px; }
 .memNote { margin: 6px 0 0; font-size: 12px; color: var(--dim); }
 .mem .dream {

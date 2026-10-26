@@ -17,6 +17,15 @@ import { repairFeian } from "../src/feian.ts";
 import { VOICE_HEADING, VOICE_MAX_CHARS, buildVoiceRevisionPrompt, cleanVoiceText } from "../src/voice.ts";
 import { EMPTY_STATE } from "../src/memory.ts";
 import { distillSession, segmentBlocks } from "../src/distill.ts";
+import {
+  effectiveWeight,
+  reinforce,
+  shouldConsolidate,
+  shouldForget,
+  pickForgettable,
+} from "../src/weights.ts";
+import { applyConsolidatePlan, buildConsolidatePrompt, consolidateMemories, forgetMemories, parseConsolidatePlan } from "../src/consolidate.ts";
+import { layoutGraph } from "../src/layout.ts";
 
 /** 桌面版原文抽出来的 196 个函数：复核提示词与分隔符从它注入，不在 core 里重写。 */
 import * as H from "../../../runtime/prompts-code.zh.mjs";
@@ -673,6 +682,159 @@ test("消化：某段写歪了就跳过它，不拖累别的段", async () => {
   assert.equal(out.made.length, 1);
   assert.equal(out.failed, 1);
   assert.equal((await h.store.list()).length, 1);
+});
+
+/* ---------------------------------------------------------------- 权重 */
+
+const DAY = 24 * 60 * 60 * 1000;
+const NOW = Date.parse("2026-10-27T00:00:00Z");
+function mem(name, extra = {}) {
+  return { name, body: "正文", createdAt: "2026-10-27T00:00:00.000Z", ...extra };
+}
+
+test("权重：不动会衰减，90 天掉一半", () => {
+  const r = mem("### 废案_10：a.txt", { weight: 0.8, createdAt: "2026-07-29T00:00:00Z" });
+  const w = effectiveWeight(r, NOW);
+  assert.ok(Math.abs(w - 0.4) < 0.02, "实际 " + w);
+  const fresh = mem("### 废案_10：b.txt", { weight: 0.8 });
+  assert.ok(effectiveWeight(fresh, NOW) > 0.79);
+});
+
+test("权重：被想起一次就变重、刷新时间", () => {
+  const old = mem("### 废案_10：a.txt", { weight: 0.4, lastRecallAt: "2026-01-01T00:00:00Z", recalls: 2 });
+  const after = reinforce(old, NOW);
+  assert.ok(after.weight > old.weight);
+  assert.equal(after.recalls, 3);
+  assert.equal(after.lastRecallAt, new Date(NOW).toISOString());
+  assert.ok(effectiveWeight(after, NOW) > effectiveWeight(old, NOW));
+});
+
+test("阈值：20 条整理一次，50 条遗忘一次", () => {
+  assert.equal(shouldConsolidate(19, null), false);
+  assert.equal(shouldConsolidate(20, null), true);
+  assert.equal(shouldConsolidate(25, 20), false);
+  assert.equal(shouldConsolidate(40, 20), true);
+  assert.equal(shouldForget(49), false);
+  assert.equal(shouldForget(50), true);
+});
+
+test("遗忘：挑权重最低的，但护住语气锚点与高权重", () => {
+  const records = [
+    mem("### 废案_00：锚点.txt", { weight: 0.1 }),
+    mem("### 废案_10：轻.txt", { weight: 0.12 }),
+    mem("### 废案_11：更轻.txt", { weight: 0.05 }),
+    mem("### 废案_12：重.txt", { weight: 0.9 }),
+    mem("### 废案_13：已忘.txt", { weight: 0.01, forgotten: true }),
+  ];
+  const picked = pickForgettable(records, NOW, 10).map((r) => r.name);
+  assert.deepEqual(picked, ["### 废案_11：更轻.txt", "### 废案_10：轻.txt"], "挑错了：" + picked.join(","));
+  assert.ok(!picked.includes("### 废案_00：锚点.txt"), "语气锚点被挑走了");
+  assert.ok(!picked.includes("### 废案_12：重.txt"), "高权重的被挑走了");
+});
+
+/* ---------------------------------------------------------------- 整理 */
+
+test("整理：提示词带文件名与权重，解析时丢掉编造的名字", () => {
+  const records = [mem("### 废案_10：a.txt", { weight: 0.9 }), mem("### 废案_11：b.txt", { weight: 0.2 })];
+  const p = buildConsolidatePrompt(records, NOW);
+  assert.ok(p.user.includes("### 废案_10：a.txt"));
+  assert.ok(p.user.includes("0.90"));
+
+  const plan = parseConsolidatePlan(
+    {
+      links: [["### 废案_10：a.txt", "### 废案_11：b.txt"], ["### 废案_10：a.txt", "编的.txt"], ["### 废案_10：a.txt", "### 废案_10：a.txt"]],
+      simplify: [{ name: "### 废案_11：b.txt", gist: "他嫌我慢" }, { name: "编的", gist: "x" }],
+      deepen: [{ name: "### 废案_10：a.txt", note: "补上那天的天气" }],
+    },
+    new Set(records.map((r) => r.name))
+  );
+  assert.equal(plan.links.length, 1, "编造的或自连的没被丢掉");
+  assert.equal(plan.simplify.length, 1);
+  assert.equal(plan.deepen.length, 1);
+});
+
+test("整理：关联是双向的，简化写要点，加深抬权重", () => {
+  const a = mem("### 废案_10：a.txt", { weight: 0.9 });
+  const b = mem("### 废案_11：b.txt", { weight: 0.2 });
+  const { next, touched } = applyConsolidatePlan(
+    [a, b],
+    {
+      links: [["### 废案_10：a.txt", "### 废案_11：b.txt"]],
+      simplify: [{ name: "### 废案_11：b.txt", gist: "他嫌我慢" }],
+      deepen: [{ name: "### 废案_10：a.txt", note: "补天气" }],
+    },
+    NOW
+  );
+  const na = next.find((r) => r.name === "### 废案_10：a.txt");
+  const nb = next.find((r) => r.name === "### 废案_11：b.txt");
+  assert.deepEqual(na.links, ["### 废案_11：b.txt"]);
+  assert.deepEqual(nb.links, ["### 废案_10：a.txt"]);
+  assert.equal(nb.gist, "他嫌我慢");
+  assert.ok(na.weight > 0.9 - 0.001);
+  assert.equal(na.deepenNote, "补天气");
+  assert.equal(touched, 2);
+});
+
+test("整理：端到端跑一次，落库的是改过的记录", async () => {
+  const store = new MemoryInMemory([
+    mem("### 废案_10：a.txt", { weight: 0.9 }),
+    mem("### 废案_11：b.txt", { weight: 0.2 }),
+  ]);
+  const out = await consolidateMemories(
+    {
+      store,
+      chat: async () =>
+        JSON.stringify({
+          links: [["### 废案_10：a.txt", "### 废案_11：b.txt"]],
+          simplify: [{ name: "### 废案_11：b.txt", gist: "一句要点" }],
+          deepen: [],
+        }),
+      now: () => NOW,
+    },
+    extractJson
+  );
+  assert.equal(out.touched, 2);
+  const list = await store.list();
+  assert.equal(list.find((r) => r.name === "### 废案_11：b.txt").gist, "一句要点");
+});
+
+test("遗忘：标记而不是删除，还能翻出来", async () => {
+  const store = new MemoryInMemory([
+    mem("### 废案_10：轻.txt", { weight: 0.05 }),
+    mem("### 废案_11：重.txt", { weight: 0.95 }),
+  ]);
+  const victims = await forgetMemories(store, NOW, 10);
+  assert.equal(victims.length, 1);
+  assert.equal(victims[0].name, "### 废案_10：轻.txt");
+  const list = await store.list();
+  assert.equal(list.length, 2, "记录被删掉了，应该只是标记");
+  assert.equal(list.find((r) => r.name === "### 废案_10：轻.txt").forgotten, true);
+});
+
+/* ---------------------------------------------------------------- 星图 */
+
+test("星图：坐标落在框内且是确定的", () => {
+  const nodes = Array.from({ length: 12 }, (_, i) => ({ name: "n" + i, weight: 0.3 + i * 0.05 }));
+  const edges = [
+    { a: "n0", b: "n1" },
+    { a: "n1", b: "n2" },
+  ];
+  const a = layoutGraph(nodes, edges);
+  const b = layoutGraph(nodes, edges);
+  for (const [, p] of a) {
+    assert.ok(p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1, "越界：" + JSON.stringify(p));
+    assert.deepEqual(p, b.get([...a.keys()].find((k) => a.get(k) === p)));
+  }
+  assert.deepEqual([...a.entries()], [...b.entries()], "两次布局不一致");
+});
+
+test("星图：有连线的两条比没连线的更近", () => {
+  const nodes = Array.from({ length: 8 }, (_, i) => ({ name: "n" + i, weight: 0.5 }));
+  const pos = layoutGraph(nodes, [{ a: "n0", b: "n1" }], { iterations: 400 });
+  const d = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
+  const linked = d(pos.get("n0"), pos.get("n1"));
+  const unlinked = d(pos.get("n2"), pos.get("n3"));
+  assert.ok(linked < unlinked, "连线没起效：" + linked + " vs " + unlinked);
 });
 
 /* -------------------------------------------------------------- 标签语法 */
