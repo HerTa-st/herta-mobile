@@ -5,13 +5,15 @@ import {
   buildReviewMessages,
   buildStaticPrefix,
   decideReview,
+  listOpenings,
+  parseNarrative,
   parseSupervisorVerdict,
-  parseTagged,
+  pickOpening,
   serializeRecord,
   vetoHints,
   type ChatMessage,
+  type Opening,
 } from "@herta/core";
-import { listOpenings, pickOpening, type Opening } from "@herta/core";
 import { BrowserAssetSource } from "./assets-browser.ts";
 import { playVoice, stopVoice } from "./voice.ts";
 import { loadPromptCode } from "./prompts.ts";
@@ -99,19 +101,21 @@ export function App() {
       let raw = "";
       for await (const piece of transport.stream({ ...base, messages: mainMessages, maxTokens: 2048 })) {
         raw += piece;
-        const live = parseTagged(raw, "speech");
+        const live = parseNarrative(raw).speech;
         if (live) setBlocks([...history, { kind: "herta", surface: "speech", text: live, at: at() }]);
       }
 
-      let thought = parseTagged(raw, "thought");
-      let speech = parseTagged(raw, "speech");
+      let parsed = parseNarrative(raw);
+      let thought = parsed.thought;
+      let speech = parsed.speech;
       const out: Block[] = [...history];
       if (thought) out.push({ kind: "herta", surface: "thought", text: thought, at: at() });
 
       // 第二趟：她自己回头看这句话。这是桌面版最像她的一环。
-      const code = await loadPromptCode();
+      // 关掉开关就整段跳过——连那 766KB 的提示词都不下载。
+      const code = settings.reviewEnabled ? await loadPromptCode() : null;
       const hints = vetoHints(promptAssets.hints, null);
-      for (let attempt = 0; attempt < REVIEW_POLICY.maxRetries; attempt += 1) {
+      for (let attempt = 0; code && attempt < REVIEW_POLICY.maxRetries; attempt += 1) {
         const verdictRaw = await collect(
           transport.stream({
             ...base,
@@ -132,7 +136,12 @@ export function App() {
         const verdict = parseSupervisorVerdict(verdictRaw);
         if (decideReview(verdict, attempt, speech) === "pass") break;
 
-        out.push({ kind: "system", label: "系统", body: "复核打回：" + (verdict.reason ?? ""), at: at() });
+        out.push({
+          kind: "system",
+          label: "系统",
+          body: "她打回了上一句：" + (verdict.reason ?? ""),
+          at: at(),
+        });
         setBlocks([...out, { kind: "herta", surface: "speech", text: speech, at: at() }]);
 
         const redo = await collect(
@@ -142,8 +151,10 @@ export function App() {
             maxTokens: 2048,
           })
         );
-        thought = parseTagged(redo, "thought") || thought;
-        speech = parseTagged(redo, "speech") || speech;
+        const again = parseNarrative(redo);
+        thought = again.thought || thought;
+        // 重说没给出完整的「说」就别拿旧的顶上去——那正是被打回的那句。
+        speech = again.speech || speech;
       }
 
       out.push({ kind: "herta", surface: "speech", text: speech, at: at() });
@@ -198,6 +209,14 @@ export function App() {
               value={settings.contextBlocks}
               onChange={(e) => setSettings({ ...settings, contextBlocks: Number(e.target.value) || 24 })}
             />
+          </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={settings.reviewEnabled}
+              onChange={(e) => setSettings({ ...settings, reviewEnabled: e.target.checked })}
+            />
+            <span>说完先让她自己复核（关掉每轮省一次调用）</span>
           </label>
         </div>
       )}

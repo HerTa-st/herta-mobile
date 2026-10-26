@@ -35,9 +35,7 @@ pwsh -File tools\build-apk.ps1
 ```
 
 产物在 `apps/phone/android/app/build/outputs/apk/debug/app-debug.apk`，
-也会拷一份到 `dist-apk/Herta-mobile-v0.1.0-debug.apk`（6.88 MB）。
-
-当前这一版的指纹：`EBC98E9AB7E51BF2F3D184D21AA77857A35C9E0A1ADD346D84D97E0EED3BF6FA`
+也会拷一份到 `dist-apk/Herta-mobile-v0.1.1-debug.apk`。
 
 脚本会先把依赖缓存指到仓库内 `.gradle-home`，因为这个工作区的沙箱不让写
 gradle 默认的 `G:\gradle-home`（构建会死在 `.lck` 打开的权限上）。

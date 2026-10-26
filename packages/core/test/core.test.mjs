@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { NodeAssetSource } from "../src/assets-node.ts";
 import { buildStaticPrefix, pickSeeds, MOBILE_NOTE, FORMAT_CONTRACT } from "../src/persona.ts";
 import { extractTagged, parseTagged, isPlaceholder, serializeRecord, parseSupervisorVerdict } from "../src/tags.ts";
+import { parseNarrative } from "../src/narrative.ts";
 import { buildReviewMessages, decideReview, vetoHints } from "../src/supervisor.ts";
 import { listOpenings, pickOpening } from "../src/openings.ts";
 
@@ -90,6 +91,42 @@ test("标签：想与说各自成对，内容原样取出", () => {
   assert.equal(extractTagged(raw, "thought"), "这段话他看不见");
   assert.equal(extractTagged(raw, "speech"), "这段话他听得见");
   assert.equal(extractTagged(raw, "speech"), extractTagged(raw, "speech"));
+});
+
+test("拆分：两对标签都在，各归各", () => {
+  const n = parseNarrative("（我 想）\n他没安好心。\n（/我 想）\n\n（我 说）\n说吧。\n（/我 说）");
+  assert.equal(n.thought, "他没安好心。");
+  assert.equal(n.speech, "说吧。");
+  assert.equal(n.tagged, true);
+});
+
+test("拆分：缺「说」的闭合标签时，绝不能把心里话当台词（截图里那个 bug）", () => {
+  const n = parseNarrative("（我 想）\n我好累。\n（/我 想）\n\n（我 说）\n又来一个。");
+  assert.equal(n.thought, "我好累。");
+  assert.equal(n.speech, "又来一个。");
+  assert.ok(!n.speech.includes("我好累"), "心里话漏进台词了");
+  assert.ok(!/[（(]\/?我\s*[想说]/.test(n.speech), "台词里还留着标签");
+});
+
+test("拆分：连「想」的闭合标签都缺，边界落在下一个开标签上", () => {
+  const n = parseNarrative("（我 想）\n甲\n（我 说）\n乙");
+  assert.equal(n.thought, "甲");
+  assert.equal(n.speech, "乙");
+});
+
+test("拆分：光有「想」不给台词——宁可空着让她重说", () => {
+  const n = parseNarrative("（我 想）\n我只是想了一下。\n（/我 想）");
+  assert.equal(n.thought, "我只是想了一下。");
+  assert.equal(n.speech, "");
+});
+
+test("拆分：一对标签都没有时，整段当台词，且标记 tagged=false", () => {
+  const n = parseNarrative("（我 说）废话\n算了直接说。");
+  assert.equal(n.thought, "");
+  assert.equal(n.tagged, true);
+  const bare = parseNarrative("算了直接说。");
+  assert.equal(bare.speech, "算了直接说。");
+  assert.equal(bare.tagged, false);
 });
 
 test("标签：漏标签时剥壳兜底，不整轮作废", () => {

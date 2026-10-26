@@ -6,7 +6,7 @@
  */
 
 import type { VoicePack } from "./assets.ts";
-import { parseTagged } from "./tags.ts";
+import { parseNarrative } from "./narrative.ts";
 
 export interface Opening {
   /** 素材文件名去掉 .txt，也是音频映射的键。 */
@@ -27,10 +27,11 @@ export function listOpenings(openings: Record<string, string>, voice: VoicePack)
   const out: Opening[] = [];
   for (const [file, raw] of Object.entries(openings)) {
     const key = file.replace(/\.txt$/, "");
+    const n = parseNarrative(raw);
     out.push({
       key,
-      thought: parseTagged(raw, "thought"),
-      speech: parseTagged(raw, "speech"),
+      thought: n.thought,
+      speech: n.speech,
       audio: normalizeAudio(voice.openings[key]),
     });
   }
