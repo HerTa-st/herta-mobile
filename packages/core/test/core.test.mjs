@@ -8,6 +8,7 @@ import { extractTagged, parseTagged, isPlaceholder, serializeRecord, parseSuperv
 import { parseNarrative } from "../src/narrative.ts";
 import { buildReviewMessages, decideReview, vetoHints } from "../src/supervisor.ts";
 import { listOpenings, pickOpening } from "../src/openings.ts";
+import { EMPTY_TITLE, appendBlocks, createSession, deriveTitle, retractLastTurn, trimForContext } from "../src/session.ts";
 
 /** 桌面版原文抽出来的 196 个函数：复核提示词与分隔符从它注入，不在 core 里重写。 */
 import * as H from "../../../runtime/prompts-code.zh.mjs";
@@ -84,7 +85,63 @@ test("开局：rng 决定挑哪一篇，且不会挑空", () => {
   assert.equal(pickOpening([], () => 0), null);
 });
 
-/* -------------------------------------------------------------- 标签语法 */
+/* ---------------------------------------------------------------- 会话 */
+
+test("标题：从第一条用户消息取，句末断行，超长加省略号", () => {
+  const b = (text) => [{ kind: "user", text, at: "2026-10-26T00:00:00Z" }];
+  assert.equal(deriveTitle([]), EMPTY_TITLE);
+  assert.equal(deriveTitle(b("在干嘛呀")), "在干嘛呀");
+  assert.equal(deriveTitle(b("你今天怎么这么慢？我等了半天了")), "你今天怎么这么慢？");
+  assert.ok(deriveTitle(b("这是一段特别特别长的没有标点的话说了很多很多字")).endsWith("…"));
+});
+
+test("追加：标题只补一次，时间会推进", () => {
+  const s0 = createSession(new Date("2026-10-26T00:00:00Z"));
+  assert.equal(s0.title, EMPTY_TITLE);
+
+  const s1 = appendBlocks(s0, [{ kind: "user", text: "在吗", at: "2026-10-26T00:00:01Z" }], new Date("2026-10-26T00:00:01Z"));
+  assert.equal(s1.title, "在吗");
+  assert.notEqual(s1.updatedAt, s0.updatedAt);
+
+  const s2 = appendBlocks(s1, [{ kind: "herta", surface: "speech", text: "在。", at: "2026-10-26T00:00:02Z" }]);
+  assert.equal(s2.title, "在吗", "标题被后来的消息改掉了");
+  assert.equal(s2.blocks.length, 2);
+});
+
+test("撤回：从最后一条用户消息起全丢，不留半轮", () => {
+  const s = {
+    id: "x",
+    title: "t",
+    origin: "phone",
+    createdAt: "",
+    updatedAt: "",
+    blocks: [
+      { kind: "user", text: "一", at: "" },
+      { kind: "herta", surface: "speech", text: "一答", at: "" },
+      { kind: "user", text: "二", at: "" },
+      { kind: "herta", surface: "thought", text: "二想", at: "" },
+      { kind: "herta", surface: "speech", text: "二答", at: "" },
+    ],
+  };
+  const r = retractLastTurn(s);
+  assert.equal(r.blocks.length, 2);
+  assert.equal(retractLastTurn({ ...r, blocks: [] }).blocks.length, 0);
+});
+
+test("上下文截断：切在整轮边界，不会从她的话中间开始", () => {
+  const blocks = [];
+  for (let i = 0; i < 5; i += 1) {
+    blocks.push({ kind: "user", text: "u" + i, at: "" });
+    blocks.push({ kind: "herta", surface: "speech", text: "a" + i, at: "" });
+    blocks.push({ kind: "herta", surface: "thought", text: "t" + i, at: "" });
+  }
+  const got = trimForContext(blocks, 4);
+  assert.equal(got[0].kind, "user", "截断点落在了非用户消息上");
+  // 往前找轮边界会多带几条——这是有意的：宁可多喂一轮，不可从她话中间开始。
+  assert.ok(got.length >= 4 && got.length <= 6, "长度失控了：" + got.length);
+  assert.deepEqual(got[got.length - 1], blocks[blocks.length - 1], "末尾被截掉了");
+  assert.deepEqual(trimForContext(blocks, 0), blocks, "maxBlocks=0 应当原样返回");
+});
 
 test("标签：想与说各自成对，内容原样取出", () => {
   const raw = "（我 想）\n这段话他看不见\n（/我 想）\n\n（我 说）\n这段话他听得见\n（/我 说）";
