@@ -16,6 +16,7 @@ import { parseSharedConversation, shareIdFromInput } from "../src/share.ts";
 import { repairFeian } from "../src/feian.ts";
 import { VOICE_HEADING, VOICE_MAX_CHARS, buildVoiceRevisionPrompt, cleanVoiceText } from "../src/voice.ts";
 import { EMPTY_STATE } from "../src/memory.ts";
+import { distillSession, segmentBlocks } from "../src/distill.ts";
 
 /** 桌面版原文抽出来的 196 个函数：复核提示词与分隔符从它注入，不在 core 里重写。 */
 import * as H from "../../../runtime/prompts-code.zh.mjs";
@@ -607,6 +608,73 @@ test("做梦：攒够三篇才让她重写语气，写出来的进 state.voice",
   assert.equal(st.made, 3);
   assert.ok(st.lastNote.includes("改了自己说话的方式"));
 });
+/* ---------------------------------------------------------------- 消化 */
+
+test("消化：按用户发言切段，每段都以开拓者开口开头", () => {
+  const blocks = [];
+  for (let i = 0; i < 6; i += 1) {
+    blocks.push({ kind: "user", text: "u" + i, at: "" });
+    blocks.push({ kind: "herta", surface: "speech", text: "a" + i, at: "" });
+  }
+  const g = segmentBlocks(blocks, 3, 2);
+  assert.equal(g.length, 3);
+  for (const seg of g) assert.equal(seg[0].kind, "user", "切在了她的半句话上");
+  assert.equal(g.flat().length, blocks.length, "丢块了");
+});
+
+test("消化：段数不会超过实际轮数，短尾并进上一段", () => {
+  const one = [{ kind: "user", text: "只有一句", at: "" }];
+  assert.equal(segmentBlocks(one, 8, 2).length, 1);
+  assert.equal(segmentBlocks([], 8).length, 0);
+});
+
+test("消化：每段落一则记忆，末尾只重写一次语气", async () => {
+  const GOOD2 = "### 废案_11：第二篇\n\n那天又聊了一次。\n\n---\n\n（我 说）\n又来。\n（/我 说）";
+  const h = dreamHarness({
+    replies: [
+      JSON.stringify({ feian: GOOD, situationTag: "被嫌慢" }),
+      JSON.stringify({ feian: GOOD2, situationTag: "又来一次" }),
+    ],
+  });
+  let voiceCalls = 0;
+  h.deps.reviseVoice = async () => {
+    voiceCalls += 1;
+    return "我说话很短。";
+  };
+  const progress = [];
+  const out = await distillSession(h.deps, {
+    sessionId: "s1",
+    blocks: SIX_BLOCKS,
+    config: { chunks: 2, minBlocksPerChunk: 1 },
+  }, (done, total, note) => progress.push([done, total, note]));
+
+  assert.equal(out.made.length, 2);
+  assert.equal(out.failed, 0);
+  assert.equal(voiceCalls, 1, "语气应当只重写一次，实际 " + voiceCalls);
+  const list = await h.store.list();
+  assert.equal(list.length, 2);
+  assert.ok(list.every((r) => r.sessionId === "s1"));
+  assert.ok((await h.store.state()).voice?.text.includes("我说话很短"));
+  assert.ok(progress.length >= 2);
+});
+
+test("消化：某段写歪了就跳过它，不拖累别的段", async () => {
+  const h = dreamHarness({
+    replies: [
+      JSON.stringify({ feian: "现在不想写", situationTag: "坏的" }),
+      JSON.stringify({ feian: GOOD, situationTag: "好的" }),
+    ],
+  });
+  const out = await distillSession(h.deps, {
+    sessionId: "s1",
+    blocks: SIX_BLOCKS,
+    config: { chunks: 2, minBlocksPerChunk: 1 },
+  });
+  assert.equal(out.made.length, 1);
+  assert.equal(out.failed, 1);
+  assert.equal((await h.store.list()).length, 1);
+});
+
 /* -------------------------------------------------------------- 标签语法 */
 test("标签：想与说各自成对，内容原样取出", () => {
   const raw = "（我 想）\n这段话他看不见\n（/我 想）\n\n（我 说）\n这段话他听得见\n（/我 说）";

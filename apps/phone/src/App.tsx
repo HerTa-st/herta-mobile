@@ -8,6 +8,7 @@ import {
   buildVoiceRevisionPrompt,
   cleanVoiceText,
   createSession,
+  distillSession,
   decideReview,
   listOpenings,
   memoryTitle,
@@ -69,6 +70,9 @@ export function App() {
   const [viewing, setViewing] = useState<MemoryRecord | null>(null);
   const [shareInput, setShareInput] = useState("");
   const [importBusy, setImportBusy] = useState(false);
+  const [distilling, setDistilling] = useState(false);
+  const [distillNote, setDistillNote] = useState<string | null>(null);
+  const distillingRef = useRef(false);
   const abort = useRef<AbortController | null>(null);
   const dreamingRef = useRef(false);
   const feedRef = useRef<HTMLElement | null>(null);
@@ -223,6 +227,27 @@ export function App() {
     [refreshList]
   );
 
+  /** 语气重写：读她最近的记忆，写一段「我说话是什么样」。做梦和消化共用这一个实现。 */
+  const reviseVoiceImpl = useCallback(
+    async (records: MemoryRecord[], previous: string | null) => {
+      const { system, user } = buildVoiceRevisionPrompt(records, previous);
+      const raw = await collect(
+        transport.stream({
+          apiKey: settings.apiKey,
+          baseUrl: settings.baseUrl,
+          model: settings.model,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          maxTokens: 800,
+        })
+      );
+      return cleanVoiceText(raw);
+    },
+    [settings.apiKey, settings.baseUrl, settings.model]
+  );
+
   /**
    * 做梦。`force` 是手动点按钮时给的：绕过"材料够不够 / 隔了多久"两道门槛，
    * 但拦不住"值不值得记"——那道门是她自己的判断，不该被按钮跳过。
@@ -241,22 +266,7 @@ export function App() {
             prompts: code,
             scene: { env: promptAssets.envSet, lang: "zh" },
         // 攒够记忆就让她重读自己、重写语气笔记——这是"语气会变"的唯一来源
-        reviseVoice: async (records, previous) => {
-          const { system, user } = buildVoiceRevisionPrompt(records, previous);
-          const raw = await collect(
-            transport.stream({
-              apiKey: settings.apiKey,
-              baseUrl: settings.baseUrl,
-              model: settings.model,
-              messages: [
-                { role: "system", content: system },
-                { role: "user", content: user },
-              ],
-              maxTokens: 800,
-            })
-          );
-          return cleanVoiceText(raw);
-        },
+        reviseVoice: reviseVoiceImpl,
             chat: ({ system, user, maxTokens }) =>
               collect(
                 transport.stream({
@@ -291,7 +301,73 @@ export function App() {
         setDreaming(false);
       }
     },
-    [settings.apiKey, settings.baseUrl, settings.model]
+    [reviseVoiceImpl, settings.apiKey, settings.baseUrl, settings.model]
+  );
+
+  /**
+   * 把一整段长对话消化成记忆。
+   * 与做梦的区别：不问她"值不值得记"——你已经明确说了要记，那道门就不该拦。
+   */
+  const distillNow = useCallback(
+    async (target: Session) => {
+      if (distillingRef.current || !settings.apiKey) return;
+      if (target.blocks.length < 12) {
+        setDistillNote("这段太短了，直接点「让她做梦」就行。");
+        return;
+      }
+      distillingRef.current = true;
+      setDistilling(true);
+      setDistillNote("开始整理…");
+      try {
+        const [promptAssets, code] = await Promise.all([assets.promptAssets(), loadPromptCode()]);
+        const chunks = Math.min(12, Math.max(2, Math.round(target.blocks.length / 40)));
+        const out = await distillSession(
+          {
+            store: memoryStore,
+            prompts: code,
+            scene: { env: promptAssets.envSet, lang: "zh" },
+            chat: ({ system, user, maxTokens }) =>
+              collect(
+                transport.stream({
+                  apiKey: settings.apiKey,
+                  baseUrl: settings.baseUrl,
+                  model: settings.model,
+                  messages: system
+                    ? [
+                        { role: "system", content: system },
+                        { role: "user", content: user },
+                      ]
+                    : [{ role: "user", content: user }],
+                  maxTokens,
+                })
+              ),
+            now: () => Date.now(),
+            reviseVoice: reviseVoiceImpl,
+          },
+          {
+            sessionId: target.id,
+            blocks: target.blocks,
+            config: { chunks, minBlocksPerChunk: 6 },
+          },
+          (done, total, note) => setDistillNote(note + "（" + done + "/" + total + "）")
+        );
+        setMemories(await memoryStore.list());
+        setDreamState(await memoryStore.state());
+        setDistillNote(
+          "整理完了：写了 " +
+            out.made.length +
+            " 则记忆" +
+            (out.failed ? "，" + out.failed + " 段没写成" : "") +
+            (out.voiceUpdated ? "，语气笔记也重写了" : "")
+        );
+      } catch (e) {
+        setDistillNote("没整理成：" + (e instanceof Error ? e.message : String(e)));
+      } finally {
+        distillingRef.current = false;
+        setDistilling(false);
+      }
+    },
+    [reviseVoiceImpl, settings.apiKey, settings.baseUrl, settings.model]
   );
 
   /** 真正落库：去重 → 只写新的。永远不覆盖已有会话。 */
@@ -561,9 +637,17 @@ export function App() {
               {dreamState?.made ? <span className="sm">自己造的 {dreamState.made}</span> : null}
             </div>
             {dreamState?.lastNote && <p className="memNote">{dreamState.lastNote}</p>}
-            <button className="dream" onClick={() => void (session && dreamNow(session, true))} disabled={dreaming}>
+            <button className="dream" onClick={() => void (session && dreamNow(session, true))} disabled={dreaming || distilling}>
               {dreaming ? "她正在想…" : "让她做梦"}
             </button>
+            <button
+              className="dream"
+              onClick={() => void (session && distillNow(session))}
+              disabled={dreaming || distilling || (session?.blocks.length ?? 0) < 12}
+            >
+              {distilling ? "正在整理这段对话…" : "把这段对话整理成记忆"}
+            </button>
+            {distillNote && <p className="memNote">{distillNote}</p>}
             <ul className="memList">
               {[...memories].reverse().map((m) => (
                 <li key={m.name}>
