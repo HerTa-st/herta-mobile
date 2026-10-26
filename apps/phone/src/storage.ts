@@ -101,6 +101,13 @@ export async function deleteSession(id: string): Promise<void> {
 
 /* -------------------------------------------------------------- 表情库 */
 
+/** 清空全部本地数据。纯净版第一次启动时用——它要"什么都不带"。 */
+export async function clearAll(): Promise<void> {
+  for (const store of [STORE_SESSIONS, STORE_MEMORIES, STORE_KV, STORE_STICKERS]) {
+    await tx(store, "readwrite", (s) => s.clear());
+  }
+}
+
 export async function listStickers(): Promise<StickerRecord[]> {
   const all = (await tx<StickerRecord[]>(STORE_STICKERS, "readonly", (s) => s.getAll() as IDBRequest<StickerRecord[]>)) ?? [];
   return all.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));

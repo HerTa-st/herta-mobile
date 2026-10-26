@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "build:pure": "vite build --mode pure",
     "build": "vite build",
     "preview": "vite preview",
     "sync": "cap sync android"
