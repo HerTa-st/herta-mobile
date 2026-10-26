@@ -18,7 +18,7 @@ export function SettingsSheet({
   fileNames: string[];
   onFile(file: File): void;
   stickers: StickerRecord[];
-  onAddStickers(files: FileList): void;
+  onAddStickers(files: File[]): void;
   onRemoveSticker(id: string): void;
 }) {
   return (
@@ -142,9 +142,11 @@ export function SettingsSheet({
           accept="image/*"
           multiple
           onChange={(e) => {
-            const files = e.target.files;
+            // 必须先取快照：把 value 清空会把 e.target.files 一起清掉，
+            // 于是"选了图但没加进去"——上一版就栽在这。
+            const picked = Array.from(e.target.files ?? []);
             e.target.value = "";
-            if (files && files.length > 0) onAddStickers(files);
+            if (picked.length > 0) onAddStickers(picked);
           }}
         />
       </label>

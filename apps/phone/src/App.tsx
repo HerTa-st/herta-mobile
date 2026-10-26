@@ -384,8 +384,8 @@ export function App() {
   }, []);
 
   /** 往表情库里加图：压到 512，文件名当标签。 */
-  const addStickers = useCallback(async (files: FileList) => {
-    for (const file of Array.from(files)) {
+  const addStickers = useCallback(async (files: File[]) => {
+    for (const file of files) {
       try {
         const { dataUrl, mediaType } = await compressImage(file, 512, 0.85);
         await putSticker({
