@@ -66,6 +66,7 @@ export function App() {
   const [importText, setImportText] = useState("");
   const [importNote, setImportNote] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  const [viewing, setViewing] = useState<MemoryRecord | null>(null);
   const [shareInput, setShareInput] = useState("");
   const [importBusy, setImportBusy] = useState(false);
   const abort = useRef<AbortController | null>(null);
@@ -566,7 +567,9 @@ export function App() {
             <ul className="memList">
               {[...memories].reverse().map((m) => (
                 <li key={m.name}>
-                  <span className="mt">{memoryTitle(m)}</span>
+                  <button className="mt" onClick={() => setViewing(m)} title={memoryTitle(m)}>
+                    {memoryTitle(m)}
+                  </button>
                   <button className="mx" onClick={() => void removeMemory(m.name)} aria-label="删掉这条记忆">
                     ✕
                   </button>
@@ -631,6 +634,35 @@ export function App() {
               </>
             )}
           </div>
+        </div>
+      )}
+
+      {viewing && (
+        <div className="viewer" role="dialog" aria-label="记忆全文">
+          <header className="vh">
+            <span className="vt">{memoryTitle(viewing)}</span>
+            <button className="vx" onClick={() => setViewing(null)}>
+              关闭
+            </button>
+          </header>
+          <p className="vmeta">
+            {viewing.createdAt ? new Date(viewing.createdAt).toLocaleDateString("zh-CN") : "更早"}
+            {viewing.sessionId ? " · 从对话里长出来的" : " · 自带的种子"}
+            {viewing.tag ? " · " + viewing.tag : ""}
+          </p>
+          <pre className="vbody">{viewing.body}</pre>
+          <footer className="vf">
+            <button
+              className="vdel"
+              onClick={() => {
+                const name = viewing.name;
+                setViewing(null);
+                void removeMemory(name);
+              }}
+            >
+              删掉这条
+            </button>
+          </footer>
         </div>
       )}
 

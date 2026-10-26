@@ -214,6 +214,72 @@ body {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+.memList .mt {
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+}
+
+.viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  background: #0e0d14;
+  padding: calc(env(safe-area-inset-top) + 10px) 14px calc(env(safe-area-inset-bottom) + 10px);
+}
+.viewer .vh {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.viewer .vt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+.viewer .vx {
+  flex: none;
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--dim);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 13px;
+}
+.viewer .vmeta { margin: 8px 0 0; font-size: 12px; color: var(--dim); }
+.viewer .vbody {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 10px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--fg);
+}
+.viewer .vf { padding-top: 10px; border-top: 1px solid var(--line); }
+.viewer .vdel {
+  width: 100%;
+  background: none;
+  border: 1px solid #3a2430;
+  color: #d98a99;
+  border-radius: 10px;
+  padding: 10px;
+  font: inherit;
+}
+
 .memList .mx {
   flex: none;
   background: none;
