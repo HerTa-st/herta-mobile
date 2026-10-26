@@ -33,7 +33,17 @@ import { MemoryGraph } from "./MemoryGraph.tsx";
 import { collect } from "./stream.ts";
 import { buildTools } from "./devtools.ts";
 import { IdbMemoryStore } from "./memory-idb.ts";
-import { deleteSession, listSessions, loadSession, putSession, type SessionMeta } from "./storage.ts";
+import {
+  deleteSession,
+  deleteSticker,
+  listSessions,
+  listStickers,
+  loadSession,
+  putSession,
+  putSticker,
+  type SessionMeta,
+  type StickerRecord,
+} from "./storage.ts";
 import { loadSettings, saveSettings, type Settings } from "./settings.ts";
 import { pickTransport } from "./transport.ts";
 import { loadPromptCode } from "./prompts.ts";
@@ -77,6 +87,7 @@ export function App() {
     null
   );
   const [imageBusy, setImageBusy] = useState(false);
+  const [stickers, setStickers] = useState<StickerRecord[]>([]);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [viewing, setViewing] = useState<MemoryRecord | null>(null);
   const [showGraph, setShowGraph] = useState(false);
@@ -135,6 +146,7 @@ export function App() {
           localStorage.setItem("herta.seeded.v1", "1");
         }
         if (alive) await refreshMemories();
+        if (alive) setStickers(await listStickers());
 
         const list = await listSessions();
         if (!alive) return;
@@ -239,6 +251,7 @@ export function App() {
     memories,
     dreamState,
     files: filesRef.current,
+    stickers,
     onError: setError,
     onNeedKey: () => setShowSettings(true),
   });
@@ -367,6 +380,31 @@ export function App() {
     return () => clearTimeout(t);
     // 只在挂载时排一次：这是"刚打开"的那一次，不该因为换会话重排
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** 往表情库里加图：压到 512，文件名当标签。 */
+  const addStickers = useCallback(async (files: FileList) => {
+    for (const file of Array.from(files)) {
+      try {
+        const { dataUrl, mediaType } = await compressImage(file, 512, 0.85);
+        await putSticker({
+          id: crypto.randomUUID(),
+          name: file.name.replace(/\.[^.]+$/, ""),
+          tags: [],
+          data: dataUrl,
+          mediaType,
+          createdAt: new Date().toISOString(),
+        });
+      } catch (e) {
+        setError("这张表情没加进去：" + (e instanceof Error ? e.message : String(e)));
+      }
+    }
+    setStickers(await listStickers());
+  }, []);
+
+  const removeSticker = useCallback(async (id: string) => {
+    await deleteSticker(id);
+    setStickers(await listStickers());
   }, []);
 
   const runImport = useCallback(async () => {
@@ -598,6 +636,9 @@ export function App() {
           onChange={(patch) => setSettings({ ...settings, ...patch })}
           mood={mood}
           fileNames={fileNames}
+          stickers={stickers}
+          onAddStickers={(files) => void addStickers(files)}
+          onRemoveSticker={(id) => void removeSticker(id)}
           onFile={(file) => {
             void file.text().then((text) => {
               filesRef.current.set(file.name, text);
@@ -629,6 +670,9 @@ export function App() {
             <article key={i} data-idx={i} className={"bubble " + b.kind + (b.kind === "herta" ? " " + b.surface : "")}>
               {b.kind === "user" && b.attachments && b.attachments.length > 0 && (
                 <img className="shot" src={b.attachments[0].data} alt={b.attachments[0].name ?? "图"} />
+              )}
+              {b.kind === "herta" && b.attachments && b.attachments.length > 0 && (
+                <img className="sticker" src={b.attachments[0].data} alt={b.attachments[0].name ?? "表情"} />
               )}
               {b.kind === "herta" && b.surface === "thought" ? (
                 <details>

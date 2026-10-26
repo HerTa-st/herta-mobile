@@ -18,6 +18,8 @@ export interface Settings {
   autoDream: boolean;
   /** 看图用的视觉模型。留空 = 不做图片识别（仍然能发图，只是她看不见内容）。 */
   visionModel: string;
+  /** 允许她翻你的相册。默认关——这是隐私开关，得你自己打开。 */
+  albumEnabled: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -30,6 +32,7 @@ export const DEFAULT_SETTINGS: Settings = {
   moodEnabled: true,
   autoDream: true,
   visionModel: "",
+  albumEnabled: false,
 };
 
 const KEY = "herta.settings.v1";
