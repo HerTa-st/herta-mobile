@@ -13,6 +13,7 @@ import { MemoryInMemory, memoryFileName, memoryTitle, nextMemoryIndex } from "..
 import { extractJson, runDreamPass } from "../src/dream.ts";
 import { importSessionId, parseImportBundle, planImport, sessionFromImport } from "../src/import.ts";
 import { parseSharedConversation, shareIdFromInput } from "../src/share.ts";
+import { repairFeian } from "../src/feian.ts";
 
 /** 桌面版原文抽出来的 196 个函数：复核提示词与分隔符从它注入，不在 core 里重写。 */
 import * as H from "../../../runtime/prompts-code.zh.mjs";
@@ -250,7 +251,8 @@ test("做梦：值得记且一次过 → 落成废案，编号接着排", async 
 });
 
 test("做梦：格式不合格 → 改一遍后过", async () => {
-  const BAD = "### 废案_10：没分隔线\n\n（我 说）\n少了一根线。\n（/我 说）";
+  // 故意缺「说」那一轨——这是机械修不了的，必须走"改一遍"
+  const BAD = "### 废案_10：只有背景\n\n那天什么事都没发生。\n\n---";
   const h = dreamHarness({
     replies: [
       '{"worthy": true}',
@@ -261,14 +263,14 @@ test("做梦：格式不合格 → 改一遍后过", async () => {
   });
   const out = await runDreamPass(h.deps, { sessionId: "s1", blocks: SIX_BLOCKS });
   assert.equal(out.kind, "made");
-  assert.ok(h.calls[3].includes("missing --- separator"), "改写提示词里没带上具体问题");
+  assert.ok(h.calls.length >= 4, "没走到改一遍：调用次数 " + h.calls.length);
 });
 
 test("做梦：改完还是不合格 → 记失败，游标照样前进", async () => {
   const h = dreamHarness({
     replies: [
       '{"worthy": true}',
-      JSON.stringify({ feian: "### 废案_10：坏的\n\n（我 说）\n没线。\n（/我 说）" }),
+      JSON.stringify({ feian: "### 废案_10：坏的\n\n---\n\n只有背景没有台词" }),
       '{"voice": 0.9, "faithfulness": 0.9, "fixes": []}',
       JSON.stringify({ feian: "还是坏的" }),
     ],
@@ -331,6 +333,30 @@ test("做梦：真实建造函数的返回形状是两条消息（422 那次的�
   assert.equal(typeof refine.systemPrompt, "string");
 });
 
+test("做梦：首稿只是格式不对 → 机械修好，照样记住（不再白丢一段记忆）", async () => {
+  const BAD_HEADER = "那天他嫌我慢。\n\n---\n\n（我 说）\n慢是你没算过这堆数据的体量。\n（/我 说）";
+  const h = dreamHarness({
+    replies: [
+      '{"worthy": true}',
+      JSON.stringify({ feian: BAD_HEADER, situationTag: "被嫌慢" }),
+      '{"voice": 0.9, "faithfulness": 0.9, "fixes": []}',
+    ],
+  });
+  // 这条测试要真的按规矩查首行，不能用宽松的假校验
+  h.deps.prompts.validateFeian = (text) => {
+    if (!/^### 废案_\d+：\S/.test(text.trimStart().split("\n")[0])) return { ok: false, errors: ["bad header"] };
+    if (!/^\s*---\s*$/m.test(text)) return { ok: false, errors: ["missing --- separator"] };
+    if (!text.includes("（我 说）")) return { ok: false, errors: ["missing speech"] };
+    return { ok: true };
+  };
+
+  const out = await runDreamPass(h.deps, { sessionId: "s1", blocks: SIX_BLOCKS });
+  assert.equal(out.kind, "made");
+  assert.equal(h.calls.length, 3, "格式问题不该触发第四次调用：实际 " + h.calls.length);
+  const list = await h.store.list();
+  assert.ok(list.some((r) => r.sessionId === "s1"));
+  assert.ok((await h.store.state()).lastNote.includes("格式我修了一下"));
+});
 test("做梦：模型把 JSON 包在代码块里也认得出来", () => {
   assert.deepEqual(extractJson("```json\n{\"worthy\": true}\n```"), { worthy: true });
   assert.deepEqual(extractJson("前言\n{\"a\":1}\n后记"), { a: 1 });
@@ -482,6 +508,36 @@ test("分享：空壳/坏链接要明确拒绝", () => {
   assert.match(parseSharedConversation(shareJson([])).error, /没有对话/);
   const empty = shareJson([{ message_id: 1, parent_id: null, role: "USER", fragments: [] }]);
   assert.equal(parseSharedConversation(empty).ok, false);
+});
+
+/* ------------------------------------------------------------ 废案格式修复 */
+
+test("修格式：没有首行就补一个，正文一字不动", () => {
+  const r = repairFeian("那天他嫌我慢。\n\n---\n\n（我 说）\n慢是你没算过。\n（/我 说）", 7, "慢与体量");
+  assert.equal(r.changed, true);
+  assert.ok(r.text.startsWith("### 废案_07：慢与体量"));
+  assert.ok(r.text.includes("（我 说）\n慢是你没算过。"));
+});
+
+test("修格式：首行写法不对就按规矩重写，标题从原行里抽", () => {
+  const bad = "## 废案 12 凉掉的茶\n\n正文\n\n---\n\n（我 说）\n在。\n（/我 说）";
+  const r = repairFeian(bad, 12, "兜底");
+  assert.equal(r.changed, true);
+  assert.ok(r.text.split("\n")[0].startsWith("### 废案_12："), "首行：" + r.text.split("\n")[0]);
+});
+
+test("修格式：少了分隔线就补在首段之后", () => {
+  const noSep = "### 废案_03：无题\n\n那天的对话。\n\n（我 说）\n在。\n（/我 说）";
+  const r = repairFeian(noSep, 3, "无题");
+  assert.equal(r.changed, true);
+  assert.ok(r.text.includes("那天的对话。\n\n---"), "分隔线没落在首段之后：\n" + r.text);
+});
+
+test("修格式：本来合规就一个字都不改", () => {
+  const good = "### 废案_04：旧事\n\n正文。\n\n---\n\n（我 说）\n在。\n（/我 说）";
+  const r = repairFeian(good, 4, "旧事");
+  assert.equal(r.changed, false);
+  assert.equal(r.text, good);
 });
 
 /* -------------------------------------------------------------- 标签语法 */

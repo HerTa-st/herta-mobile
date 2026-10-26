@@ -23,6 +23,8 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
+  /* 抽屉/浮层里的内容不许溢到对话区上——手机上冲出去一截会很难看 */
+  overflow: hidden;
   padding-top: env(safe-area-inset-top);
   padding-bottom: env(safe-area-inset-bottom);
 }
@@ -126,10 +128,14 @@ body {
 }
 
 .drawer {
+  flex: none;
+  position: relative;
+  z-index: 5;
   border-bottom: 1px solid var(--line);
   background: #12111a;
   max-height: 46vh;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 10px 12px;
 }
 .drawer .new {
