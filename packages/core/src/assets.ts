@@ -13,8 +13,10 @@ export interface PromptAssets {
   hertaBio: string;
   /** 办公室设定（envSet）。 */
   envSet: string;
-  /** 引导语（hertaGuide）。 */
-  hertaGuide: string;
+  /**
+   * 语气指南是桌面版的固定文本。**这个版本不再打包它**——
+   * 她的语气改由自己攒的笔记决定（见 voice.ts），会随长期聊天变化。
+   */
   /** 21 条输出话术：phase2_thought、supervisor_veto 等，按 key 取。 */
   hints: Record<string, string>;
   /** 八种心情各自的 preThink / preSpeak 基线。 */

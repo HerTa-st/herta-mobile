@@ -14,6 +14,8 @@ import { extractJson, runDreamPass } from "../src/dream.ts";
 import { importSessionId, parseImportBundle, planImport, sessionFromImport } from "../src/import.ts";
 import { parseSharedConversation, shareIdFromInput } from "../src/share.ts";
 import { repairFeian } from "../src/feian.ts";
+import { VOICE_HEADING, VOICE_MAX_CHARS, buildVoiceRevisionPrompt, cleanVoiceText } from "../src/voice.ts";
+import { EMPTY_STATE } from "../src/memory.ts";
 
 /** 桌面版原文抽出来的 196 个函数：复核提示词与分隔符从它注入，不在 core 里重写。 */
 import * as H from "../../../runtime/prompts-code.zh.mjs";
@@ -322,14 +324,14 @@ test("做梦：真实建造函数的返回形状是两条消息（422 那次的�
   assert.ok(worth.systemPrompt.length > 1000, "系统段太短");
   assert.ok(worth.userPayload.includes("在吗"), "用户段没带上对话摘录");
 
-  const gen = H.buildGenerationPrompt("摘要", [], [], a.hertaGuide, a.envSet, "zh");
+  const gen = H.buildGenerationPrompt("摘要", [], [], "", a.envSet, "zh");
   assert.equal(typeof gen.systemPrompt, "string");
   assert.equal(typeof gen.userPayload, "string");
 
-  const critique = H.buildCritiquePrompt("### 废案_01：x\n\n---\n\n（我 说）\n在。\n（/我 说）", a.hertaGuide, "zh");
+  const critique = H.buildCritiquePrompt("### 废案_01：x\n\n---\n\n（我 说）\n在。\n（/我 说）", "", "zh");
   assert.equal(typeof critique.systemPrompt, "string");
 
-  const refine = H.buildRefinePrompt("草稿", ["缺分隔线"], a.hertaGuide, "zh");
+  const refine = H.buildRefinePrompt("草稿", ["缺分隔线"], "", "zh");
   assert.equal(typeof refine.systemPrompt, "string");
 });
 
@@ -540,6 +542,70 @@ test("修格式：本来合规就一个字都不改", () => {
   assert.equal(r.text, good);
 });
 
+/* ---------------------------------------------------------------- 语气笔记 */
+
+test("语气笔记：清掉标题/列表符号/引号，长句截在句号上", () => {
+  const raw = "# 我说话的方式\n- 句子短。\n- 不耐烦就直接说。\n";
+  const t = cleanVoiceText(raw);
+  assert.ok(!t.includes("#"), "标题没清掉");
+  assert.ok(!t.includes("- "), "列表符号没清掉");
+  assert.ok(t.includes("句子短。"));
+
+  const long = "啊".repeat(300) + "。" + "呀".repeat(300) + "。";
+  const cut = cleanVoiceText(long);
+  assert.ok(cut.length <= VOICE_MAX_CHARS, "没截到上限：" + cut.length);
+  assert.ok(cut.endsWith("。"), "截在了半句上");
+});
+
+test("语气修订提示词：带上记忆样本与上一版笔记，且不许它输出结构标记", () => {
+  const mem = [{ name: "### 废案_01：凉茶.txt", body: "正文一", createdAt: "" }];
+  const p = buildVoiceRevisionPrompt(mem, "以前写的");
+  assert.ok(p.user.includes("正文一"));
+  assert.ok(p.user.includes("以前写的"));
+  assert.ok(p.system.includes("第一人称"));
+  assert.ok(p.system.includes("不要标题"));
+  const empty = buildVoiceRevisionPrompt(mem, null);
+  assert.ok(empty.user.includes("还没有写过"));
+});
+
+test("人格装配：语气笔记插在设定之后、处境之前", async () => {
+  const a = await src.promptAssets();
+  const prefix = buildStaticPrefix({ assets: a, seeds: [], voiceText: "我说话很短。" });
+  const iVoice = prefix.indexOf(VOICE_HEADING);
+  assert.ok(iVoice > 0, "语气段没插进去");
+  assert.ok(iVoice > prefix.indexOf(a.envSet), "不该排在设定前面");
+  assert.ok(iVoice < prefix.indexOf(MOBILE_NOTE), "不该排在处境后面");
+  assert.ok(prefix.includes("我说话很短。"));
+
+  const without = buildStaticPrefix({ assets: a, seeds: [] });
+  assert.ok(!without.includes(VOICE_HEADING), "没笔记时不该留空标题");
+});
+
+test("做梦：攒够三篇才让她重写语气，写出来的进 state.voice", async () => {
+  let asked = 0;
+  const h = dreamHarness({
+    replies: [
+      '{"worthy": true}',
+      JSON.stringify({ feian: GOOD, situationTag: "t" }),
+      '{"voice": 0.9, "faithfulness": 0.9, "fixes": []}',
+    ],
+  });
+  h.deps.reviseVoice = async (records, prev) => {
+    asked += 1;
+    assert.ok(records.length >= 1);
+    assert.equal(prev, null);
+    return "我说话很短。";
+  };
+  await h.store.saveState({ ...EMPTY_STATE, cursors: {}, made: 2, voice: null });
+
+  const out = await runDreamPass(h.deps, { sessionId: "s1", blocks: SIX_BLOCKS });
+  assert.equal(out.kind, "made");
+  assert.equal(asked, 1, "第三篇时没触发语气重写");
+  const st = await h.store.state();
+  assert.equal(st.voice?.text, "我说话很短。");
+  assert.equal(st.made, 3);
+  assert.ok(st.lastNote.includes("改了自己说话的方式"));
+});
 /* -------------------------------------------------------------- 标签语法 */
 test("标签：想与说各自成对，内容原样取出", () => {
   const raw = "（我 想）\n这段话他看不见\n（/我 想）\n\n（我 说）\n这段话他听得见\n（/我 说）";

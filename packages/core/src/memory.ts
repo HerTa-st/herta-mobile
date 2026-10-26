@@ -21,6 +21,8 @@ export interface MemoryRecord {
 
 export interface DreamState {
   lastPassAt: number | null;
+  /** 她自己写的语气笔记（会随记忆积累被重写）。 */
+  voice: { text: string; updatedAt: string; basis: number } | null;
   /** 会话 id → 已经消化到第几块。增量就靠它。 */
   cursors: Record<string, number>;
   /** 自己造出来的记忆数（不含种子）。 */
@@ -33,6 +35,7 @@ export interface DreamState {
 
 export const EMPTY_STATE: DreamState = {
   lastPassAt: null,
+  voice: null,
   cursors: {},
   made: 0,
   skipped: 0,
@@ -104,4 +107,10 @@ export class MemoryInMemory implements MemoryStore {
   async saveState(state: DreamState): Promise<void> {
     this.current = { ...state, cursors: { ...state.cursors } };
   }
+}
+
+/** 从会话状态里取语气笔记，取不到就是空。 */
+export function voiceTextOf(state: DreamState | null): string | null {
+  const t = state?.voice?.text;
+  return t && t.trim() ? t.trim() : null;
 }

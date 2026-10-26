@@ -5,6 +5,8 @@ import {
   appendBlocks,
   buildReviewMessages,
   buildStaticPrefix,
+  buildVoiceRevisionPrompt,
+  cleanVoiceText,
   createSession,
   decideReview,
   listOpenings,
@@ -23,6 +25,7 @@ import {
   serializeRecord,
   trimForContext,
   vetoHints,
+  voiceTextOf,
   type ChatMessage,
   type DreamState,
   type MemoryRecord,
@@ -225,7 +228,24 @@ export function App() {
           {
             store: memoryStore,
             prompts: code,
-            scene: { env: promptAssets.envSet, guide: promptAssets.hertaGuide, lang: "zh" },
+            scene: { env: promptAssets.envSet, lang: "zh" },
+        // 攒够记忆就让她重读自己、重写语气笔记——这是"语气会变"的唯一来源
+        reviseVoice: async (records, previous) => {
+          const { system, user } = buildVoiceRevisionPrompt(records, previous);
+          const raw = await collect(
+            transport.stream({
+              apiKey: settings.apiKey,
+              baseUrl: settings.baseUrl,
+              model: settings.model,
+              messages: [
+                { role: "system", content: system },
+                { role: "user", content: user },
+              ],
+              maxTokens: 800,
+            })
+          );
+          return cleanVoiceText(raw);
+        },
             chat: ({ system, user, maxTokens }) =>
               collect(
                 transport.stream({
@@ -360,7 +380,7 @@ export function App() {
       const pool = memories.map((m) => ({ file: m.name, body: m.body }));
       const seeds = pickSeeds(pool, text, settings.memorySeeds);
       const context = trimForContext(history.blocks, settings.contextBlocks);
-      const prefix = buildStaticPrefix({ assets: promptAssets, seeds });
+      const prefix = buildStaticPrefix({ assets: promptAssets, seeds, voiceText: voiceTextOf(dreamState) });
       const mainMessages: ChatMessage[] = [
         { role: "system", content: prefix },
         // 已经按整轮边界截过了，序列化层不要再截一次——那会从她话中间切开。
@@ -541,6 +561,14 @@ export function App() {
                   <li key={m.name}>{memoryTitle(m)}</li>
                 ))}
             </ul>
+            {dreamState?.voice ? (
+              <details className="voice">
+                <summary>她写字的样子（{dreamState.voice.basis} 篇记忆之后）</summary>
+                <p>{dreamState.voice.text}</p>
+              </details>
+            ) : (
+              <p className="memNote">她还没写过自己说话的样子——攒够三篇记忆就会写第一版。</p>
+            )}
           </div>
 
           <div className="imp">

@@ -5,6 +5,7 @@ export * from "./memory.ts";
 export * from "./import.ts";
 export * from "./share.ts";
 export * from "./feian.ts";
+export * from "./voice.ts";
 export * from "./dream.ts";
 export type { DreamPrompt } from "./dream.ts";
 export * from "./openings.ts";
