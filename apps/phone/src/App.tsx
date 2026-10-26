@@ -27,6 +27,7 @@ import { GraphView } from "./components/GraphView.tsx";
 import { MemoryViewer } from "./components/MemoryViewer.tsx";
 import { SettingsSheet } from "./components/SettingsSheet.tsx";
 import { useChatTurn } from "./hooks/useChatTurn.ts";
+import { seedPureIfNeeded } from "./pure.ts";
 import { captionImage, compressImage } from "./vision.ts";
 import { useMemory } from "./hooks/useMemory.ts";
 import { MemoryGraph } from "./MemoryGraph.tsx";
@@ -130,6 +131,9 @@ export function App() {
     let alive = true;
     void (async () => {
       try {
+        // 纯净版：第一次打开把库清空，只留内置的那条对话
+        await seedPureIfNeeded();
+
         // 种子只在**真正第一次**启动时搬一次，用标记记住。
         // 否则用户把记忆全删光之后，下次启动会被原样复活——"我删了它又回来了"这种惊吓不能有。
         const seeded = localStorage.getItem("herta.seeded.v1") === "1";
