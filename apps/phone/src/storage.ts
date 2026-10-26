@@ -24,6 +24,8 @@ export interface SessionMeta {
   title: string;
   updatedAt: string;
   blocks: number;
+  /** 列表里要能看出哪些是从别处导进来的。 */
+  origin: string;
 }
 
 function open(): Promise<IDBDatabase> {
@@ -65,7 +67,7 @@ export function tx<T>(store: string, mode: IDBTransactionMode, run: (s: IDBObjec
 export async function listSessions(): Promise<SessionMeta[]> {
   const all = (await tx<Session[]>(STORE_SESSIONS, "readonly", (s) => s.getAll() as IDBRequest<Session[]>)) ?? [];
   return all
-    .map((s) => ({ id: s.id, title: s.title, updatedAt: s.updatedAt, blocks: s.blocks.length }))
+    .map((s) => ({ id: s.id, title: s.title, updatedAt: s.updatedAt, blocks: s.blocks.length, origin: s.origin }))
     .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
 }
 
