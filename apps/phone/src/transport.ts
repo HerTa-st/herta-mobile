@@ -10,6 +10,7 @@
 
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import type { ChatDelta, ChatMessage, ToolSpec } from "@herta/protocol";
+import { toProviderMessages, toProviderTools } from "@herta/core";
 
 export interface ChatRequest {
   apiKey: string;
@@ -76,10 +77,13 @@ function parseSseChunk(chunk: string): ChatDelta[] {
 function requestBody(req: ChatRequest): string {
   return JSON.stringify({
     model: req.model,
-    messages: req.messages,
+    // 这两处都必须是接口那套两层结构，直发内部形状会 422
+    messages: toProviderMessages(req.messages),
     max_tokens: req.maxTokens,
     stream: true,
-    ...(req.tools && req.tools.length > 0 ? { tools: req.tools, tool_choice: "auto" } : {}),
+    ...(req.tools && req.tools.length > 0
+      ? { tools: toProviderTools(req.tools), tool_choice: "auto" }
+      : {}),
   });
 }
 
