@@ -9,7 +9,6 @@ export * from "./voice.ts";
 export * from "./distill.ts";
 export * from "./weights.ts";
 export * from "./consolidate.ts";
-export * from "./layout.ts";
 export * from "./search.ts";
 export * from "./tools.ts";
 export * from "./mood.ts";

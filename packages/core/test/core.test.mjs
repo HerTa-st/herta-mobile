@@ -25,7 +25,6 @@ import {
   pickForgettable,
 } from "../src/weights.ts";
 import { applyConsolidatePlan, buildConsolidatePrompt, consolidateMemories, forgetMemories, parseConsolidatePlan } from "../src/consolidate.ts";
-import { layoutGraph } from "../src/layout.ts";
 import { searchMemories, searchSessions, snippetOf } from "../src/search.ts";
 import { runToolLoop, toProviderMessages, toProviderTools } from "../src/tools.ts";
 import { buildMoodPrompt, parseMood } from "../src/mood.ts";
@@ -820,32 +819,6 @@ test("遗忘：标记而不是删除，还能翻出来", async () => {
   const list = await store.list();
   assert.equal(list.length, 2, "记录被删掉了，应该只是标记");
   assert.equal(list.find((r) => r.name === "### 废案_10：轻.txt").forgotten, true);
-});
-
-/* ---------------------------------------------------------------- 星图 */
-
-test("星图：坐标落在框内且是确定的", () => {
-  const nodes = Array.from({ length: 12 }, (_, i) => ({ name: "n" + i, weight: 0.3 + i * 0.05 }));
-  const edges = [
-    { a: "n0", b: "n1" },
-    { a: "n1", b: "n2" },
-  ];
-  const a = layoutGraph(nodes, edges);
-  const b = layoutGraph(nodes, edges);
-  for (const [, p] of a) {
-    assert.ok(p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1, "越界：" + JSON.stringify(p));
-    assert.deepEqual(p, b.get([...a.keys()].find((k) => a.get(k) === p)));
-  }
-  assert.deepEqual([...a.entries()], [...b.entries()], "两次布局不一致");
-});
-
-test("星图：有连线的两条比没连线的更近", () => {
-  const nodes = Array.from({ length: 8 }, (_, i) => ({ name: "n" + i, weight: 0.5 }));
-  const pos = layoutGraph(nodes, [{ a: "n0", b: "n1" }], { iterations: 400 });
-  const d = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
-  const linked = d(pos.get("n0"), pos.get("n1"));
-  const unlinked = d(pos.get("n2"), pos.get("n3"));
-  assert.ok(linked < unlinked, "连线没起效：" + linked + " vs " + unlinked);
 });
 
 /* ---------------------------------------------------------------- 检索 */

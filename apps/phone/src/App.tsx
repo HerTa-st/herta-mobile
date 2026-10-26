@@ -49,6 +49,10 @@ import {
   type Opening,
 } from "@herta/core";
 import { BrowserAssetSource } from "./assets-browser.ts";
+import { Drawer } from "./components/Drawer.tsx";
+import { GraphView } from "./components/GraphView.tsx";
+import { MemoryViewer } from "./components/MemoryViewer.tsx";
+import { SettingsSheet } from "./components/SettingsSheet.tsx";
 import { MemoryGraph } from "./MemoryGraph.tsx";
 import { buildTools } from "./devtools.ts";
 import { IdbMemoryStore } from "./memory-idb.ts";
@@ -851,286 +855,88 @@ export function App() {
       </header>
 
       {drawer && (
-        <div className="drawer">
-          <button className="new" onClick={() => void newSession()}>
-            ＋ 新的对话
-          </button>
-          <p className="nowLine">
-            {timePhrase()} · 她在{presenceAt().place}
-          </p>
-          <input
-            className="filter"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="搜记忆和对话…"
-          />
-          {filter.trim() ? (
-            <div className="results">
-              <p className="rsum">
-                {filter.trim()} · 记忆 {memHits.length} · 对话 {sessHits.length}
-              </p>
-              {memHits.map((h) => {
-                const rec = memories.find((m) => m.name === h.name);
-                return (
-                  <button
-                    key={"m" + h.name}
-                    className="rhit"
-                    onClick={() => {
-                      if (rec) setViewing(rec);
-                      setDrawer(false);
-                    }}
-                  >
-                    <span className="rt">{h.title}</span>
-                    <span className="rs">{h.snippet}</span>
-                  </button>
-                );
-              })}
-              {sessHits.map((h) =>
-                (h.hits.length > 0 ? h.hits : [{ index: 0, snippet: "标题命中" }]).map((hit, k) => (
-                  <button
-                    key={"s" + h.sessionId + k}
-                    className="rhit"
-                    onClick={() => void jumpTo(h.sessionId, hit.index)}
-                  >
-                    <span className="rt">
-                      {h.title}
-                      <em>第 {hit.index + 1} 块</em>
-                    </span>
-                    <span className="rs">{hit.snippet}</span>
-                  </button>
-                ))
-              )}
-              {memHits.length === 0 && sessHits.length === 0 && <p className="rsum">没找到。</p>}
-            </div>
-          ) : (
-          <ul>
-            {sessions.map((s) => (
-              <li key={s.id} className={s.id === session?.id ? "on" : ""}>
-                  <button className="row" onClick={() => void openSession(s.id)}>
-                    <span className="st">{s.title}</span>
-                    <span className="sm">{s.origin === "import" ? "导入" : s.blocks + " 块"}</span>
-                  </button>
-                  <button className="del" onClick={() => void removeSession(s.id)} aria-label="删除">
-                    ✕
-                  </button>
-                </li>
-              ))}
-            {sessions.length === 0 && <li className="none">还没有别的对话</li>}
-          </ul>
-          )}
-
-          <div className="mem">
-            <div className="memHead">
-              <span>记忆 {memories.filter((m) => !m.forgotten).length} 篇</span>
-              {dreamState?.forgottenTotal ? <span className="sm">已忘 {dreamState.forgottenTotal}</span> : null}
-              <button className="mgraph" onClick={() => setShowGraph(true)} disabled={memories.length === 0}>
-                星图
-              </button>
-            </div>
-            {maintaining && <p className="memNote">{maintaining}</p>}
-            {dreamState?.lastNote && <p className="memNote">{dreamState.lastNote}</p>}
-            <button className="dream" onClick={() => void (session && dreamNow(session, true))} disabled={dreaming || distilling}>
-              {dreaming ? "她正在想…" : "让她做梦"}
-            </button>
-            <button
-              className="dream"
-              onClick={() => void (session && distillNow(session))}
-              disabled={dreaming || distilling || (session?.blocks.length ?? 0) < 12}
-            >
-              {distilling ? "正在整理这段对话…" : "把这段对话整理成记忆"}
-            </button>
-            {distillNote && <p className="memNote">{distillNote}</p>}
-            <ul className="memList">
-              {[...memories]
-                .filter((m) => !m.forgotten)
-                .reverse()
-                .map((m) => (
-                <li key={m.name}>
-                  <span className="mw">{effectiveWeight(m, Date.now()).toFixed(2)}</span>
-                  <button className="mt" onClick={() => setViewing(m)} title={memoryTitle(m)}>
-                    {memoryTitle(m)}
-                  </button>
-                  {(m.links?.length ?? 0) > 0 && <span className="ml">↔{m.links?.length}</span>}
-                  <button className="mx" onClick={() => void removeMemory(m.name)} aria-label="删掉这条记忆">
-                    ✕
-                  </button>
-                </li>
-              ))}
-              {memories.length === 0 && <li className="none">记忆库是空的</li>}
-            </ul>
-            {dreamState?.voice ? (
-              <details className="voice">
-                <summary>她写字的样子（{dreamState.voice.basis} 篇记忆之后）</summary>
-                <p>{dreamState.voice.text}</p>
-              </details>
-            ) : (
-              <p className="memNote">她还没写过自己说话的样子——攒够三篇记忆就会写第一版。</p>
-            )}
-          </div>
-
-          <div className="imp">
-            <button className="impToggle" onClick={() => setShowImport((v) => !v)}>
-              {showImport ? "收起导入" : "导入 DeepSeek 对话"}
-            </button>
-            {showImport && (
-              <>
-                <p className="impHelp">
-                  最省事的是**分享链接**：在 DeepSeek 里打开那条对话 → 分享 → 创建链接 → 把链接贴到下面。
-                  接口是公开的，不需要登录，链接用完可以在 DeepSeek 里删掉。
-                </p>
-                <div className="shareRow">
-                  <input
-                    value={shareInput}
-                    onChange={(e) => setShareInput(e.target.value)}
-                    placeholder="https://chat.deepseek.com/share/…"
-                  />
-                  <button onClick={() => void importFromLink()} disabled={importBusy || !shareInput.trim()}>
-                    {importBusy ? "取…" : "取"}
-                  </button>
-                </div>
-                <p className="impHelp">也可以用油猴脚本导出 JSON，把内容贴进来（或选文件）。</p>
-                <input
-                  type="file"
-                  accept=".json,application/json"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    void file.text().then((t) => {
-                      setImportText(t);
-                      setImportNote("读到了 " + file.name + "，点下面「导进来」");
-                    });
-                  }}
-                />
-                <textarea
-                  className="impBox"
-                  value={importText}
-                  onChange={(e) => setImportText(e.target.value)}
-                  placeholder='{"format":"herta-import","version":1,...}'
-                  rows={4}
-                />
-                <button className="impGo" onClick={() => void runImport()} disabled={!importText.trim()}>
-                  导进来
-                </button>
-                {importNote && <p className="impNote">{importNote}</p>}
-              </>
-            )}
-          </div>
-        </div>
+        <Drawer
+          sessions={sessions}
+          currentId={session?.id ?? null}
+          filter={filter}
+          onFilter={setFilter}
+          memHits={memHits}
+          sessHits={sessHits}
+          memories={memories}
+          dreamState={dreamState}
+          maintaining={maintaining}
+          dreaming={dreaming}
+          distilling={distilling}
+          distillNote={distillNote}
+          showImport={showImport}
+          importText={importText}
+          importNote={importNote}
+          importBusy={importBusy}
+          shareInput={shareInput}
+          nowLine={timePhrase() + " · 她在" + presenceAt().place}
+          canDistill={(session?.blocks.length ?? 0) >= 12}
+          actions={{
+            newSession: () => void newSession(),
+            openSession: (id) => void openSession(id),
+            removeSession: (id) => void removeSession(id),
+            jump: (sessionId, index) => void jumpTo(sessionId, index),
+            openMemory: (record) => {
+              setViewing(record);
+              setDrawer(false);
+            },
+            removeMemory: (name) => void removeMemory(name),
+            showGraph: () => setShowGraph(true),
+            dream: () => void (session && dreamNow(session, true)),
+            distill: () => void (session && distillNow(session)),
+            toggleImport: () => setShowImport((v) => !v),
+            setImportText,
+            setShareInput,
+            readImportFile: (text, name) => {
+              setImportText(text);
+              setImportNote("读到了 " + name + "，点下面「导进来」");
+            },
+            runImport: () => void runImport(),
+            importFromLink: () => void importFromLink(),
+          }}
+        />
       )}
 
       {showGraph && (
-        <div className="viewer graph" role="dialog" aria-label="记忆星图">
-          <header className="vh">
-            <span className="vt">记忆星图 · {graph.nodes.length} 条</span>
-            <button className="vx" onClick={() => setShowGraph(false)}>
-              关闭
-            </button>
-          </header>
-          <MemoryGraph
-            nodes={graph.nodes}
-            edges={graph.edges}
-            onOpen={(name) => {
-              const rec = memories.find((m) => m.name === name);
-              if (rec) setViewing(rec);
-            }}
-          />
-          <p className="glegend">
-            圆越大 = 权重越高。线 = 她自己串的关联。**拖动会拉开，松手会荡回去**；双指缩放，空白处拖动平移；点圆看全文。
-          </p>
-        </div>
+        <GraphView
+          nodes={graph.nodes}
+          edges={graph.edges}
+          onOpen={(name) => {
+            const rec = memories.find((m) => m.name === name);
+            if (rec) setViewing(rec);
+          }}
+          onClose={() => setShowGraph(false)}
+        />
       )}
 
       {viewing && (
-        <div className="viewer" role="dialog" aria-label="记忆全文">
-          <header className="vh">
-            <span className="vt">{memoryTitle(viewing)}</span>
-            <button className="vx" onClick={() => setViewing(null)}>
-              关闭
-            </button>
-          </header>
-          <p className="vmeta">
-            {viewing.createdAt ? new Date(viewing.createdAt).toLocaleDateString("zh-CN") : "更早"}
-            {viewing.sessionId ? " · 从对话里长出来的" : " · 自带的种子"}
-            {viewing.tag ? " · " + viewing.tag : ""}
-          </p>
-          <pre className="vbody">{viewing.body}</pre>
-          <footer className="vf">
-            <button
-              className="vdel"
-              onClick={() => {
-                const name = viewing.name;
-                setViewing(null);
-                void removeMemory(name);
-              }}
-            >
-              删掉这条
-            </button>
-          </footer>
-        </div>
+        <MemoryViewer
+          record={viewing}
+          onClose={() => setViewing(null)}
+          onDelete={(name) => {
+            setViewing(null);
+            void removeMemory(name);
+          }}
+        />
       )}
 
       {showSettings && (
-        <div className="sheet">
-          <label>
-            API Key
-            <input
-              type="password"
-              value={settings.apiKey}
-              onChange={(e) => setSettings({ ...settings, apiKey: e.target.value.trim() })}
-              placeholder="sk-..."
-            />
-          </label>
-          <label>
-            Base URL
-            <input value={settings.baseUrl} onChange={(e) => setSettings({ ...settings, baseUrl: e.target.value.trim() })} />
-          </label>
-          <label>
-            模型
-            <input value={settings.model} onChange={(e) => setSettings({ ...settings, model: e.target.value.trim() })} />
-          </label>
-          <label>
-            带多少块历史
-            <input
-              type="number"
-              value={settings.contextBlocks}
-              onChange={(e) => setSettings({ ...settings, contextBlocks: Number(e.target.value) || 24 })}
-            />
-          </label>
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={settings.moodEnabled}
-              onChange={(e) => setSettings({ ...settings, moodEnabled: e.target.checked })}
-            />
-            <span>每轮先判心情（现在是：{mood}）</span>
-          </label>
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={settings.reviewEnabled}
-              onChange={(e) => setSettings({ ...settings, reviewEnabled: e.target.checked })}
-            />
-            <span>说完先让她自己复核（关掉每轮省一次调用）</span>
-          </label>
-          <label>
-            给她读的文件
-            <input
-              type="file"
-              accept=".txt,.md,.json,.csv,.log,text/*"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                void file.text().then((text) => {
-                  filesRef.current.set(file.name, text);
-                  setFileNames([...filesRef.current.keys()]);
-                });
-              }}
-            />
-          </label>
-          <p className="memNote">
-            {fileNames.length > 0 ? "她能读：" + fileNames.join("、") : "还没给她文件。只能读你在这里选的，不能自己翻手机。"}
-          </p>
-        </div>
+        <SettingsSheet
+          settings={settings}
+          onChange={(patch) => setSettings({ ...settings, ...patch })}
+          mood={mood}
+          fileNames={fileNames}
+          onFile={(file) => {
+            void file.text().then((text) => {
+              filesRef.current.set(file.name, text);
+              setFileNames([...filesRef.current.keys()]);
+            });
+          }}
+        />
       )}
 
       <main className="feed" ref={feedRef} onScroll={onFeedScroll}>
