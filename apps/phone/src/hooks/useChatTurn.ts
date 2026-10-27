@@ -62,6 +62,9 @@ const TOOL_LABEL: Record<string, string> = {
   plan_ping: "排了下次找你的时间",
   where_am_i: "看了你在哪",
   look_through_camera: "拍了张照",
+  notifications: "看了通知栏",
+  now_playing: "看了在放什么",
+  media_control: "动了播放",
 };
 
 /**
@@ -261,6 +264,8 @@ export function useChatTurn(opts: {
           share: settings.shareEnabled,
           location: settings.locationEnabled,
           camera: settings.cameraEnabled && Boolean(settings.visionModel),
+          notify: settings.notifyEnabled,
+          media: settings.mediaEnabled,
           proactive: settings.proactiveEnabled && !settings.cheapMode,
           describePhoto: settings.visionModel
             ? (dataUrl) =>
