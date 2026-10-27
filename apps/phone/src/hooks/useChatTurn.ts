@@ -31,7 +31,7 @@ import { BrowserAssetSource } from "../assets-browser.ts";
 import { buildTools } from "../devtools.ts";
 import type { StickerRecord } from "../storage.ts";
 import { loadPromptCode } from "../prompts.ts";
-import type { Settings } from "../settings.ts";
+import { budgetOf, type Settings } from "../settings.ts";
 import { collectDetailed } from "../stream.ts";
 import { pickTransport } from "../transport.ts";
 
@@ -101,6 +101,8 @@ export function useChatTurn(opts: {
       model: settings.model,
       signal: ctl.signal,
     };
+    // 这一轮实际能花多少：省 token 开关在 core 里换算成具体数字，别在两处各写一遍
+    const budget = budgetOf(settings);
 
     let raw = "";
     /** 这一轮花掉的 token：判心情、主对话（含工具轮）、复核、重说，全加进来。 */
@@ -109,13 +111,13 @@ export function useChatTurn(opts: {
       const promptAssets = await assets.promptAssets();
       // 这一轮用哪几篇记忆：开局定死，想 / 说 / 复核共用同一批（否则三趟看到的她不一样）。
       const pool = memories.map((m) => ({ file: m.name, body: m.body }));
-      const seeds = pickSeeds(pool, text, settings.memorySeeds);
-      const context = trimForContext(history.blocks, settings.contextBlocks);
+      const seeds = pickSeeds(pool, text, budget.memorySeeds);
+      const context = trimForContext(history.blocks, budget.contextBlocks);
 
       // 先判心情：一次十几个 token 的调用，换来她这一轮的语气基线不一样。
       // 判定失败就按默认走——心情不该成为整轮对话的单点故障。
       let thisMood = DEFAULT_MOOD;
-      if (settings.moodEnabled) {
+      if (budget.mood) {
         try {
           const pack = await assets.mood();
           if (pack) {
@@ -139,7 +141,7 @@ export function useChatTurn(opts: {
         setMood(thisMood);
       }
 
-      const styleNote = settings.moodEnabled ? moodStyleNote(promptAssets, thisMood) : null;
+      const styleNote = budget.mood ? moodStyleNote(promptAssets, thisMood) : null;
       // 她此刻在哪：按钟点算，同一天同一时段固定，隔天才换。
       const presenceNote = buildPresenceNote(presenceAt(), timePhrase());
       const prefix = buildStaticPrefix({
@@ -194,6 +196,7 @@ export function useChatTurn(opts: {
         runToolLoop(
           {
             tools,
+            maxRounds: budget.toolRounds,
             stream: (r) =>
               transport.stream({
                 apiKey: settings.apiKey,
@@ -260,7 +263,7 @@ export function useChatTurn(opts: {
       let thought = parsed.thought;
       let speech = parsed.speech;
 
-      const code = settings.reviewEnabled ? await loadPromptCode() : null;
+      const code = budget.review ? await loadPromptCode() : null;
       const hints = vetoHints(promptAssets.hints, null);
       let withRedos = history;
 

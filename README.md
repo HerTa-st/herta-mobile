@@ -12,13 +12,13 @@ Herta 的手机端。**双模**：离线时她是自己（人格 / 叙述 / 记�
 
 ```
 packages/protocol   Block / Session / ChatMessage / ToolSpec / ChatDelta
-packages/core       纯逻辑，Node 里能跑测试（98 项）
+packages/core       纯逻辑，Node 里能跑测试（100 项）
   persona 人格装配    narrative 想/说拆分   supervisor 复核
   dream 做梦          distill 消化长对话    memory 记忆库契约
   weights 权重衰减    consolidate 整理      voice 语气笔记
   presence 行踪       mood 心情             search 全文检索
   import / share 导入 tools 工具循环        session 会话演化
-  image 长图切片（按官方单图预算算坐标）   usage 用量累加与缩写
+  image 长图切片（按官方单图预算算坐标）   usage 用量累加与缩写   budget 省 token 档的预算
 apps/phone
   App.tsx           壳与回合编排
   components/       Drawer · SettingsSheet · GraphView · MemoryViewer · Shot
@@ -36,7 +36,7 @@ npm test          # core 的纯 Node 测试（吃不依赖浏览器的真素材�
 npm run dev:phone # 浏览器里跑 UI
 ```
 
-## 现状（v0.20.0，2026-10-27）
+## 现状（v0.21.0，2026-10-27）
 
 | 能力 | 状态 |
 |---|---|
@@ -71,6 +71,7 @@ npm run dev:phone # 浏览器里跑 UI
 | 基础工具（离线） | ✅ 时间、剪贴板、沙箱计算、联网搜索、设备状态、读文件 |
 | 看图 | ✅ 输入框左侧 🖼：本地按宽度切段（官方单图上限 8192 像素 / 1024 token，长截图整张寄不是被拒就是糊成灰带）→ 每片作为 image_url 随消息发给 deepseek-flash；模型不收图时自动退回纯文字并提示换模型 |
 | 每轮用量 | ✅ 她那句话下面一枚「1.2k tok」小徽章：接口的 usage 逐次累加（判心情 / 工具轮 / 复核 / 重说），点开看输入 / 输出 / 缓存命中 / 调用次数 |
+| 省 token 开关 | ✅ 设置里一档：不判心情、不复核，历史 ≤ 8 块、记忆 ≤ 1 篇、长图 ≤ 4 段、工具 ≤ 2 轮（数字只在 `core/budget.ts` 定义） |
 | 表情包 | ✅ 她在合适的时候自己挑一张发出来（库空的就不给她这个工具） |
 | 翻相册 | ✅ 原生 MediaStore：先列目录，再按需读单张；默认关闭，要你在设置里打开 |
 | 云端语音 | ✅ 气泡上的「▶ 念」：OpenAI 兼容 /audio/speech 或 MiniMax /t2a_v2 |

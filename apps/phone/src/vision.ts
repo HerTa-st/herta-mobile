@@ -51,9 +51,13 @@ export function compressImage(file: File, maxSide = 512, quality = 0.85): Promis
  *
  * 切出来的是这一条消息的附件：气泡里只显示第一片当缩略图，点开是整摞。
  */
-export async function prepareImage(file: File, quality = 0.82): Promise<string[]> {
+export async function prepareImage(
+  file: File,
+  opts: { quality?: number; maxPieces?: number } = {}
+): Promise<string[]> {
+  const { quality = 0.82, maxPieces } = opts;
   const img = await decodeFile(file);
-  const plan = planImageSlices(img.naturalWidth, img.naturalHeight);
+  const plan = planImageSlices(img.naturalWidth, img.naturalHeight, maxPieces ? { maxPieces } : {});
 
   const canvas = document.createElement("canvas");
   canvas.width = plan.width;
