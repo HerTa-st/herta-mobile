@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Block, ChatPart, Session } from "@herta/protocol";
 import {
   DEFAULT_MOOD,
@@ -9,8 +9,9 @@ import {
   buildReviewMessages,
   buildStaticPrefix,
   decideReview,
+  decideMood,
   moodStyleNote,
-  parseMood,
+  parseMoodVerdict,
   parseNarrative,
   parseSupervisorVerdict,
   pickSeeds,
@@ -26,10 +27,11 @@ import {
   type ChatMessage,
   type DreamState,
   type MemoryRecord,
+  type MoodState,
 } from "@herta/core";
 import { BrowserAssetSource } from "../assets-browser.ts";
 import { buildTools } from "../devtools.ts";
-import type { StickerRecord } from "../storage.ts";
+import { loadMoodState, saveMoodState, type StickerRecord } from "../storage.ts";
 import { loadPromptCode } from "../prompts.ts";
 import { budgetOf, type Settings } from "../settings.ts";
 import { collectDetailed } from "../stream.ts";
@@ -70,6 +72,18 @@ export function useChatTurn(opts: {
   const { settings, session, setSession, persist, memories, dreamState, files, stickers, onError, onNeedKey } = opts;
   const [busy, setBusy] = useState(false);
   const [mood, setMood] = useState<string>(DEFAULT_MOOD);
+  // 打开 App 时把上次的心情接上；超过三小时 loadMoodState 会返回 null，就当没有
+  useEffect(() => {
+    let alive = true;
+    void loadMoodState()
+      .then((s) => {
+        if (alive && s) setMood(s.mood);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
   const abort = useRef<AbortController | null>(null);
   const send = useCallback(async (text: string, attachments?: { mediaType: string; data: string; name?: string }[]) => {
     if ((!text.trim() && !attachments?.length) || busy || !session) return;
@@ -115,13 +129,25 @@ export function useChatTurn(opts: {
       const context = trimForContext(history.blocks, budget.contextBlocks);
 
       // 先判心情：一次十几个 token 的调用，换来她这一轮的语气基线不一样。
-      // 判定失败就按默认走——心情不该成为整轮对话的单点故障。
+      // 但心情不是每轮重抽的：把她现在的状态一起交下去，只有踩到雷区/好感区才换档；
+      // 判定失败就沿用上一轮——心情不该成为整轮对话的单点故障，更不该把她重置成默认。
       let thisMood = DEFAULT_MOOD;
       if (budget.mood) {
+        let previous: MoodState | null = null;
+        try {
+          previous = await loadMoodState();
+        } catch {
+          previous = null; // 读不到就当没有历史，不挡这一轮
+        }
+        thisMood = previous?.mood ?? DEFAULT_MOOD;
         try {
           const pack = await assets.mood();
           if (pack) {
-            const p = buildMoodPrompt(pack, serializeRecord(trimForContext(history.blocks, 12), { maxBlocks: 0 }));
+            const p = buildMoodPrompt(
+              pack,
+              serializeRecord(trimForContext(history.blocks, 12), { maxBlocks: 0 }),
+              previous?.mood ?? null
+            );
             const seen = await collectDetailed(
               transport.stream({
                 ...base,
@@ -133,10 +159,15 @@ export function useChatTurn(opts: {
               })
             );
             spent = addUsage(spent, seen.usage);
-            thisMood = parseMood(seen.text, pack.moods);
+            const decision = decideMood(previous, parseMoodVerdict(seen.text, pack.moods), Date.now(), {
+              volatile: pack.volatile,
+            });
+            thisMood = decision.mood;
+            // 落盘不挡这一轮：写失败最多是下次少一点惯性
+            void saveMoodState(decision.state).catch(() => undefined);
           }
         } catch {
-          thisMood = DEFAULT_MOOD;
+          /* 判不出来就保持上一轮 */
         }
         setMood(thisMood);
       }

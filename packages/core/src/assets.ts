@@ -38,6 +38,13 @@ export interface MoodPack {
   userInstruction: string;
   /** 八种心情的名字，判定时列给模型挑。 */
   moods: string[];
+  /**
+   * 带情绪的档位（被烦 / 被戳穿 / 被顶嘴 / 倾听）。
+   *
+   * 心情惯性只拦这一类：从平静档进到它们，必须真的踩到雷区或好感区；
+   * 平静档之间（默认 ↔ 教学 ↔ 任务部署 ↔ 板砖代答）随语境微调是允许的。
+   */
+  volatile?: string[];
   sampleAnswer?: string;
 }
 

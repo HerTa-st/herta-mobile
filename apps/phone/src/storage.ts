@@ -11,6 +11,7 @@
  */
 
 import type { Session } from "@herta/protocol";
+import { MOOD_TTL_MS, type MoodState } from "@herta/core";
 
 const DB_NAME = "herta";
 const DB_VERSION = 3;
@@ -119,4 +120,38 @@ export async function putSticker(record: StickerRecord): Promise<void> {
 
 export async function deleteSticker(id: string): Promise<void> {
   await tx(STORE_STICKERS, "readwrite", (s) => s.delete(id));
+}
+
+/* -------------------------------------------------------------- 零散状态 */
+
+export async function getKV<T>(key: string): Promise<T | null> {
+  const got = await tx<{ key: string; value: T } | undefined>(
+    STORE_KV,
+    "readonly",
+    (s) => s.get(key) as IDBRequest<{ key: string; value: T } | undefined>
+  );
+  return got?.value ?? null;
+}
+
+export async function setKV<T>(key: string, value: T): Promise<void> {
+  await tx(STORE_KV, "readwrite", (s) => s.put({ key, value }));
+}
+
+const MOOD_KEY = "moodState";
+
+/**
+ * 她现在的情绪状态。
+ *
+ * 隔得太久（三小时）就不算"现在的"了——情绪会自己落回去，下一轮重新起算，
+ * 否则你关机一夜回来，她还端着昨天那点脾气。
+ */
+export async function loadMoodState(now = Date.now()): Promise<MoodState | null> {
+  const got = await getKV<MoodState>(MOOD_KEY);
+  if (!got || typeof got.mood !== "string" || !Number.isFinite(got.at)) return null;
+  if (now - got.at > MOOD_TTL_MS) return null;
+  return got;
+}
+
+export async function saveMoodState(state: MoodState): Promise<void> {
+  await setKV(MOOD_KEY, state);
 }

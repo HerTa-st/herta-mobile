@@ -27,7 +27,7 @@ import {
 import { applyConsolidatePlan, buildConsolidatePrompt, consolidateMemories, forgetMemories, parseConsolidatePlan } from "../src/consolidate.ts";
 import { searchMemories, searchSessions, snippetOf } from "../src/search.ts";
 import { runToolLoop, toProviderMessages, toProviderTools } from "../src/tools.ts";
-import { buildMoodPrompt, parseMood } from "../src/mood.ts";
+import { MOOD_TTL_MS, buildMoodPrompt, decideMood, parseMoodVerdict } from "../src/mood.ts";
 import { humanizeError, splitApiError } from "../src/errors.ts";
 import { buildPresenceNote, presenceAt, timePhrase } from "../src/presence.ts";
 import { planImageSlices } from "../src/image.ts";
@@ -1117,21 +1117,86 @@ test("工具格式：带图的消息内容原样放行，image_url 片段不能�
 
 /* ---------------------------------------------------------------- 心情 */
 
-test("心情：从回答里认出八种之一，认不出就按默认", () => {
-  const moods = ["默认", "被烦版", "教学版", "被戳穿版", "任务部署版", "板砖代答版", "被顶嘴版", "倾听版"];
-  assert.equal(parseMood("被烦版", moods), "被烦版");
-  assert.equal(parseMood("我觉得是倾听版吧", moods), "倾听版");
-  assert.equal(parseMood("不知道", moods), "默认");
-  assert.equal(parseMood("", moods), "默认");
-  assert.equal(parseMood(null, moods), "默认");
+const MOODS = ["默认", "被烦版", "教学版", "被戳穿版", "任务部署版", "板砖代答版", "被顶嘴版", "倾听版"];
+
+test("心情：从答案里拆出状态与触发位", () => {
+  assert.deepEqual(parseMoodVerdict("被烦版|1", MOODS), { mood: "被烦版", triggered: true });
+  assert.deepEqual(parseMoodVerdict("教学版 | 0", MOODS), { mood: "教学版", triggered: false });
+  assert.deepEqual(parseMoodVerdict("被顶嘴版|是", MOODS), { mood: "被顶嘴版", triggered: true });
+  assert.deepEqual(parseMoodVerdict("我觉得是倾听版吧", MOODS), { mood: "倾听版", triggered: null });
+  assert.deepEqual(parseMoodVerdict("不知道", MOODS), { mood: null, triggered: null });
+  assert.deepEqual(parseMoodVerdict("", MOODS), { mood: null, triggered: null });
+  assert.deepEqual(parseMoodVerdict(null, MOODS), { mood: null, triggered: null });
 });
 
-test("心情：判定提示词把最近对话与选项都给到", () => {
+const VOLATILE = ["被烦版", "被戳穿版", "被顶嘴版", "倾听版"];
+
+test("心情：平静档之间随语境微调，不需要触发", () => {
+  const t = 1_000_000;
+  const prev = { mood: "默认", at: t };
+  // 问原理：默认 → 教学版，是语气微调，不是心情剧变
+  assert.equal(decideMood(prev, { mood: "教学版", triggered: false }, t + 60_000, { volatile: VOLATILE }).mood, "教学版");
+  // 派活：教学版 → 任务部署版，同样允许
+  assert.equal(
+    decideMood({ mood: "教学版", at: t }, { mood: "任务部署版", triggered: false }, t + 60_000, { volatile: VOLATILE }).mood,
+    "任务部署版"
+  );
+});
+
+test("心情：进带情绪的档位必须真的踩到雷区/好感区", () => {
+  const t = 1_000_000;
+  const prev = { mood: "默认", at: t };
+  assert.equal(decideMood(prev, { mood: "被顶嘴版", triggered: false }, t + 60_000, { volatile: VOLATILE }).mood, "默认");
+  assert.equal(decideMood(prev, { mood: "被顶嘴版", triggered: true }, t + 60_000, { volatile: VOLATILE }).mood, "被顶嘴版");
+  // 气消了回落不需要触发，也不该被按住
+  assert.equal(decideMood({ mood: "被顶嘴版", at: t }, { mood: "默认", triggered: false }, t + 60_000, { volatile: VOLATILE }).mood, "默认");
+});
+
+test("心情：没标触发位时，同一个新状态连着提两次才认", () => {
+  const t = 1_000_000;
+  const prev = { mood: "默认", at: t };
+  const once = decideMood(prev, { mood: "被烦版", triggered: null }, t + 60_000, { volatile: VOLATILE });
+  assert.equal(once.mood, "默认");
+  assert.equal(once.state.pending, "被烦版");
+  assert.equal(decideMood(once.state, { mood: "被烦版", triggered: null }, t + 120_000, { volatile: VOLATILE }).mood, "被烦版");
+});
+
+test("心情：不认识的档位清单时按最保守的来（全都算带情绪）", () => {
+  const t = 1_000_000;
+  const prev = { mood: "默认", at: t };
+  assert.equal(decideMood(prev, { mood: "教学版", triggered: false }, t + 60_000).mood, "默认");
+  assert.equal(decideMood(prev, { mood: "教学版", triggered: true }, t + 60_000).mood, "教学版");
+});
+
+test("心情：判不出来就保持原样，不重置成默认；隔太久才翻篇", () => {
+  const t = 1_000_000;
+  const prev = { mood: "被顶嘴版", at: t };
+  assert.equal(decideMood(prev, { mood: null, triggered: null }, t + 60_000).mood, "被顶嘴版");
+  // 三小时没说话：上一轮的脾气不再作数，这一轮重新起算（平静档直接起）
+  assert.equal(decideMood(prev, { mood: "教学版", triggered: false }, t + MOOD_TTL_MS + 1, { volatile: VOLATILE }).mood, "教学版");
+  // 没有上一轮时：平静档直接用；带情绪的档位仍然要触发才进得去
+  assert.equal(decideMood(null, { mood: "教学版", triggered: false }, t, { volatile: VOLATILE }).mood, "教学版");
+  assert.equal(decideMood(null, { mood: "倾听版", triggered: false }, t, { volatile: VOLATILE }).mood, "默认");
+  assert.equal(decideMood(null, { mood: "倾听版", triggered: true }, t, { volatile: VOLATILE }).mood, "倾听版");
+});
+
+test("心情：判定提示词把最近对话、上一轮状态与惯性规则都给到", () => {
   const pack = { version: 1, system: "SYS", userInstruction: "挑一个心情名回答", moods: ["默认", "被烦版"] };
-  const p = buildMoodPrompt(pack, "他：在吗\n我：在。");
+  const p = buildMoodPrompt(pack, "他：在吗\n我：在。", "被烦版");
   assert.equal(p.system, "SYS");
   assert.ok(p.user.includes("在吗"));
   assert.ok(p.user.includes("挑一个心情名回答"));
+  assert.ok(p.user.includes("被烦版"), "要把她现在的状态交下去");
+  assert.ok(p.user.includes("情绪惯性"));
+  assert.ok(p.user.includes("状态名|触发"));
+});
+
+test("心情：素材里的输出契约与「带情绪的档位」清单都在", async () => {
+  const pack = await src.mood();
+  assert.ok(pack);
+  assert.ok(pack.system.includes("状态名|触发"), "缺了触发位，惯性就只剩兜底");
+  assert.ok(pack.userInstruction.includes("触发"));
+  assert.deepEqual(pack.volatile, VOLATILE, "清单变了就要同步改判定，不然剧变会漏进来");
 });
 
 test("心情：旁注取不到就返回 null，不瞎安一个", async () => {
