@@ -19,7 +19,9 @@ import {
   phoneStatus,
   scheduleReminder,
   shareOut,
+  snapPhoto,
   upcomingEvents,
+  whereAmI,
   type ReminderRecord,
 } from "./capabilities.ts";
 
@@ -29,8 +31,14 @@ export interface SystemToolsContext {
   status: boolean;
   open: boolean;
   share: boolean;
+  /** 看你现在在哪儿（经纬度）。 */
+  location: boolean;
+  /** 打开相机拍一张，再由视觉模型描述给她。 */
+  camera: boolean;
   /** 她能不能自己排下一次主动找你（常驻服务开着才有意义）。 */
   proactive: boolean;
+  /** 把一张图变成文字描述（相机用；没配视觉模型就别给这个回调）。 */
+  describePhoto?(dataUrl: string): Promise<string>;
 }
 
 /** 时间：认 ISO 8601，也认 "in 30m / 30分钟后 / 明天 8:00" 这类说法里最常见的两种。 */
@@ -228,6 +236,45 @@ export function buildSystemTools(ctx: SystemToolsContext, opts: { cheap: boolean
         ]
           .filter(Boolean)
           .join("；") || "什么都读不到。";
+      },
+    });
+  }
+
+  if (ctx.location) {
+    out.push({
+      spec: {
+        kind: "read",
+        name: "where_am_i",
+        description: "看你现在在哪儿。给的是经纬度与精度，不是地名。",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+      async run() {
+        const fix = await whereAmI();
+        return (
+          "纬度 " + fix.latitude.toFixed(5) + "，经度 " + fix.longitude.toFixed(5) +
+          (fix.accuracy ? "，误差约 " + Math.round(fix.accuracy) + " 米" : "")
+        );
+      },
+    });
+  }
+
+  if (ctx.camera) {
+    out.push({
+      spec: {
+        kind: "read",
+        name: "look_through_camera",
+        description:
+          "打开相机拍一张他眼前的东西。会弹出相机，拍完你只能拿到一段文字描述（看不见原图）。" +
+          "拍之前先说一句，别突然开相机。",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+      async run() {
+        const shot = await snapPhoto();
+        if (!ctx.describePhoto) {
+          return "拍是拍了，但没配视觉模型——我看不见。让他去设置里填一个。";
+        }
+        const caption = await ctx.describePhoto(shot.data);
+        return caption ? "拍到了：" + caption : "拍到了，但没看出什么。";
       },
     });
   }

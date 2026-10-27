@@ -42,6 +42,12 @@ export function CapabilitiesSheet({
 
       <h3 className="capGroup">只看得见</h3>
       {row(settings.statusEnabled, "statusEnabled", "看手机状态", "电量、是否在充电、联网方式、这个 App 占多大地方。看不到你的照片和消息。")}
+      {row(
+        settings.locationEnabled,
+        "locationEnabled",
+        "知道你在哪",
+        "只给经纬度和精度，不做逆地理编码。只在你要她查的时候查一次，不会在后台跟着你。"
+      )}
 
       <h3 className="capGroup">会动手</h3>
       {row(
@@ -58,6 +64,12 @@ export function CapabilitiesSheet({
       )}
       {row(settings.openEnabled, "openEnabled", "打开链接或别的 App", "把 https、tel:、地图、深链交给系统打开。她不会自己偷偷打开。")}
       {row(settings.shareEnabled, "shareEnabled", "分享出去", "调出系统分享面板，发不发、发给谁由你点。")}
+      {row(
+        settings.cameraEnabled,
+        "cameraEnabled",
+        "打开相机",
+        "她会先问一句再开；拍完只拿到一段文字描述，原图不留在她那儿。这条要配了视觉模型才有用。"
+      )}
 
       <h3 className="capGroup">常驻后台</h3>
       {row(
@@ -75,7 +87,7 @@ export function CapabilitiesSheet({
         )}
 
       <p className="memNote">
-        还没做的（下一版）：读通知栏、定位、相机、无障碍替你点。这些要单独申请系统授权，不在这版里。
+        还没做的（下一版）：读通知栏、无障碍替你点。这两样要单独去系统里授权，不在这版里。
       </p>
     </div>
   );

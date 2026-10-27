@@ -30,6 +30,7 @@ import {
   type MoodState,
 } from "@herta/core";
 import { BrowserAssetSource } from "../assets-browser.ts";
+import { captionImage } from "../vision.ts";
 import { buildTools } from "../devtools.ts";
 import { loadMoodState, saveMoodState, type StickerRecord } from "../storage.ts";
 import { loadPromptCode } from "../prompts.ts";
@@ -59,6 +60,8 @@ const TOOL_LABEL: Record<string, string> = {
   open: "打开了东西",
   share: "调出了分享面板",
   plan_ping: "排了下次找你的时间",
+  where_am_i: "看了你在哪",
+  look_through_camera: "拍了张照",
 };
 
 /**
@@ -256,7 +259,18 @@ export function useChatTurn(opts: {
           status: settings.statusEnabled,
           open: settings.openEnabled,
           share: settings.shareEnabled,
+          location: settings.locationEnabled,
+          camera: settings.cameraEnabled && Boolean(settings.visionModel),
           proactive: settings.proactiveEnabled && !settings.cheapMode,
+          describePhoto: settings.visionModel
+            ? (dataUrl) =>
+                captionImage(
+                  transport,
+                  { apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.visionModel },
+                  dataUrl,
+                  "这是他刚用相机拍的一张"
+                )
+            : undefined,
         },
         cheap: settings.cheapMode,
       });
