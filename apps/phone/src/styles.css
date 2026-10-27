@@ -898,6 +898,18 @@ body {
 }
 .onboardBtn:active { background: #f0f5f6; }
 .onboardBtn:disabled { opacity: 0.55; }
+/* 无障碍白名单：一长串应用，自己滚，别把整页顶长 */
+.a11yList {
+  max-height: 46vh;
+  overflow-y: auto;
+  padding: 4px 10px;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.a11yList .capRow { padding: 6px 0; }
+.a11yList em { color: var(--muted); font-size: 11px; }
+
 .onboardDone {
   width: 100%;
   margin-top: 8px;

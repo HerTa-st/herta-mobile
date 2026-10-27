@@ -34,6 +34,33 @@
                 android:value="到点主动说一句；用户可在设置里关闭，关掉之后通知栏那条也会消失" />
         </service>
 
+        <!-- 无障碍：白名单在原生侧判断，动手前她会在对话里先问 -->
+        <!-- exported 必须是 true：绑它的是 system_server（uid 1000），不是本应用。
+             安全靠 android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" 挡着 -->
+        <service
+            android:name=".HertaA11yService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <!-- 读通知栏与媒体会话：授权不由 App 给，要用户去系统里开「通知使用权」 -->
+        <service
+            android:name=".HertaNotifyService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -61,4 +88,9 @@
     <!-- 日历：读接下来几天有什么，往日历里写日程 -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+    <!-- 定位：只在你让她查的时候查一次，不做后台定位。CAMERA 由 camera 插件自己声明 -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- 无障碍白名单要列出已安装应用；只自用/朋友装，不上架 -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 </manifest>
