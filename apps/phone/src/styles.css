@@ -326,21 +326,51 @@ body {
 
 /* ---------------------------------------------------------------- 设置 */
 
+/* 设置：整屏一页，自己滚。
+   以前是插在聊天上面的一条 62vh 面板——看着像被截断，下面半屏是空的，
+   还得在那个小框里滚。现在点开就是一页，顶栏吸顶、右上角关掉。 */
 .sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
   display: grid;
+  align-content: start;
   gap: 12px;
-  padding: 14px 16px 18px;
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--line);
-  flex: 0 1 auto;
-  max-height: 62vh;
+  padding: 0 16px calc(env(safe-area-inset-bottom) + 28px);
+  background:
+    radial-gradient(120% 60% at 20% 0%, #eaf6f4 0%, rgba(234, 246, 244, 0) 62%),
+    linear-gradient(180deg, #f7fbfa 0%, #eef7f6 100%);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+.sheetHead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 -16px;
+  padding: calc(env(safe-area-inset-top) + 12px) 16px 10px;
+  background: rgba(248, 251, 250, 0.94);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.sheetClose {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 16px;
+  padding: 4px 8px;
+  line-height: 1;
+}
 .sheet label { display: grid; gap: 5px; font-size: 12px; color: var(--muted); }
-.sheet label.check { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 13px; }
-.sheet label.check input { width: auto; }
+.sheet label.check { display: flex; align-items: flex-start; gap: 8px; color: var(--ink); font-size: 13px; }
+.sheet label.check input { width: auto; margin-top: 4px; flex: none; }
 .sheet input,
 .sheet select {
   background: var(--card);
