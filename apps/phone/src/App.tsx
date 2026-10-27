@@ -65,8 +65,7 @@ const VISION_MODEL = /flash|vision|vl|omni/i;
 
 export function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings);
-  /** 启动页：App 准备好之后它自己淡出；最多留 2.8 秒，别把出错挡成黑屏 */
-  const [booted, setBooted] = useState(false);
+  /** 开屏动画：播完（或失败兜底）之后卸掉 */
   const [splashGone, setSplashGone] = useState(false);
   // 稳定的回调：启动页退场那 450ms 里如果 App 重渲染，内联箭头会让计时器反复重置
   const hideSplash = useCallback(() => setSplashGone(true), []);
@@ -196,9 +195,6 @@ export function App() {
         }
       } catch (e) {
         if (alive) setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        // 不管成没成，都让启动页开始收尾——卡在门口比报错更糟
-        if (alive) setBooted(true);
       }
     })();
     return () => {
@@ -645,7 +641,7 @@ export function App() {
 
   return (
     <div className="app">
-      {!splashGone && <Splash ready={booted} onDone={hideSplash} />}
+      {!splashGone && <Splash onDone={hideSplash} />}
       <header className="bar">
         <button className="link left" onClick={() => setDrawer((v) => !v)} aria-label="会话列表">
           ☰
