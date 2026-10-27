@@ -25,6 +25,7 @@ import { Drawer } from "./components/Drawer.tsx";
 import { GraphView } from "./components/GraphView.tsx";
 import { MemoryViewer } from "./components/MemoryViewer.tsx";
 import { SettingsSheet } from "./components/SettingsSheet.tsx";
+import { CapabilitiesSheet } from "./components/CapabilitiesSheet.tsx";
 import { StickerTray } from "./components/StickerTray.tsx";
 import { longPressProps } from "./components/long-press.ts";
 import { Shot, ShotViewer, isTallImage } from "./components/Shot.tsx";
@@ -92,6 +93,7 @@ export function App() {
     maintainMemories,
   } = useMemory(settings, { onError: (m) => reportError(m) });
   const [showSettings, setShowSettings] = useState(false);
+  const [showCaps, setShowCaps] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState("");
@@ -785,12 +787,21 @@ export function App() {
           stickers={herStickers}
           onAddStickers={(files) => void addStickers(files, "herta")}
           onRemoveSticker={(id) => void removeSticker(id)}
+          onOpenCapabilities={() => setShowCaps(true)}
           onFile={(file) => {
             void file.text().then((text) => {
               filesRef.current.set(file.name, text);
               setFileNames([...filesRef.current.keys()]);
             });
           }}
+        />
+      )}
+
+      {showCaps && (
+        <CapabilitiesSheet
+          settings={settings}
+          onChange={(patch) => setSettings({ ...settings, ...patch })}
+          onClose={() => setShowCaps(false)}
         />
       )}
 

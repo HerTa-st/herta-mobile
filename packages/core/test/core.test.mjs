@@ -925,7 +925,8 @@ test("预算：正常档照旧；省 token 档砍掉心情与复核、压小上�
   assert.equal(full.review, true);
   assert.equal(full.contextBlocks, 24);
   assert.equal(full.memorySeeds, 3);
-  assert.equal(full.toolRounds, 4);
+  // 能力变多之后读类放到八轮；写类另有"一轮三次"的门（见 core/tools.ts）
+  assert.equal(full.toolRounds, 8);
   assert.equal(full.imagePieces, 12);
 
   const cheap = budgetFor({ cheap: true, moodEnabled: true, reviewEnabled: true, contextBlocks: 24, memorySeeds: 3 });
@@ -1044,6 +1045,33 @@ test("工具循环：轮数封顶，不让一个想不清楚的模型烧光额�
   );
   assert.equal(out.rounds, 3);
   assert.equal(out.results.length, 3);
+});
+
+test("工具循环：写类一轮最多三次，第四次起不执行、也不算报错", async () => {
+  let ran = 0;
+  const writeTool = {
+    spec: { name: "remind", description: "", parameters: { type: "object", properties: {} }, kind: "write" },
+    run: async () => {
+      ran += 1;
+      return "排好了";
+    },
+  };
+  // 一轮里连要五次写：轮次拦不住它（八轮才封顶），写的那道门要拦
+  const calls = [0, 1, 2, 3, 4].map((i) => ({
+    type: "tool_call",
+    index: i,
+    id: "c" + i,
+    name: "remind",
+    arguments: "{}",
+  }));
+  const gen = toolStream([
+    [...calls, { type: "done", finishReason: "tool_calls" }],
+    [{ type: "text", text: "都办好了。" }, { type: "done", finishReason: "stop" }],
+  ]);
+  const out = await runToolLoop({ tools: [writeTool], stream: () => gen() }, [{ role: "user", content: "排五条" }]);
+  assert.equal(ran, 3, "写类应当只执行三次");
+  assert.equal(out.results.filter((r) => r.ok).length, 3);
+  assert.ok(out.results[3].content.includes("已经动了 3 次"), "第四次应当被拦下并说清原因");
 });
 
 test("工具循环：每一轮的 usage 都累加，数得出调用了几次", async () => {

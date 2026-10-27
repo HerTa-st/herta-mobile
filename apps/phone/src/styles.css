@@ -850,3 +850,36 @@ body {
   pointer-events: none;
 }
 
+/* ------------------------------------------------------- 她能做什么 */
+
+/* 设置页顶部那一条入口：不是开关，是一整页的入口 */
+.sheetLink {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+}
+.sheetLinkHint { color: var(--muted); font-size: 12.5px; }
+
+.capGroup {
+  margin: 18px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+/* 多行选项的勾选框必须顶对齐：居中会夹在两行字中间 */
+.capRow { align-items: flex-start; }
+.capRow span { display: flex; flex-direction: column; gap: 3px; }
+.capRow b { font-size: 14px; font-weight: 600; }
+.capRow em { font-style: normal; font-size: 12px; line-height: 1.6; color: var(--muted); }
+
+

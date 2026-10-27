@@ -150,6 +150,14 @@ export interface ToolSpec {
   description: string;
   /** JSON Schema。 */
   parameters: Record<string, unknown>;
+  /**
+   * 读还是写。
+   *
+   * 读（看一眼、算一下）便宜，也不容易出事，一轮里可以多来几次；
+   * 写（改掉什么、发出去）贵，会留下痕迹，所以要限次数。
+   * 不标就是读——老工具都是看东西的。
+   */
+  kind?: "read" | "write";
 }
 
 /** 流里吐出来的东西：文字、工具调用增量、结束标记。 */

@@ -13,6 +13,7 @@ export function SettingsSheet({
   stickers,
   onAddStickers,
   onRemoveSticker,
+  onOpenCapabilities,
 }: {
   settings: Settings;
   onChange(patch: Partial<Settings>): void;
@@ -23,7 +24,16 @@ export function SettingsSheet({
   stickers: StickerRecord[];
   onAddStickers(files: File[]): void;
   onRemoveSticker(id: string): void;
+  onOpenCapabilities(): void;
 }) {
+  const capCount = [
+    settings.statusEnabled,
+    settings.remindersEnabled,
+    settings.calendarEnabled,
+    settings.openEnabled,
+    settings.shareEnabled,
+    settings.proactiveEnabled,
+  ].filter(Boolean).length;
   return (
     <div className="sheet">
       <div className="sheetHead">
@@ -32,6 +42,10 @@ export function SettingsSheet({
           ✕
         </button>
       </div>
+      <button type="button" className="sheetLink" onClick={onOpenCapabilities}>
+        <span>她能做什么</span>
+        <span className="sheetLinkHint">{capCount > 0 ? capCount + " 项开着" : "全关着"} ›</span>
+      </button>
       <label>
         API Key
         <input

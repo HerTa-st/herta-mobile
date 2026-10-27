@@ -39,9 +39,15 @@ export const CHEAP_LIMITS = {
   imagePieces: 4,
 } as const;
 
-/** 正常档的上限。 */
+/**
+ * 正常档的上限。
+ *
+ * 工具轮从 4 放到 8：能力变多之后，一次要看日程再建提醒、再看天气再改时间，
+ * 四轮不够用。写类另有"一轮最多三次"的门（core/tools.ts），所以放宽轮次
+ * 不会变成"她一轮里动十次手"。
+ */
 export const FULL_LIMITS = {
-  toolRounds: 4,
+  toolRounds: 8,
   imagePieces: 12,
 } as const;
 

@@ -31,6 +31,8 @@ export interface ToolLoopDeps {
   stream(req: { messages: ChatMessage[]; tools: ToolSpec[]; maxTokens: number }): AsyncGenerator<ChatDelta>;
   tools: readonly ToolImpl[];
   maxRounds?: number;
+  /** 一轮里最多"动手"几次。读不受限，写受——见 ToolSpec.kind。 */
+  maxWrites?: number;
   /** 每次调用前通知 UI（她要去做什么）。 */
   onToolCall?(call: ToolCall): void;
   onToolResult?(result: ToolResult): void;
@@ -103,6 +105,14 @@ export async function runToolLoop(
   seed: readonly ChatMessage[]
 ): Promise<ToolLoopResult> {
   const maxRounds = deps.maxRounds ?? 4;
+  /**
+   * 写类调用另有一道上限。
+   *
+   * 轮次是按"她还能问几次"算的；写是按"这一轮已经动了几次手"算的。
+   * 一个想不清楚的模型可以在八轮里连续排十条提醒——轮次不拦它，这道门拦。
+   */
+  const maxWrites = deps.maxWrites ?? 3;
+  let writes = 0;
   const byName = new Map(deps.tools.map((t) => [t.spec.name, t]));
   const messages: ChatMessage[] = [...seed];
   const results: ToolResult[] = [];
@@ -155,7 +165,12 @@ export async function runToolLoop(
       if (!impl) {
         ok = false;
         content = "没有这个工具：" + call.name;
+      } else if (impl.spec.kind === "write" && writes >= maxWrites) {
+        // 不是"出错了"，是"这一轮到此为止"——她该把已经做完的说给他听
+        ok = false;
+        content = "这一轮已经动了 " + maxWrites + " 次，不能再动了。把已经做完的说给他听。";
       } else {
+        if (impl.spec.kind === "write") writes += 1;
         try {
           content = await impl.run(parseArgs(call.arguments));
         } catch (e) {
