@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import type { Block, Session } from "@herta/protocol";
+import type { Block, ChatPart, Session } from "@herta/protocol";
 import {
   DEFAULT_MOOD,
   REVIEW_POLICY,
@@ -144,10 +144,28 @@ export function useChatTurn(opts: {
         presence: presenceNote,
         extraNotes: styleNote ? ["〔旁注：" + styleNote + "〕"] : [],
       });
-      const mainMessages: ChatMessage[] = [
-        { role: "system", content: prefix },
+      const transcript = serializeRecord(context, { maxBlocks: 0 });
+      /**
+       * 图直接给模型看。
+       *
+       * DeepSeek 的 deepseek-flash 收 OpenAI 形状的 image_url 片段（官方「图像理解」文档），
+       * 以前那句「对话模型不吃图片」已经不成立——老路子是先用另一个视觉模型写成文字，
+       * 多一次调用、还丢掉细节。这里只带**这一轮**的图：历史轮的图不重复寄，
+       * 转录里那一行「（附了一张图）」够她把话接上。
+       */
+      const pictures: ChatPart[] = (userBlock.attachments ?? []).map((a) => ({
+        type: "image_url",
+        image_url: { url: a.data },
+      }));
+      const systemMessage: ChatMessage = { role: "system", content: prefix };
+      /** 这一轮真正发出去的形状。模型不收图时会换成纯文字那份——复核重说也得跟着换。 */
+      let messages: ChatMessage[] = [
+        systemMessage,
         // 已经按整轮边界截过了，序列化层不要再截一次——那会从她话中间切开。
-        { role: "user", content: serializeRecord(context, { maxBlocks: 0 }) },
+        {
+          role: "user",
+          content: pictures.length > 0 ? [{ type: "text", text: transcript }, ...pictures] : transcript,
+        },
       ];
 
       // 她这一轮挑中的表情：工具里回调出来，最后贴到她那句话上
@@ -167,50 +185,69 @@ export function useChatTurn(opts: {
       });
       const toolNotes: Block[] = [];
 
-      const loop = await runToolLoop(
-        {
-          tools,
-          stream: (r) =>
-            transport.stream({
-              apiKey: settings.apiKey,
-              baseUrl: settings.baseUrl,
-              model: settings.model,
-              messages: r.messages,
-              tools: r.tools,
-              maxTokens: r.maxTokens,
-              signal: ctl.signal,
-            }),
-          onText: (piece) => {
-            raw += piece;
-            const live = parseNarrative(raw).speech;
-            if (!live) return;
-            setSession({
-              ...history,
-              blocks: [
-                ...history.blocks,
-                ...toolNotes,
-                { kind: "herta", surface: "speech", text: live, at: new Date().toISOString() },
-              ],
-            });
+      const startLoop = (seed: readonly ChatMessage[]) =>
+        runToolLoop(
+          {
+            tools,
+            stream: (r) =>
+              transport.stream({
+                apiKey: settings.apiKey,
+                baseUrl: settings.baseUrl,
+                model: settings.model,
+                messages: r.messages,
+                tools: r.tools,
+                maxTokens: r.maxTokens,
+                signal: ctl.signal,
+              }),
+            onText: (piece) => {
+              raw += piece;
+              const live = parseNarrative(raw).speech;
+              if (!live) return;
+              setSession({
+                ...history,
+                blocks: [
+                  ...history.blocks,
+                  ...toolNotes,
+                  { kind: "herta", surface: "speech", text: live, at: new Date().toISOString() },
+                ],
+              });
+            },
+            onToolResult: (result) => {
+              const note: Block = {
+                kind: "system",
+                label: "系统",
+                body:
+                  "（" +
+                  (TOOL_LABEL[result.name] ?? "用了 " + result.name) +
+                  "：" +
+                  String(result.content).replace(/\s+/g, " ").slice(0, 140) +
+                  "）",
+                at: new Date().toISOString(),
+              };
+              toolNotes.push(note);
+              setSession({ ...history, blocks: [...history.blocks, ...toolNotes] });
+            },
           },
-          onToolResult: (result) => {
-            const note: Block = {
-              kind: "system",
-              label: "系统",
-              body:
-                "（" +
-                (TOOL_LABEL[result.name] ?? "用了 " + result.name) +
-                "：" +
-                String(result.content).replace(/\s+/g, " ").slice(0, 140) +
-                "）",
-              at: new Date().toISOString(),
-            };
-            toolNotes.push(note);
-            setSession({ ...history, blocks: [...history.blocks, ...toolNotes] });
-          },
-        },
-        mainMessages
-      );
+          seed
+        );
+
+      let loop;
+      try {
+        loop = await startLoop(messages);
+      } catch (e) {
+        const detail = e instanceof Error ? e.message : String(e);
+        // 模型不收图（deepseek-v4-pro、或中转站没开视觉）时别让整轮报废：
+        // 退回纯文字再审一遍，并明说这一轮她只看到字。401/429 之类照旧抛出去。
+        // 已经吐过字就说明第一轮过了，别再重跑——那会把半句话接成两遍。
+        if (pictures.length === 0 || raw !== "" || !/模型接口 (400|422)/.test(detail)) throw e;
+        raw = "";
+        toolNotes.length = 0;
+        onError(
+          "这个模型不收图（" + settings.model + "），这一轮只发了文字。设置里把模型换成 deepseek-flash 才能让她看见。"
+        );
+        messages = [systemMessage, { role: "user", content: transcript }];
+        loop = await startLoop(messages);
+      }
       raw = loop.text;
 
       const parsed = parseNarrative(raw);
@@ -254,7 +291,7 @@ export function useChatTurn(opts: {
         const redo = await collect(
           transport.stream({
             ...base,
-            messages: [...mainMessages, { role: "user", content: hints.respeak || hints.veto }],
+            messages: [...messages, { role: "user", content: hints.respeak || hints.veto }],
             maxTokens: 2048,
           })
         );

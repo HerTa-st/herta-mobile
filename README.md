@@ -12,15 +12,16 @@ Herta 的手机端。**双模**：离线时她是自己（人格 / 叙述 / 记�
 
 ```
 packages/protocol   Block / Session / ChatMessage / ToolSpec / ChatDelta
-packages/core       纯逻辑，Node 里能跑测试（87 项）
+packages/core       纯逻辑，Node 里能跑测试（95 项）
   persona 人格装配    narrative 想/说拆分   supervisor 复核
   dream 做梦          distill 消化长对话    memory 记忆库契约
   weights 权重衰减    consolidate 整理      voice 语气笔记
   presence 行踪       mood 心情             search 全文检索
   import / share 导入 tools 工具循环        session 会话演化
+  image 长图切片（按官方单图预算算坐标）
 apps/phone
   App.tsx           壳与回合编排
-  components/       Drawer · SettingsSheet · GraphView · MemoryViewer
+  components/       Drawer · SettingsSheet · GraphView · MemoryViewer · Shot
   MemoryGraph.tsx   实时物理星图（canvas）
   transport.ts      原生/浏览器通道        devtools.ts  六件工具
   storage.ts        会话落盘               memory-idb.ts 记忆落盘
@@ -35,7 +36,7 @@ npm test          # core 的纯 Node 测试（吃不依赖浏览器的真素材�
 npm run dev:phone # 浏览器里跑 UI
 ```
 
-## 现状（v0.11.0，2026-10-27）
+## 现状（v0.19.0，2026-10-27）
 
 | 能力 | 状态 |
 |---|---|
@@ -68,7 +69,7 @@ npm run dev:phone # 浏览器里跑 UI
 | 全文检索 | ✅ 同时搜记忆与会话，点命中跳到那条消息 |
 | 记忆代谢 | ✅ 权重 / 20 条整理 / 50 条遗忘 / 星图 |
 | 基础工具（离线） | ✅ 时间、剪贴板、沙箱计算、联网搜索、设备状态、读文件 |
-| 看图 | ✅ 输入框左侧 🖼：本地压到长边 1280 → 视觉模型描述 → 描述进对话，原图留在气泡里 |
+| 看图 | ✅ 输入框左侧 🖼：本地按宽度切段（官方单图上限 8192 像素 / 1024 token，长截图整张寄不是被拒就是糊成灰带）→ 每片作为 image_url 随消息发给 deepseek-flash；模型不收图时自动退回纯文字并提示换模型 |
 | 表情包 | ✅ 她在合适的时候自己挑一张发出来（库空的就不给她这个工具） |
 | 翻相册 | ✅ 原生 MediaStore：先列目录，再按需读单张；默认关闭，要你在设置里打开 |
 | 云端语音 | ✅ 气泡上的「▶ 念」：OpenAI 兼容 /audio/speech 或 MiniMax /t2a_v2 |

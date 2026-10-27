@@ -16,7 +16,13 @@ export interface Settings {
   moodEnabled: boolean;
   /** 你离开一阵子之后，她自己做梦。关掉就只有手动按钮能做。 */
   autoDream: boolean;
-  /** 看图用的视觉模型。留空 = 不做图片识别（仍然能发图，只是她看不见内容）。 */
+  /**
+   * 看图用的视觉模型（可选）。
+   *
+   * 主模型自己就能看图时（deepseek-flash 收 image_url 片段），这一栏用不上；
+   * 它留着是给两件事：模型不收图时的「先描述再进对话」老路，以及她翻相册时
+   * 真去读那一张（工具结果只能塞文字，塞不了图）。
+   */
   visionModel: string;
   /** 允许她翻你的相册。默认关——这是隐私开关，得你自己打开。 */
   albumEnabled: boolean;
@@ -33,7 +39,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   apiKey: "",
   baseUrl: "https://api.deepseek.com",
-  model: "deepseek-chat",
+  model: "deepseek-flash",
   contextBlocks: 24,
   memorySeeds: 3,
   reviewEnabled: true,

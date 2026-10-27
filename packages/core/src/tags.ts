@@ -64,7 +64,17 @@ export function serializeRecord(record: readonly Block[], { maxBlocks = 24 }: Se
   const out: string[] = [];
   for (const b of blocks) {
     if (b.kind === "user") {
-      out.push("（开拓者 说）\n" + (b.text ?? "") + "\n（/开拓者 说）");
+      // 附件不是正文，但转录里得留一句：图会随请求作为图片片段发出去，模型不收图时
+      // 就只剩这一行。少了它，「只发图」那句在转录里是一片空白，她会当成你没说话。
+      const pics = b.attachments ?? [];
+      const pic = pics.length
+        ? "（附了一张图" +
+          (pics[0]?.name ? "：" + pics[0].name : "") +
+          (pics.length > 1 ? "，切成 " + pics.length + " 段，按顺序接起来是一整张" : "") +
+          "）"
+        : "";
+      const body = (b.text ?? "") + (pic ? (b.text ? "\n" : "") + pic : "");
+      out.push("（开拓者 说）\n" + body + "\n（/开拓者 说）");
     } else if (b.kind === "herta") {
       const tag = b.surface === "thought" ? "想" : "说";
       out.push("（我 " + tag + "）\n" + (b.text ?? "") + "\n（/我 " + tag + "）");

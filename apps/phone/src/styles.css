@@ -449,7 +449,42 @@ body {
   line-height: 1.6;
 }
 
-.bubble .shot { display: block; max-width: 100%; max-height: 220px; border-radius: 12px; margin-bottom: 8px; }
+/* 发出去的图。原来只有 max-height:220——1:13 的手机长图按比例缩下来只剩十几像素宽，
+   气泡跟着塌成一条窄缝，等于发了个寂寞。长图改成裁一刀的竖卡片，点开看整张。 */
+.bubble .shot {
+  display: block;
+  position: relative;
+  margin-bottom: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  border-radius: 12px;
+  overflow: hidden;
+  line-height: 0;
+}
+.bubble .shot img {
+  display: block;
+  max-width: 100%;
+  max-height: 220px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+.bubble .shot.tall img { width: 160px; height: 220px; object-position: 50% 0; }
+.shotHint {
+  position: absolute;
+  left: 7px;
+  bottom: 7px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(38, 50, 58, 0.62);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.65;
+  letter-spacing: 0.2px;
+}
 .bubble .sticker { display: block; max-width: 132px; max-height: 132px; border-radius: 10px; margin-top: 8px; }
 .bubble .say {
   margin-top: 8px;
@@ -519,9 +554,17 @@ body {
   font-size: 14px;
 }
 .composer .ghost:disabled { opacity: 0.3; }
+.composer .notice {
+  flex-basis: 100%;
+  margin: 0 2px 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #b07b3c;
+}
 
 .shotPreview { position: relative; width: 100%; margin-bottom: 6px; }
 .shotPreview img { max-height: 120px; max-width: 100%; border-radius: 12px; border: 1px solid var(--line); }
+.shotPreview img.tall { width: 104px; height: 120px; object-fit: cover; object-position: 50% 0; }
 .shotPreview button {
   position: absolute;
   top: 4px;
@@ -557,6 +600,35 @@ body {
 }
 
 /* ---------------------------------------------------------------- 全屏层 */
+
+/* 点开看图：整张按屏宽铺开、上下滚。1:13 的长图只有在这个宽度下才读得出内容。 */
+.shotView {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: calc(env(safe-area-inset-top) + 18px) 12px calc(env(safe-area-inset-bottom) + 18px);
+  background: rgba(24, 33, 38, 0.93);
+}
+/* 切片是首尾相接的：圆角加在外层，图片之间不能留缝也不能各带圆角 */
+.shotView .shotStack { border-radius: 10px; overflow: hidden; }
+.shotView img { display: block; width: 100%; height: auto; }
+.shotView .shotClose {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 8px);
+  right: 12px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+}
 
 .viewer {
   position: fixed;

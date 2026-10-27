@@ -15,7 +15,8 @@ export function deriveTitle(blocks: readonly Block[], max = 16): string {
   const first = blocks.find((b) => b.kind === "user");
   if (!first || first.kind !== "user") return EMPTY_TITLE;
 
-  const flat = first.text.replace(/\s+/g, " ").trim();
+  // 只发图的消息一个字的正文都没有：标题不能因此退回「新的对话」。
+  const flat = first.text.replace(/\s+/g, " ").trim() || (first.attachments?.length ? "（一张图）" : "");
   if (!flat) return EMPTY_TITLE;
 
   // 优先在句末标点处断，断不出来再按字数硬截——手机上的标题就一行。

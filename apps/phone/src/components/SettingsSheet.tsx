@@ -37,7 +37,7 @@ export function SettingsSheet({
         <input value={settings.baseUrl} onChange={(e) => onChange({ baseUrl: e.target.value.trim() })} />
       </label>
       <label>
-        模型
+        模型（deepseek-flash 能看图；deepseek-v4-pro 只能读字）
         <input value={settings.model} onChange={(e) => onChange({ model: e.target.value.trim() })} />
       </label>
       <label>
@@ -65,7 +65,7 @@ export function SettingsSheet({
         <span>说完先让她自己复核（关掉每轮省一次调用）</span>
       </label>
       <label>
-        视觉模型（看图用，留空则不识别）
+        视觉模型（可选：主模型不收图时用来描述；翻相册也靠它）
         <input
           value={settings.visionModel}
           onChange={(e) => onChange({ visionModel: e.target.value.trim() })}
