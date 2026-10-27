@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { NodeAssetSource } from "../src/assets-node.ts";
 import { buildStaticPrefix, moodStyleNote, pickSeeds, MOBILE_NOTE, FORMAT_CONTRACT } from "../src/persona.ts";
 import { extractTagged, parseTagged, isPlaceholder, serializeRecord, parseSupervisorVerdict } from "../src/tags.ts";
-import { parseNarrative } from "../src/narrative.ts";
+import { parseNarrative, stripStageDirections } from "../src/narrative.ts";
 import { buildReviewMessages, decideReview, vetoHints } from "../src/supervisor.ts";
 import { listOpenings, pickOpening } from "../src/openings.ts";
 import { EMPTY_TITLE, appendBlocks, createSession, deriveTitle, retractLastTurn, trimForContext } from "../src/session.ts";
@@ -68,6 +68,22 @@ test("静态前缀：自传在最前，输出契约在最后", async () => {
   assert.ok(prefix.includes(MOBILE_NOTE));
   assert.ok(prefix.endsWith(FORMAT_CONTRACT));
   assert.ok(prefix.indexOf(MOBILE_NOTE) < prefix.indexOf(FORMAT_CONTRACT));
+});
+
+test("人格：输出契约要求「说」里带一点动作，但不许写成舞台说明", async () => {
+  const a = await src.promptAssets();
+  const prefix = buildStaticPrefix({ assets: a, seeds: [] });
+  assert.ok(FORMAT_CONTRACT.includes("「说」里带一点动作"));
+  assert.ok(prefix.includes("（转了下椅子）"), "要给出可仿照的样子");
+  assert.ok(prefix.includes("「想」里没有身体"), "动作只写在说里");
+});
+
+test("念白：动作标注不念出来，f(x) 这种不能误伤", () => {
+  assert.equal(stripStageDirections("（转了下椅子）行吧，说重点。"), "行吧，说重点。");
+  assert.equal(stripStageDirections("手停了一下。\n（把凉茶推远）"), "手停了一下。");
+  assert.equal(stripStageDirections("函数 f(x) 的返回值是 0。"), "函数 f(x) 的返回值是 0。");
+  assert.equal(stripStageDirections("（笑）"), "", "只有动作就没有可念的");
+  assert.equal(stripStageDirections("(笑了笑)走吧"), "走吧");
 });
 
 test("静态前缀：顺序是 自传 → 种子 → 此刻在哪 → 处境 → 契约", async () => {

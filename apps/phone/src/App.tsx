@@ -16,6 +16,7 @@ import {
   searchSessions,
   shareIdFromInput,
   shouldConsolidate,
+  stripStageDirections,
   shouldForget,
   SHARE_API,
   timePhrase,
@@ -484,6 +485,9 @@ export function App() {
   const speakBlock = useCallback(
     async (text: string) => {
       try {
+        // 动作标注不念：写给人看的（转了下椅子），念出来只是一句怪旁白
+        const spoken = stripStageDirections(text);
+        if (!spoken) return;
         const url = await synthesize(
           transport,
           {
@@ -494,7 +498,7 @@ export function App() {
             voice: settings.ttsVoice,
             groupId: settings.ttsGroupId,
           },
-          text
+          spoken
         );
         await playVoice(url);
       } catch (e) {

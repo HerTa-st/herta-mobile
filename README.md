@@ -12,7 +12,7 @@ Herta 的手机端。**双模**：离线时她是自己（人格 / 叙述 / 记�
 
 ```
 packages/protocol   Block / Session / ChatMessage / ToolSpec / ChatDelta
-packages/core       纯逻辑，Node 里能跑测试（106 项）
+packages/core       纯逻辑，Node 里能跑测试（108 项）
   persona 人格装配    narrative 想/说拆分   supervisor 复核
   dream 做梦          distill 消化长对话    memory 记忆库契约
   weights 权重衰减    consolidate 整理      voice 语气笔记
@@ -36,7 +36,7 @@ npm test          # core 的纯 Node 测试（吃不依赖浏览器的真素材�
 npm run dev:phone # 浏览器里跑 UI
 ```
 
-## 现状（v0.22.0，2026-10-27）
+## 现状（v0.23.0，2026-10-27）
 
 | 能力 | 状态 |
 |---|---|
@@ -52,6 +52,7 @@ npm run dev:phone # 浏览器里跑 UI
 | 类型检查 | ✅ `npm run typecheck`（打包脚本第一步就跑） |
 | 记忆库 | ✅ 4 篇种子进 IndexedDB（只搬一次，删光不会再复活），每轮挑 3 篇进系统提示词 |
 | 语气自画像 | ✅ 包里**不再带固定语气指南**；她的语气由自己写的笔记决定，每攒 3 篇记忆重写一次 |
+| 动作 | ✅ 「说」里带一到两处动作（转椅、推杯子、瞥屏幕…），用括号标注；念白前自动剥掉，不念旁白 |
 | 心情 | ✅ 八种语气基线 + 情绪惯性：平静档随语境微调（默认 ↔ 教学 ↔ 任务部署 ↔ 板砖代答），带情绪的档位（被烦 / 被戳穿 / 被顶嘴 / 倾听）要真踩到雷区或好感区才进得去；隔三小时重新起算 |
 | 做梦（记忆蒸馏） | ✅ 四道门：材料 → 值不值得记 → 写 → 格式/语气评审 → 改一遍 → 落库 |
 
