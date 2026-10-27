@@ -31,6 +31,7 @@ import { buildMoodPrompt, parseMood } from "../src/mood.ts";
 import { humanizeError, splitApiError } from "../src/errors.ts";
 import { buildPresenceNote, presenceAt, timePhrase } from "../src/presence.ts";
 import { planImageSlices } from "../src/image.ts";
+import { addUsage, emptyUsage, formatTokens, usageTotal } from "../src/usage.ts";
 
 /** 桌面版原文抽出来的 196 个函数：复核提示词与分隔符从它注入，不在 core 里重写。 */
 import * as H from "../../../runtime/prompts-code.zh.mjs";
@@ -900,6 +901,29 @@ test("检索：片段围绕命中处截取，两端加省略号", () => {
   assert.ok(s.length < 40);
 });
 
+/* ---------------------------------------------------------------- 用量 */
+
+test("用量：缩写只占一行，且不会出现 1000k", () => {
+  assert.equal(formatTokens(0), "0");
+  assert.equal(formatTokens(856), "856");
+  assert.equal(formatTokens(1000), "1k");
+  assert.equal(formatTokens(1234), "1.2k");
+  assert.equal(formatTokens(12_345), "12.3k");
+  assert.equal(formatTokens(123_456), "123k");
+  assert.equal(formatTokens(999_600), "1M", "999.6k 要进位成 1M，不能写 1000k");
+  assert.equal(formatTokens(4_100_000), "4.1M");
+  assert.equal(formatTokens(Number.NaN), "0", "接口给了脏数据也不能把 NaN 写上屏");
+});
+
+test("用量：累加时 cached 与 calls 不能丢", () => {
+  const a = addUsage(emptyUsage(), { prompt: 100, completion: 10, cached: 40, calls: 1 });
+  const b = addUsage(a, { prompt: 300, completion: 20, cached: 200, calls: 2 });
+  assert.equal(usageTotal(b), 430);
+  assert.equal(b.cached, 240);
+  assert.equal(b.calls, 3);
+  assert.equal(usageTotal(addUsage(b, null)), 430, "接口没给 usage 就当没发生");
+});
+
 /* ---------------------------------------------------------------- 工具 */
 
 function toolStream(script) {
@@ -999,6 +1023,29 @@ test("工具循环：轮数封顶，不让一个想不清楚的模型烧光额�
   );
   assert.equal(out.rounds, 3);
   assert.equal(out.results.length, 3);
+});
+
+test("工具循环：每一轮的 usage 都累加，数得出调用了几次", async () => {
+  const gen = toolStream([
+    [
+      { type: "tool_call", index: 0, id: "c1", name: "now", arguments: "{}" },
+      { type: "usage", usage: { prompt: 1200, completion: 30, cached: 1000 } },
+      { type: "done", finishReason: "tool_calls" },
+    ],
+    [
+      { type: "text", text: "三点。" },
+      { type: "usage", usage: { prompt: 1400, completion: 20, cached: 1300 } },
+      { type: "done", finishReason: "stop" },
+    ],
+  ]);
+  const out = await runToolLoop(
+    { tools: [fakeTool("now", async () => "15:00")], stream: () => gen() },
+    [{ role: "user", content: "几点" }]
+  );
+  assert.equal(out.usage.prompt, 2600);
+  assert.equal(out.usage.completion, 50);
+  assert.equal(out.usage.cached, 2300);
+  assert.equal(out.usage.calls, 2, "两轮 = 两次请求");
 });
 
 test("工具格式：必须带 type=function 与内层 function（422 missing field type 的根因）", () => {

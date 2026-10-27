@@ -28,6 +28,8 @@ export interface HertaBlock {
   at: string;
   /** 她随话发出去的表情（一张图）。 */
   attachments?: { mediaType: string; data: string; name?: string }[];
+  /** 这一轮花掉的 token（判心情 / 工具轮 / 复核 / 重说全算进来）。气泡下面那枚徽章用它。 */
+  usage?: TokenUsage;
 }
 
 export interface SystemBlock {
@@ -95,6 +97,21 @@ export type ChatPart =
   | { type: "text"; text: string }
   | { type: "image_url"; image_url: { url: string } };
 
+/**
+ * 一次模型调用的用量。DeepSeek 在流末尾那一块里给：
+ * `prompt_tokens` / `completion_tokens` / `prompt_cache_hit_tokens`。
+ */
+export interface TokenUsage {
+  /** 输入（prompt）token。 */
+  prompt: number;
+  /** 输出（completion）token。 */
+  completion: number;
+  /** 命中上下文缓存的 prompt token——DeepSeek 会给，别家可能没有。 */
+  cached?: number;
+  /** 累计时用：一共发了几次请求。单次回执里没有这个字段。 */
+  calls?: number;
+}
+
 export interface ChatMessage {
   role: MessageRole;
   /** 纯文字时是字符串；带图时是片段数组。 */
@@ -119,6 +136,8 @@ export interface ToolSpec {
 export type ChatDelta =
   | { type: "text"; text: string }
   | { type: "tool_call"; index: number; id?: string; name?: string; arguments?: string }
+  /** 流末尾的用量回执。出现一次就代表一次请求跑完了。 */
+  | { type: "usage"; usage: TokenUsage }
   | { type: "done"; finishReason: string | null };
 
 /* ------------------------------------------------------------ 网关协议 v2 */

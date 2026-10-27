@@ -15,6 +15,8 @@ import {
   parseSupervisorVerdict,
   pickSeeds,
   presenceAt,
+  addUsage,
+  emptyUsage,
   runToolLoop,
   serializeRecord,
   timePhrase,
@@ -30,7 +32,7 @@ import { buildTools } from "../devtools.ts";
 import type { StickerRecord } from "../storage.ts";
 import { loadPromptCode } from "../prompts.ts";
 import type { Settings } from "../settings.ts";
-import { collect } from "../stream.ts";
+import { collectDetailed } from "../stream.ts";
 import { pickTransport } from "../transport.ts";
 
 const assets = new BrowserAssetSource();
@@ -101,6 +103,8 @@ export function useChatTurn(opts: {
     };
 
     let raw = "";
+    /** 这一轮花掉的 token：判心情、主对话（含工具轮）、复核、重说，全加进来。 */
+    let spent = emptyUsage();
     try {
       const promptAssets = await assets.promptAssets();
       // 这一轮用哪几篇记忆：开局定死，想 / 说 / 复核共用同一批（否则三趟看到的她不一样）。
@@ -116,7 +120,7 @@ export function useChatTurn(opts: {
           const pack = await assets.mood();
           if (pack) {
             const p = buildMoodPrompt(pack, serializeRecord(trimForContext(history.blocks, 12), { maxBlocks: 0 }));
-            const answer = await collect(
+            const seen = await collectDetailed(
               transport.stream({
                 ...base,
                 messages: [
@@ -126,7 +130,8 @@ export function useChatTurn(opts: {
                 maxTokens: 12,
               })
             );
-            thisMood = parseMood(answer, pack.moods);
+            spent = addUsage(spent, seen.usage);
+            thisMood = parseMood(seen.text, pack.moods);
           }
         } catch {
           thisMood = DEFAULT_MOOD;
@@ -249,6 +254,7 @@ export function useChatTurn(opts: {
         loop = await startLoop(messages);
       }
       raw = loop.text;
+      spent = addUsage(spent, loop.usage);
 
       const parsed = parseNarrative(raw);
       let thought = parsed.thought;
@@ -259,7 +265,7 @@ export function useChatTurn(opts: {
       let withRedos = history;
 
       for (let attempt = 0; code && attempt < REVIEW_POLICY.maxRetries; attempt += 1) {
-        const verdictRaw = await collect(
+        const verdictSeen = await collectDetailed(
           transport.stream({
             ...base,
             messages: buildReviewMessages(
@@ -276,7 +282,8 @@ export function useChatTurn(opts: {
             maxTokens: 400,
           })
         );
-        const verdict = parseSupervisorVerdict(verdictRaw);
+        spent = addUsage(spent, verdictSeen.usage);
+        const verdict = parseSupervisorVerdict(verdictSeen.text);
         if (decideReview(verdict, attempt, speech) === "pass") break;
 
         withRedos = appendBlocks(withRedos, [
@@ -288,14 +295,15 @@ export function useChatTurn(opts: {
           },
         ]);
 
-        const redo = await collect(
+        const redoSeen = await collectDetailed(
           transport.stream({
             ...base,
             messages: [...messages, { role: "user", content: hints.respeak || hints.veto }],
             maxTokens: 2048,
           })
         );
-        const again = parseNarrative(redo);
+        spent = addUsage(spent, redoSeen.usage);
+        const again = parseNarrative(redoSeen.text);
         thought = again.thought || thought;
         // 重说没给出完整的「说」就别拿旧的顶上去——那正是被打回的那句。
         speech = again.speech || speech;
@@ -319,6 +327,8 @@ export function useChatTurn(opts: {
                 ],
               }
             : {}),
+          // 一次都没接到回执（别家接口不给 usage）就别挂一枚写着 0 的徽章
+          ...(spent.calls ? { usage: spent } : {}),
         });
       }
 

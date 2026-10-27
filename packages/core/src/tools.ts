@@ -11,7 +11,8 @@
  * 一个想不清楚的模型能在这循环里烧掉你一整天的额度。
  */
 
-import type { ChatDelta, ChatMessage, ToolCall, ToolSpec } from "../../protocol/src/index.ts";
+import type { ChatDelta, ChatMessage, TokenUsage, ToolCall, ToolSpec } from "../../protocol/src/index.ts";
+import { addUsage, emptyUsage } from "./usage.ts";
 
 export interface ToolResult {
   id: string;
@@ -43,6 +44,8 @@ export interface ToolLoopResult {
   text: string;
   results: ToolResult[];
   rounds: number;
+  /** 这几轮一共花了多少 token（每轮的流末尾各有一份回执）。 */
+  usage: TokenUsage;
 }
 
 /**
@@ -105,6 +108,7 @@ export async function runToolLoop(
   const results: ToolResult[] = [];
   let text = "";
   let rounds = 0;
+  let usage = emptyUsage();
 
   while (rounds < maxRounds) {
     rounds += 1;
@@ -127,6 +131,8 @@ export async function runToolLoop(
         if (delta.name) cur.name = delta.name;
         if (delta.arguments) cur.arguments += delta.arguments;
         callAcc.set(delta.index, cur);
+      } else if (delta.type === "usage") {
+        usage = addUsage(usage, { ...delta.usage, calls: 1 });
       } else {
         finish = delta.finishReason;
       }
@@ -166,5 +172,5 @@ export async function runToolLoop(
     if (finish === null) continue;
   }
 
-  return { messages, text, results, rounds };
+  return { messages, text, results, rounds, usage };
 }
