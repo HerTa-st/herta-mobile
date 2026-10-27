@@ -9,6 +9,7 @@
  */
 
 import type { ToolImpl } from "@herta/core";
+import { writeNextPing } from "./proactive.ts";
 import {
   addEvent,
   cancelReminder,
@@ -28,6 +29,8 @@ export interface SystemToolsContext {
   status: boolean;
   open: boolean;
   share: boolean;
+  /** 她能不能自己排下一次主动找你（常驻服务开着才有意义）。 */
+  proactive: boolean;
 }
 
 /** 时间：认 ISO 8601，也认 "in 30m / 30分钟后 / 明天 8:00" 这类说法里最常见的两种。 */
@@ -271,6 +274,31 @@ export function buildSystemTools(ctx: SystemToolsContext, opts: { cheap: boolean
           ...(args.url ? { url: String(args.url) } : {}),
         });
         return "分享面板已经弹出来了（发不发、发给谁，他决定）。";
+      },
+    });
+  }
+
+  if (ctx.proactive) {
+    out.push({
+      spec: {
+        kind: "write",
+        name: "plan_ping",
+        description:
+          "决定下一次你自己想起来找他是多久之后。聊到一半想晚点再说话、或者他刚说要睡的时候用。" +
+          "不给这条就按 2~5 小时随机。",
+        parameters: {
+          type: "object",
+          properties: {
+            minutes: { type: "integer", description: "过多少分钟（至少 60，最多 480）" },
+          },
+          required: ["minutes"],
+        },
+      },
+      async run(args) {
+        const raw = Number(args.minutes ?? 180);
+        const minutes = Math.min(480, Math.max(60, Number.isFinite(raw) ? Math.round(raw) : 180));
+        await writeNextPing(new Date(Date.now() + minutes * 60_000));
+        return "记下了：" + minutes + " 分钟之后我自己想起来。";
       },
     });
   }

@@ -9,6 +9,8 @@ import { Capacitor, registerPlugin } from "@capacitor/core";
 interface KeepAlivePlugin {
   start(): Promise<void>;
   stop(): Promise<void>;
+  /** 打开本应用的系统详情页（电池优化白名单在那儿三层深）。 */
+  openSystemSettings(): Promise<void>;
 }
 
 const HertaKeepAlive = registerPlugin<KeepAlivePlugin>("HertaKeepAlive");
@@ -17,6 +19,16 @@ export async function startKeepAlive(): Promise<boolean> {
   if (!Capacitor.isNativePlatform()) return false;
   try {
     await HertaKeepAlive.start();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function openAppSettings(): Promise<boolean> {
+  if (!Capacitor.isNativePlatform()) return false;
+  try {
+    await HertaKeepAlive.openSystemSettings();
     return true;
   } catch {
     return false;

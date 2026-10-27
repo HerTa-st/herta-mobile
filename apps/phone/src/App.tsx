@@ -26,6 +26,7 @@ import { GraphView } from "./components/GraphView.tsx";
 import { MemoryViewer } from "./components/MemoryViewer.tsx";
 import { SettingsSheet } from "./components/SettingsSheet.tsx";
 import { CapabilitiesSheet } from "./components/CapabilitiesSheet.tsx";
+import { Onboarding } from "./components/Onboarding.tsx";
 import { StickerTray } from "./components/StickerTray.tsx";
 import { longPressProps } from "./components/long-press.ts";
 import { Shot, ShotViewer, isTallImage } from "./components/Shot.tsx";
@@ -95,6 +96,7 @@ export function App() {
   } = useMemory(settings, { onError: (m) => reportError(m) });
   const [showSettings, setShowSettings] = useState(false);
   const [showCaps, setShowCaps] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState("");
@@ -136,6 +138,19 @@ export function App() {
   const [atBottom, setAtBottom] = useState(true);
 
   useEffect(() => saveSettings(settings), [settings]);
+
+  /**
+   * 第一次打开：老用户（已经填过 Key）直接立标记跳过；
+   * 新装的人看到那四步。标记只立一次，之后再也不会自己弹出来。
+   */
+  useEffect(() => {
+    if (localStorage.getItem("herta.onboarded.v1") === "1") return;
+    if (loadSettings().apiKey) {
+      localStorage.setItem("herta.onboarded.v1", "1");
+      return;
+    }
+    setShowOnboarding(true);
+  }, []);
 
   const scrollToBottom = useCallback((smooth = true) => {
     const el = feedRef.current;
@@ -807,6 +822,18 @@ export function App() {
               filesRef.current.set(file.name, text);
               setFileNames([...filesRef.current.keys()]);
             });
+          }}
+        />
+      )}
+
+      {showOnboarding && (
+        <Onboarding
+          settings={settings}
+          onChange={(patch) => setSettings({ ...settings, ...patch })}
+          onOpenCapabilities={() => setShowCaps(true)}
+          onDone={() => {
+            localStorage.setItem("herta.onboarded.v1", "1");
+            setShowOnboarding(false);
           }}
         />
       )}
