@@ -10,6 +10,7 @@
 
 import type { ToolImpl } from "@herta/core";
 import { writeNextPing } from "./proactive.ts";
+import { mediaControl, nowPlaying, recentNotifications } from "./notif.ts";
 import {
   addEvent,
   cancelReminder,
@@ -35,6 +36,10 @@ export interface SystemToolsContext {
   location: boolean;
   /** 打开相机拍一张，再由视觉模型描述给她。 */
   camera: boolean;
+  /** 读通知栏（要先在系统里开「通知使用权」）。 */
+  notify: boolean;
+  /** 看/控正在放的音乐（同一个授权）。 */
+  media: boolean;
   /** 她能不能自己排下一次主动找你（常驻服务开着才有意义）。 */
   proactive: boolean;
   /** 把一张图变成文字描述（相机用；没配视觉模型就别给这个回调）。 */
@@ -321,6 +326,79 @@ export function buildSystemTools(ctx: SystemToolsContext, opts: { cheap: boolean
           ...(args.url ? { url: String(args.url) } : {}),
         });
         return "分享面板已经弹出来了（发不发、发给谁，他决定）。";
+      },
+    });
+  }
+
+  if (ctx.notify) {
+    out.push({
+      spec: {
+        kind: "read",
+        name: "notifications",
+        description:
+          "看他手机上最近弹出的通知（应用名、标题、正文、时间，最多 24 条）。" +
+          "只有他主动问「刚才有什么事」这类问题时才调；不要自己凑过去汇报。",
+        parameters: { type: "object", properties: { limit: { type: "integer", description: "要几条，默认 10" } }, required: [] },
+      },
+      async run(args) {
+        const limit = Math.min(24, Math.max(1, Number(args.limit ?? 10) || 10));
+        const rows = await recentNotifications(limit);
+        if (rows.length === 0) return "最近没有通知（或者「通知使用权」还没开）。";
+        return rows
+          .map((r) => {
+            const t = new Date(r.at);
+            const hh = String(t.getHours()).padStart(2, "0") + ":" + String(t.getMinutes()).padStart(2, "0");
+            return "· " + hh + " " + r.app + "：" + (r.title ? r.title + " — " : "") + r.text;
+          })
+          .join("\n");
+      },
+    });
+  }
+
+  if (ctx.media) {
+    out.push({
+      spec: {
+        kind: "read",
+        name: "now_playing",
+        description: "看现在在放什么（哪个 App、歌名、艺术家、在放还是暂停）。",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+      async run() {
+        const text = await nowPlaying();
+        return text || "现在没在放东西。";
+      },
+    });
+
+    out.push({
+      spec: {
+        kind: "write",
+        name: "media_control",
+        description: "控制正在放的音乐：play / pause / toggle / next / previous。",
+        parameters: {
+          type: "object",
+          properties: {
+            action: { type: "string", enum: ["toggle", "play", "pause", "next", "previous"] },
+          },
+          required: ["action"],
+        },
+      },
+      async run(args) {
+        const raw = String(args.action ?? "toggle");
+        const action = (["toggle", "play", "pause", "next", "previous"].includes(raw) ? raw : "toggle") as
+          | "toggle"
+          | "play"
+          | "pause"
+          | "next"
+          | "previous";
+        await mediaControl(action);
+        const label: Record<string, string> = {
+          toggle: "按了一下播放/暂停",
+          play: "开始放了",
+          pause: "按了暂停",
+          next: "切到下一首",
+          previous: "退回上一首",
+        };
+        return label[action] + "。";
       },
     });
   }

@@ -82,7 +82,10 @@ public class HertaLocationPlugin extends Plugin {
             return;
         }
 
-        // 缓存太旧：要一次定位，最多等 12 秒
+        // 缓存太旧：要一次定位，最多等 12 秒。
+        // 注意这几个"容器"：lambda 只能捕获 final，而 best 是后面才可能被填上的。
+        final LocationManager manager = lm;
+        final Location[] cached = new Location[] { best };
         final LocationListener[] holder = new LocationListener[1];
         final boolean[] done = new boolean[] { false };
 
@@ -92,7 +95,7 @@ public class HertaLocationPlugin extends Plugin {
                 if (done[0]) return;
                 done[0] = true;
                 try {
-                    lm.removeUpdates(holder[0]);
+                    manager.removeUpdates(holder[0]);
                 } catch (SecurityException ignored) {
                     // 移除失败不影响这次结果
                 }
@@ -110,10 +113,10 @@ public class HertaLocationPlugin extends Plugin {
         };
 
         try {
-            String provider = lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+            String provider = manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
                     ? LocationManager.NETWORK_PROVIDER
                     : LocationManager.GPS_PROVIDER;
-            lm.requestLocationUpdates(provider, 0L, 0f, holder[0], Looper.getMainLooper());
+            manager.requestLocationUpdates(provider, 0L, 0f, holder[0], Looper.getMainLooper());
         } catch (SecurityException e) {
             call.reject("系统没给定位权限。");
             return;
@@ -126,12 +129,12 @@ public class HertaLocationPlugin extends Plugin {
             if (done[0]) return;
             done[0] = true;
             try {
-                lm.removeUpdates(holder[0]);
+                manager.removeUpdates(holder[0]);
             } catch (Exception ignored) {
                 // 已经没了
             }
-            if (best != null) {
-                resolveWith(best, call);
+            if (cached[0] != null) {
+                resolveWith(cached[0], call);
             } else {
                 call.reject("等了十几秒还是没定位到——可能室内收不到信号。");
             }

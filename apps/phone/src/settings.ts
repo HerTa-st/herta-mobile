@@ -51,6 +51,10 @@ export interface Settings {
   locationEnabled: boolean;
   /** 打开相机拍一张，再让视觉模型描述给她。 */
   cameraEnabled: boolean;
+  /** 读通知栏（系统「通知使用权」，要用户手动开）。 */
+  notifyEnabled: boolean;
+  /** 看与控正在放的音乐（同一个授权）。 */
+  mediaEnabled: boolean;
   /** 她主动找你（常驻后台 + 到点醒来说一句）。 */
   proactiveEnabled: boolean;
   /** 主动说话时带完整记忆检索（默认只带最近 8 块对话，便宜很多）。 */
@@ -84,6 +88,8 @@ export const DEFAULT_SETTINGS: Settings = {
   shareEnabled: false,
   locationEnabled: false,
   cameraEnabled: false,
+  notifyEnabled: false,
+  mediaEnabled: false,
   proactiveEnabled: false,
   proactiveDeepMemory: false,
   ttsEnabled: false,

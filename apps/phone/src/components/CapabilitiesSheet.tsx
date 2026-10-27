@@ -1,4 +1,5 @@
 import type { Settings } from "../settings.ts";
+import { openNotifySettings } from "../notif.ts";
 
 /**
  * 「她能做什么」——一整页，不是塞在设置里的一堆勾。
@@ -42,6 +43,23 @@ export function CapabilitiesSheet({
 
       <h3 className="capGroup">只看得见</h3>
       {row(settings.statusEnabled, "statusEnabled", "看手机状态", "电量、是否在充电、联网方式、这个 App 占多大地方。看不到你的照片和消息。")}
+      {row(
+        settings.notifyEnabled,
+        "notifyEnabled",
+        "看通知栏",
+        "她只会读最近二十几条（应用名、标题、正文、时间），不落盘、不常驻盯着；问她「刚才有什么事」才用得上。"
+      )}
+      {row(
+        settings.mediaEnabled,
+        "mediaEnabled",
+        "看/控正在放的音乐",
+        "和上面共用同一个系统授权；只能暂停、继续、切歌，看不到播放列表。"
+      )}
+      {(settings.notifyEnabled || settings.mediaEnabled) && (
+        <button type="button" className="onboardBtn" onClick={() => void openNotifySettings()}>
+          去系统里开「通知使用权」
+        </button>
+      )}
       {row(
         settings.locationEnabled,
         "locationEnabled",
@@ -87,7 +105,8 @@ export function CapabilitiesSheet({
         )}
 
       <p className="memNote">
-        还没做的（下一版）：读通知栏、无障碍替你点。这两样要单独去系统里授权，不在这版里。
+        还没做的（下一版）：无障碍——她替你去点别的 App 里的按钮。那个授权比通知使用权更重，
+        要单独做一页白名单。
       </p>
     </div>
   );
