@@ -55,6 +55,8 @@ export interface Settings {
   notifyEnabled: boolean;
   /** 看与控正在放的音乐（同一个授权）。 */
   mediaEnabled: boolean;
+  /** 无障碍：读屏幕 / 按文字点（白名单另存原生侧）。 */
+  a11yEnabled: boolean;
   /** 她主动找你（常驻后台 + 到点醒来说一句）。 */
   proactiveEnabled: boolean;
   /** 主动说话时带完整记忆检索（默认只带最近 8 块对话，便宜很多）。 */
@@ -90,6 +92,7 @@ export const DEFAULT_SETTINGS: Settings = {
   cameraEnabled: false,
   notifyEnabled: false,
   mediaEnabled: false,
+  a11yEnabled: false,
   proactiveEnabled: false,
   proactiveDeepMemory: false,
   ttsEnabled: false,

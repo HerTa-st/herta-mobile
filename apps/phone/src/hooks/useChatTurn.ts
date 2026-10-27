@@ -65,6 +65,8 @@ const TOOL_LABEL: Record<string, string> = {
   notifications: "看了通知栏",
   now_playing: "看了在放什么",
   media_control: "动了播放",
+  read_screen: "看了屏幕",
+  tap: "点了一下",
 };
 
 /**
@@ -266,6 +268,7 @@ export function useChatTurn(opts: {
           camera: settings.cameraEnabled && Boolean(settings.visionModel),
           notify: settings.notifyEnabled,
           media: settings.mediaEnabled,
+          a11y: settings.a11yEnabled,
           proactive: settings.proactiveEnabled && !settings.cheapMode,
           describePhoto: settings.visionModel
             ? (dataUrl) =>

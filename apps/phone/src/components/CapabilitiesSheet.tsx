@@ -1,5 +1,7 @@
+import { useState } from "react";
 import type { Settings } from "../settings.ts";
 import { openNotifySettings } from "../notif.ts";
+import { A11ySheet } from "./A11ySheet.tsx";
 
 /**
  * 「她能做什么」——一整页，不是塞在设置里的一堆勾。
@@ -19,6 +21,7 @@ export function CapabilitiesSheet({
   onChange(patch: Partial<Settings>): void;
   onClose(): void;
 }) {
+  const [showA11y, setShowA11y] = useState(false);
   const row = (checked: boolean, key: keyof Settings, title: string, hint: string) => (
     <label className="check capRow">
       <input type="checkbox" checked={checked} onChange={(e) => onChange({ [key]: e.target.checked } as Partial<Settings>)} />
@@ -89,6 +92,19 @@ export function CapabilitiesSheet({
         "她会先问一句再开；拍完只拿到一段文字描述，原图不留在她那儿。这条要配了视觉模型才有用。"
       )}
 
+      {row(
+        settings.a11yEnabled,
+        "a11yEnabled",
+        "无障碍：替你看屏、替你点",
+        "只在下面勾过的 App 里生效；动手之前她会先在对话里问一句。这是这批里权限最重的一样。"
+      )}
+      {settings.a11yEnabled && (
+        <button type="button" className="sheetLink" onClick={() => setShowA11y(true)}>
+          <span>允许她碰哪些 App</span>
+          <span className="sheetLinkHint">白名单 ›</span>
+        </button>
+      )}
+
       <h3 className="capGroup">常驻后台</h3>
       {row(
         settings.proactiveEnabled,
@@ -104,9 +120,10 @@ export function CapabilitiesSheet({
           "默认只带最近八块对话（几 k token）；打开后她会先检索一遍记忆，更像她，但一次可能上万 token。"
         )}
 
+      {showA11y && <A11ySheet onClose={() => setShowA11y(false)} />}
+
       <p className="memNote">
-        还没做的（下一版）：无障碍——她替你去点别的 App 里的按钮。那个授权比通知使用权更重，
-        要单独做一页白名单。
+        v0.29 这批到这儿就齐了。再往后是 M4 双模（连 PC）——那是另一整块。
       </p>
     </div>
   );

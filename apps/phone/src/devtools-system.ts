@@ -11,6 +11,7 @@
 import type { ToolImpl } from "@herta/core";
 import { writeNextPing } from "./proactive.ts";
 import { mediaControl, nowPlaying, recentNotifications } from "./notif.ts";
+import { readScreen, tapText } from "./a11y.ts";
 import {
   addEvent,
   cancelReminder,
@@ -40,6 +41,8 @@ export interface SystemToolsContext {
   notify: boolean;
   /** 看/控正在放的音乐（同一个授权）。 */
   media: boolean;
+  /** 无障碍：读当前屏幕 / 按文字点一下（白名单在原生侧判断）。 */
+  a11y: boolean;
   /** 她能不能自己排下一次主动找你（常驻服务开着才有意义）。 */
   proactive: boolean;
   /** 把一张图变成文字描述（相机用；没配视觉模型就别给这个回调）。 */
@@ -399,6 +402,41 @@ export function buildSystemTools(ctx: SystemToolsContext, opts: { cheap: boolean
           previous: "退回上一首",
         };
         return label[action] + "。";
+      },
+    });
+  }
+
+  if (ctx.a11y) {
+    out.push({
+      spec: {
+        kind: "read",
+        name: "read_screen",
+        description:
+          "看他手机屏幕上现在有什么字（只在你在设置里勾过的 App 里能用）。" +
+          "带 ▸ 的行是能点的。他问「这个页面写的什么」这类问题时才调。",
+        parameters: { type: "object", properties: { max: { type: "integer", description: "最多几行，默认 60" } }, required: [] },
+      },
+      async run(args) {
+        const max = Math.min(200, Math.max(10, Number(args.max ?? 60) || 60));
+        const screen = await readScreen(max);
+        if (screen.lines.length === 0) return "屏幕上没读到字（可能不在白名单里的 App，或者页面还没加载）。";
+        return "当前是 " + screen.pkg + "：\n" + screen.lines.join("\n");
+      },
+    });
+
+    out.push({
+      spec: {
+        kind: "write",
+        name: "tap",
+        description:
+          "在屏幕上按文字点一下（只在白名单里的 App 里生效）。" +
+          "**动手之前必须先在对话里问一句、等他同意**，再调这条。",
+        parameters: { type: "object", properties: { text: { type: "string", description: "要点的那几个字，和屏幕上完全一致" } }, required: ["text"] },
+      },
+      async run(args) {
+        const text = String(args.text ?? "").trim();
+        if (!text) throw new Error("要说点哪个字。");
+        return await tapText(text);
       },
     });
   }
