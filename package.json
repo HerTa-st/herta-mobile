@@ -12,6 +12,8 @@
     "test:watch": "node --watch packages/core/test/core.test.mjs",
     "dev:phone": "npm -w @herta/phone run dev",
     "build:phone": "npm -w @herta/phone run build",
+    "build:pure": "npm -w @herta/phone run build:pure",
+    "build:blank": "npm -w @herta/phone run build:blank",
     "sync:android": "npm -w @herta/phone run sync"
   }
 }

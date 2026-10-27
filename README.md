@@ -36,7 +36,7 @@ npm test          # core 的纯 Node 测试（吃不依赖浏览器的真素材�
 npm run dev:phone # 浏览器里跑 UI
 ```
 
-## 现状（v0.23.0，2026-10-27）
+## 现状（v0.24.0，2026-10-27）
 
 | 能力 | 状态 |
 |---|---|
@@ -53,6 +53,7 @@ npm run dev:phone # 浏览器里跑 UI
 | 记忆库 | ✅ 4 篇种子进 IndexedDB（只搬一次，删光不会再复活），每轮挑 3 篇进系统提示词 |
 | 语气自画像 | ✅ 包里**不再带固定语气指南**；她的语气由自己写的笔记决定，每攒 3 篇记忆重写一次 |
 | 动作 | ✅ 「说」里带一到两处动作（转椅、推杯子、瞥屏幕…），用括号标注；念白前自动剥掉，不念旁白 |
+| 启动 | ✅ 图标换成她（自适应图标，5 档密度）；启动时原生闪屏 → 她的立绘淡入 + 紫环 + "黑塔 · 天才俱乐部 #83" 字距展开，1.5 秒后淡出 |
 | 心情 | ✅ 八种语气基线 + 情绪惯性：平静档随语境微调（默认 ↔ 教学 ↔ 任务部署 ↔ 板砖代答），带情绪的档位（被烦 / 被戳穿 / 被顶嘴 / 倾听）要真踩到雷区或好感区才进得去；隔三小时重新起算 |
 | 做梦（记忆蒸馏） | ✅ 四道门：材料 → 值不值得记 → 写 → 格式/语气评审 → 改一遍 → 落库 |
 
@@ -148,11 +149,16 @@ npm run dev:phone # 浏览器里跑 UI
 ### 打 APK
 
 ```powershell
-pwsh -File tools\build-apk.ps1
+pwsh -File tools\build-apk.ps1                    # 正常版
+pwsh -File tools\build-apk.ps1 -Variant pure       # 纯净版：只留那 628 条对话，没有记忆
+pwsh -File tools\build-apk.ps1 -Variant blank      # 白纸版：连对话也不带，清完库是空的
 ```
 
 产物在 `apps/phone/android/app/build/outputs/apk/debug/app-debug.apk`，
 也会拷一份到 `dist-apk/`。
+
+图标与启动图是用 `tools/make-android-art.py` 从 `assets/art/herta.png` 生成的：
+Android 工程不进 git，换机器后跑一次这个脚本，图标和闪屏就都回来了（要 Pillow）。
 
 脚本会先把依赖缓存指到仓库内 `.gradle-home`，因为这个工作区的沙箱不让写
 gradle 默认的 `G:\gradle-home`（构建会死在 `.lck` 打开的权限上）。
