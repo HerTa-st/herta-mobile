@@ -4,11 +4,9 @@ import {
   createSession,
   effectiveWeight,
   humanizeError,
-  listOpenings,
   memoryTitle,
   parseImportBundle,
   parseSharedConversation,
-  pickOpening,
   planImport,
   presenceAt,
   retractLastTurn,
@@ -21,7 +19,6 @@ import {
   SHARE_API,
   timePhrase,
   type MemoryRecord,
-  type Opening,
 } from "@herta/core";
 import { BrowserAssetSource } from "./assets-browser.ts";
 import { Drawer } from "./components/Drawer.tsx";
@@ -93,7 +90,6 @@ export function App() {
   } = useMemory(settings, { onError: (m) => reportError(m) });
   const [showSettings, setShowSettings] = useState(false);
   const [drawer, setDrawer] = useState(false);
-  const [opening, setOpening] = useState<Opening | null>(null);
   const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState("");
   const [importNote, setImportNote] = useState<string | null>(null);
@@ -203,34 +199,11 @@ export function App() {
     };
   }, [refreshList]);
 
-  /* 开场独白只在「空会话」上出现，且换会话时重新挑一篇。 */
-  useEffect(() => {
-    if (!session || session.blocks.length > 0) {
-      setOpening(null);
-      return;
-    }
-    let alive = true;
-    void (async () => {
-      try {
-        const [a, v] = await Promise.all([assets.promptAssets(), assets.voice()]);
-        const picked = pickOpening(listOpenings(a.openings ?? {}, v));
-        if (alive) setOpening(picked);
-      } catch {
-        /* 素材没进来就不开场，别把启动挡住 */
-      }
-    })();
-    return () => {
-      alive = false;
-      stopVoice();
-    };
-  }, [session?.id, session?.blocks.length]);
-
 
   const newSession = useCallback(async () => {
     const fresh = createSession();
     await putSession(fresh);
     setSession(fresh);
-    setOpening(null);
     setDrawer(false);
     await refreshList();
   }, [refreshList]);
@@ -605,7 +578,6 @@ export function App() {
     if (!stickToBottom.current) return;
     requestAnimationFrame(() => scrollToBottom(false));
   }, [blocks.length, scrollToBottom]);
-  const showOpening = blocks.length === 0 && opening !== null;
 
   /** 一条消息的正文：图在气泡里，字是字。 */
   const bodyOf = (b: UserBlock | HertaBlock) => {
@@ -747,17 +719,7 @@ export function App() {
       {viewingShot && <ShotViewer pieces={viewingShot.pieces} name={viewingShot.name} onClose={() => setViewingShot(null)} />}
 
       <main className="feed" ref={feedRef} onScroll={onFeedScroll}>
-        {showOpening && opening && (
-          <article className="bubble herta speech opening">
-            <p>{opening.speech}</p>
-            {opening.audio && (
-              <button className="play" onClick={() => void playVoice(opening.audio as string)}>
-                ▶ 听这一段
-              </button>
-            )}
-          </article>
-        )}
-        {blocks.length === 0 && !opening && <p className="empty">她还没开口。说点什么。</p>}
+        {blocks.length === 0 && <p className="empty">她还没开口。说点什么。</p>}
 
         {blocks.map((b, i) =>
           b.kind === "system" ? (

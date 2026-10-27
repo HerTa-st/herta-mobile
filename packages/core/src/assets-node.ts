@@ -11,7 +11,7 @@ import type { AssetSource, MoodPack, PromptAssets, VoicePack } from "./assets.ts
 import type { Lang } from "../../protocol/src/index.ts";
 
 interface Manifest {
-  voice?: { openings?: Record<string, string>; veto?: string[]; easterEgg?: string[] };
+  voice?: { veto?: string[]; easterEgg?: string[] };
   memory?: { path: string }[];
 }
 
@@ -66,7 +66,6 @@ export class NodeAssetSource implements AssetSource {
   async voice(): Promise<VoicePack> {
     const m = (await readJson<Manifest>(join(this.root, "manifest.json"))) ?? {};
     return {
-      openings: m.voice?.openings ?? {},
       veto: m.voice?.veto ?? [],
       easterEgg: m.voice?.easterEgg ?? [],
     };

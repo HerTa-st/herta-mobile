@@ -11,7 +11,7 @@ async function json<T>(url: string): Promise<T | null> {
 }
 
 interface Manifest {
-  voice?: { openings?: Record<string, string>; veto?: string[]; easterEgg?: string[] };
+  voice?: { veto?: string[]; easterEgg?: string[] };
   memory?: { path: string }[];
 }
 
@@ -55,7 +55,6 @@ export class BrowserAssetSource implements AssetSource {
   async voice(): Promise<VoicePack> {
     const m = await json<Manifest>(this.base + "manifest.json");
     return {
-      openings: m?.voice?.openings ?? {},
       veto: m?.voice?.veto ?? [],
       easterEgg: m?.voice?.easterEgg ?? [],
     };

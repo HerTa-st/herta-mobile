@@ -546,18 +546,6 @@ body {
 .usageChip:active { opacity: 1; }
 .usageDetail { font-size: 10.5px; line-height: 1.7; color: var(--muted); opacity: 0.85; }
 
-.bubble.opening { align-self: flex-start; }
-.bubble .play {
-  margin-top: 8px;
-  background: none;
-  border: 1px solid var(--line);
-  color: var(--muted);
-  border-radius: 999px;
-  padding: 4px 10px;
-  font: inherit;
-  font-size: 12px;
-}
-
 /* ---------------------------------------------------------------- 输入 */
 
 .composer {

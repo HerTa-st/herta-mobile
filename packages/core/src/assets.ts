@@ -25,8 +25,6 @@ export interface PromptAssets {
   metaThink?: { preThink?: Record<string, string>; preSpeak?: Record<string, string> };
   /** 打包自带的废案种子（无记忆库时的兜底）。 */
   feianSeeds?: Record<string, string>;
-  /** 36 篇开局独白：文件名 → 正文（正文里含「想」与「说」两轨）。 */
-  openings?: Record<string, string>;
   /** 退役/被取代的种子，导入时要按 sha1 排除。 */
   retiredFeian?: string[];
   supersededFeianSha1?: string[];
@@ -54,8 +52,6 @@ export interface VoiceManifestEntry {
 }
 
 export interface VoicePack {
-  /** 开局独白 id → opus 相对路径。 */
-  openings: Record<string, string>;
   veto: string[];
   easterEgg?: string[];
 }
