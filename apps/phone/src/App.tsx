@@ -831,7 +831,7 @@ export function App() {
             {imageBusy ? (
               <span className="attachBusy">…</span>
             ) : (
-              <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
                 <path
                   d="M20.5 11.6 12 20.1a5.4 5.4 0 0 1-7.6-7.6l8.2-8.2a3.6 3.6 0 0 1 5.1 5.1l-8.2 8.2a1.8 1.8 0 0 1-2.6-2.6l7.5-7.5"
                   fill="none"
