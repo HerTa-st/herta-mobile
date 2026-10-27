@@ -28,6 +28,7 @@ import { applyConsolidatePlan, buildConsolidatePrompt, consolidateMemories, forg
 import { searchMemories, searchSessions, snippetOf } from "../src/search.ts";
 import { runToolLoop, toProviderMessages, toProviderTools } from "../src/tools.ts";
 import { buildMoodPrompt, parseMood } from "../src/mood.ts";
+import { humanizeError, splitApiError } from "../src/errors.ts";
 import { buildPresenceNote, presenceAt, timePhrase } from "../src/presence.ts";
 
 /** 桌面版原文抽出来的 196 个函数：复核提示词与分隔符从它注入，不在 core 里重写。 */
@@ -1070,6 +1071,35 @@ test("行踪：拼出来的段落带地点、动作与「这不是设定」这�
   assert.ok(note.includes(p.place));
   assert.ok(note.includes(p.doing));
   assert.ok(note.includes("这不是设定"));
+});
+
+/* ---------------------------------------------------------------- 报错 */
+
+test("报错：模型名填错时直接说该改哪一项", () => {
+  const raw =
+    '模型接口 400: {"error":{"message":"The supported API model names are deepseek-v4-pro, but you passed DeepSeek-V4.1-Flash-1017.","type":"invalid_request_error"}}';
+  const human = humanizeError(raw);
+  assert.ok(human.includes("模型名填错了"), human);
+  assert.ok(human.includes("deepseek-v4-pro"), "没指出正确的名字：" + human);
+  assert.ok(human.includes("不是 App 里看到的显示名"));
+  assert.ok(!human.includes("invalid_request_error"), "把原始 JSON 也贴回来了");
+  const parts = splitApiError(raw);
+  assert.equal(parts.status, 400);
+});
+
+test("报错：401/402/429 各说一句话，不带 JSON", () => {
+  assert.ok(humanizeError('模型接口 401: {"error":{"message":"Authentication Fails"}}').includes("Key 不对"));
+  assert.ok(humanizeError("模型接口 402: {}").includes("余额不足"));
+  assert.ok(humanizeError("模型接口 429: {}").includes("限流"));
+});
+
+test("报错：认不出来的就原样给，但截断", () => {
+  const long = "模型接口 418: " + "x".repeat(500);
+  const out = humanizeError(long);
+  assert.ok(out.length <= 240, "没截断：" + out.length);
+  assert.ok(out.includes("418"));
+  assert.equal(humanizeError(""), "");
+  assert.equal(humanizeError("普通的一句话"), "普通的一句话");
 });
 
 /* -------------------------------------------------------------- 标签语法 */

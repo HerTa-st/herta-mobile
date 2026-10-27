@@ -3,6 +3,7 @@ import type { Block, ImportBundle, Session } from "@herta/protocol";
 import {
   createSession,
   effectiveWeight,
+  humanizeError,
   listOpenings,
   memoryTitle,
   parseImportBundle,
@@ -61,6 +62,10 @@ export function App() {
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  /** 报错统一走这里：接口吐回来的 JSON 先翻成人话再上屏。 */
+  const reportError = useCallback((message: string | null) => {
+    setError(message ? humanizeError(message) : null);
+  }, []);
   const {
     memories,
     dreamState,
@@ -74,7 +79,7 @@ export function App() {
     dreamNow,
     distillNow,
     maintainMemories,
-  } = useMemory(settings, { onError: setError });
+  } = useMemory(settings, { onError: (m) => reportError(m) });
   const [showSettings, setShowSettings] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [opening, setOpening] = useState<Opening | null>(null);
@@ -257,7 +262,7 @@ export function App() {
     dreamState,
     files: filesRef.current,
     stickers,
-    onError: setError,
+    onError: reportError,
     onNeedKey: () => setShowSettings(true),
   });
 
