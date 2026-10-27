@@ -12,7 +12,7 @@ Herta 的手机端。**双模**：离线时她是自己（人格 / 叙述 / 记�
 
 ```
 packages/protocol   Block / Session / ChatMessage / ToolSpec / ChatDelta
-packages/core       纯逻辑，Node 里能跑测试（108 项）
+packages/core       纯逻辑，Node 里能跑测试（106 项）
   persona 人格装配    narrative 想/说拆分   supervisor 复核
   dream 做梦          distill 消化长对话    memory 记忆库契约
   weights 权重衰减    consolidate 整理      voice 语气笔记
@@ -26,7 +26,7 @@ apps/phone
   transport.ts      原生/浏览器通道        devtools.ts  六件工具
   storage.ts        会话落盘               memory-idb.ts 记忆落盘
 runtime/            桌面版原文（196 个提示词函数），别动
-assets/             自传、话术、41 条原声、4 篇种子
+assets/             自传、话术、4 条 veto 原声、4 篇种子
 tools/              打 APK、删种子、删素材字段、油猴脚本
 ```
 
@@ -36,14 +36,13 @@ npm test          # core 的纯 Node 测试（吃不依赖浏览器的真素材�
 npm run dev:phone # 浏览器里跑 UI
 ```
 
-## 现状（v0.25.1，2026-10-27）
+## 现状（v0.26.0，2026-10-27）
 
 | 能力 | 状态 |
 |---|---|
 | 人格装配（自传 + 废案 + 设定 + 手机处境 + 输出契约） | ✅ 单测覆盖 |
 | 双轨叙述解析（想 / 说），缺闭合标签也不会把心里话当台词 | ✅ 单测覆盖 |
 | 复核（桌面版原文 `buildSupervisorPrompt` + 四步评分 + 最多打回两次） | ✅ 可开关 |
-| 开局独白（36 篇 + 原声播放） | ✅ |
 | 原生 HTTP 通道（HttpURLConnection 插件，绕开 CORS） | ✅ 已编译进 APK |
 | 会话持久化（IndexedDB） | ✅ 关掉 App 再开，记录还在 |
 | 多会话（列表 / 新建 / 切换 / 删除 / 自动标题） | ✅ |
@@ -174,6 +173,6 @@ gradle 默认的 `G:\gradle-home`（构建会死在 `.lck` 打开的权限上）
 
 ## 素材
 
-`assets/` 是从桌面版 Herta **原样搬来**的素材：自传、办公室设定、11 篇废案种子、41 条 .opus 原声、13 篇记忆语料、以及 `prompts-code.zh.mjs`（从 `app.asar` 按 AST 抽出的 196 个提示词/校验函数原文）。
+`assets/` 是从桌面版 Herta **原样搬来**的素材：自传、话术、4 条 veto .opus 原声、4 篇种子记忆、以及 `prompts-code.zh.mjs`（从 `app.asar` 按 AST 抽出的 196 个提示词/校验函数原文）。
 
 **算法重写，素材不改**——她是谁由这些字节决定，不由代码决定。素材的授权边界见 dsh-herta 仓库的 `NOTICE.md` / `THIRD-PARTY.md`，本仓库沿用。

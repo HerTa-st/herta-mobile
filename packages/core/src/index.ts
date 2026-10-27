@@ -19,7 +19,6 @@ export * from "./usage.ts";
 export * from "./budget.ts";
 export * from "./dream.ts";
 export type { DreamPrompt } from "./dream.ts";
-export * from "./openings.ts";
 export * from "./persona.ts";
 export * from "./tags.ts";
 export * from "./supervisor.ts";

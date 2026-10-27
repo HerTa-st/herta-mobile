@@ -7,7 +7,6 @@ import { buildStaticPrefix, moodStyleNote, pickSeeds, MOBILE_NOTE, FORMAT_CONTRA
 import { extractTagged, parseTagged, isPlaceholder, serializeRecord, parseSupervisorVerdict } from "../src/tags.ts";
 import { parseNarrative, stripStageDirections } from "../src/narrative.ts";
 import { buildReviewMessages, decideReview, vetoHints } from "../src/supervisor.ts";
-import { listOpenings, pickOpening } from "../src/openings.ts";
 import { EMPTY_TITLE, appendBlocks, createSession, deriveTitle, retractLastTurn, trimForContext } from "../src/session.ts";
 import { MemoryInMemory, memoryFileName, memoryTitle, nextMemoryIndex } from "../src/memory.ts";
 import { extractJson, runDreamPass } from "../src/dream.ts";
@@ -42,7 +41,7 @@ const src = new NodeAssetSource(ASSETS, "zh");
 
 /* ------------------------------------------------------------------ 素材 */
 
-test("素材齐：《自传、话术、41 条原声、4 篇记忆》（设定与指南已不在包里）", async () => {
+test("素材齐：《自传、话术、4 条 veto 原声、4 篇记忆》（开局与设定已删）", async () => {
   const a = await src.promptAssets();
   assert.ok(a.hertaBio.length > 5000, "自传太短，多半读错了文件");
   // 办公室设定与语气指南都删了：她不再永远坐在同一个房间，语气也不是别人写死的
@@ -51,7 +50,6 @@ test("素材齐：《自传、话术、41 条原声、4 篇记忆》（设定与
   assert.ok(Object.keys(a.hints).length >= 10);
 
   const v = await src.voice();
-  assert.equal(Object.keys(v.openings).length, 36);
   assert.equal(v.veto.length, 4);
 
   // 13 篇种子里的「远程办公的一百种无聊方式」那 9 篇按用户要求删掉了
@@ -107,29 +105,6 @@ test("挑种子：确定性（rng 固定时同一输入同一结果）且不超�
   assert.deepEqual(a, b);
   assert.equal(a.length, 3);
   assert.equal(pickSeeds([], "x", 3).length, 0);
-});
-
-/* ---------------------------------------------------------------- 开局 */
-
-test("开局：36 篇全部带得上原声，路径去掉 assets/ 前缀", async () => {
-  const a = await src.promptAssets();
-  const voice = await src.voice();
-  const list = listOpenings((a.openings ?? {}), voice);
-
-  assert.equal(list.length, 36);
-  assert.ok(list.every((o) => o.audio && !o.audio.startsWith("assets/")));
-  assert.ok(list.every((o) => o.speech.length > 0), "有开局读不出「说」那一轨");
-  assert.ok(list[0].key < list[35].key, "排序不稳定");
-});
-
-test("开局：rng 决定挑哪一篇，且不会挑空", () => {
-  const list = [
-    { key: "a", thought: "", speech: "甲", audio: null },
-    { key: "b", thought: "", speech: "乙", audio: null },
-  ];
-  assert.equal(pickOpening(list, () => 0)?.key, "a");
-  assert.equal(pickOpening(list, () => 0.99)?.key, "b");
-  assert.equal(pickOpening([], () => 0), null);
 });
 
 /* ---------------------------------------------------------------- 会话 */
