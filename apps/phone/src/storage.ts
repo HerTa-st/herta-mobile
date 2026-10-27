@@ -102,6 +102,21 @@ export async function deleteSession(id: string): Promise<void> {
 
 /* -------------------------------------------------------------- 表情库 */
 
+/**
+ * 库里有没有东西。
+ *
+ * 白纸版靠它区分"新装"和"老用户升级"：新装才是白纸，升级不准动人家数据。
+ * 只看会话 / 记忆 / 表情三类——别的都从这三样长出来。
+ */
+export async function hasLocalData(): Promise<boolean> {
+  const [sessions, memories, stickers] = await Promise.all([
+    tx<number>(STORE_SESSIONS, "readonly", (s) => s.count()),
+    tx<number>(STORE_MEMORIES, "readonly", (s) => s.count()),
+    tx<number>(STORE_STICKERS, "readonly", (s) => s.count()),
+  ]);
+  return sessions > 0 || memories > 0 || stickers > 0;
+}
+
 /** 清空全部本地数据。纯净版第一次启动时用——它要"什么都不带"。 */
 export async function clearAll(): Promise<void> {
   for (const store of [STORE_SESSIONS, STORE_MEMORIES, STORE_KV, STORE_STICKERS]) {

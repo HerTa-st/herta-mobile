@@ -13,7 +13,7 @@
  */
 
 import { loadPureSession } from "./data/loader.ts";
-import { clearAll, listSessions, putSession } from "./storage.ts";
+import { clearAll, hasLocalData, listSessions, putSession } from "./storage.ts";
 import { parseImportBundle, planImport } from "@herta/core";
 
 export const PURE = import.meta.env.MODE === "pure";
@@ -37,9 +37,17 @@ export async function seedPureIfNeeded(): Promise<void> {
   if (!PURE && !BLANK) return;
   if (localStorage.getItem(PURE_FLAG) === "1") return;
 
-  await clearAll();
-  // 顺手把"种子记忆只搬一次"的标记也立上，免得后面又被塞回四篇废案
+  // 种子记忆只搬一次的标记：白纸版也不能让四篇废案回来
   localStorage.setItem("herta.seeded.v1", "1");
+
+  // 白纸版只对"新装"是白纸。库里已经有东西说明是老用户在换安装包，
+  // 这时候清库就是删他的数据——不做。
+  if (BLANK && (await hasLocalData().catch(() => true))) {
+    localStorage.setItem(PURE_FLAG, "1");
+    return;
+  }
+
+  await clearAll();
 
   // 白纸版到此为止：库已经空了，什么都不灌
   if (PURE) {
