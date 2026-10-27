@@ -11,4 +11,5 @@ apps/phone/ios/
 apps/phone/android/local.properties
 apps/phone/android/debug.keystore
 build.log
+build*.log
 dist-apk/

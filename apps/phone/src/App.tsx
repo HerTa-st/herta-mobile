@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Block, ImportBundle, Session } from "@herta/protocol";
+import type { Block, HertaBlock, ImportBundle, Session, UserBlock } from "@herta/protocol";
 import {
   createSession,
   effectiveWeight,
@@ -27,9 +27,10 @@ import { Drawer } from "./components/Drawer.tsx";
 import { GraphView } from "./components/GraphView.tsx";
 import { MemoryViewer } from "./components/MemoryViewer.tsx";
 import { SettingsSheet } from "./components/SettingsSheet.tsx";
+import { Shot, ShotViewer, isTallImage } from "./components/Shot.tsx";
 import { useChatTurn } from "./hooks/useChatTurn.ts";
 import { seedPureIfNeeded } from "./pure.ts";
-import { captionImage, compressImage } from "./vision.ts";
+import { captionImage, compressImage, prepareImage } from "./vision.ts";
 import { useMemory } from "./hooks/useMemory.ts";
 import { MemoryGraph } from "./MemoryGraph.tsx";
 import { collect } from "./stream.ts";
@@ -55,6 +56,9 @@ import { playVoice, stopVoice } from "./voice.ts";
 const assets = new BrowserAssetSource();
 const transport = pickTransport();
 const memoryStore = new IdbMemoryStore();
+
+/** 模型名里带这些的，当它自己能看图（deepseek-flash / 各家 VL）。 */
+const VISION_MODEL = /flash|vision|vl|omni/i;
 
 export function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings);
@@ -90,10 +94,18 @@ export function App() {
   const [filter, setFilter] = useState("");
   const [allSessions, setAllSessions] = useState<Session[]>([]);
   const [pendingJump, setPendingJump] = useState<{ sessionId: string; index: number } | null>(null);
-  const [pendingImage, setPendingImage] = useState<{ mediaType: string; data: string; name: string; caption: string } | null>(
-    null
-  );
+  /** 待发的图：长图会被切成几片（pieces），气泡只拿第一片当缩略图。 */
+  const [pendingImage, setPendingImage] = useState<{
+    mediaType: string;
+    pieces: string[];
+    name: string;
+    caption: string;
+  } | null>(null);
   const [imageBusy, setImageBusy] = useState(false);
+  /** 点开看整张图（长图缩略裁过，原图在这里）。 */
+  const [viewingShot, setViewingShot] = useState<{ pieces: string[]; name?: string } | null>(null);
+  /** 待发的图是不是长图：是就裁成竖卡片，不然预览也只剩一条线。 */
+  const [previewTall, setPreviewTall] = useState(false);
   const [stickers, setStickers] = useState<StickerRecord[]>([]);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [viewing, setViewing] = useState<MemoryRecord | null>(null);
@@ -496,9 +508,15 @@ export function App() {
     const img = pendingImage;
     const text = (draft.trim() + (img?.caption ? "\n\n" + img.caption : "")).trim();
     if (!text && !img) return;
+    // 只发图时正文可以是空的：序列化层会补一行「（附了一张图）」，她不会当你在发空气。
     setDraft("");
     setPendingImage(null);
-    void send(text, img ? [{ mediaType: img.mediaType, data: img.data, name: img.name }] : undefined);
+    setPreviewTall(false);
+    // 长图切出来的每一片都是独立附件：模型逐片看，气泡把它们接成一摞
+    void send(
+      text,
+      img ? img.pieces.map((data) => ({ mediaType: img.mediaType, data, name: img.name })) : undefined
+    );
   }, [draft, pendingImage, send]);
 
   const blocks = useMemo(() => session?.blocks ?? [], [session]);
@@ -578,6 +596,37 @@ export function App() {
     requestAnimationFrame(() => scrollToBottom(false));
   }, [blocks.length, scrollToBottom]);
   const showOpening = blocks.length === 0 && opening !== null;
+
+  /** 一条消息的正文：图在气泡里，字是字。 */
+  const bodyOf = (b: UserBlock | HertaBlock) => {
+    if (b.kind === "herta" && b.surface === "thought") {
+      return (
+        <details>
+          <summary>想法</summary>
+          <p>{b.text}</p>
+        </details>
+      );
+    }
+    const att = b.attachments?.[0];
+    return (
+      <>
+        {b.kind === "user" && att && (
+          <Shot
+            pieces={(b.attachments ?? []).map((a) => a.data)}
+            name={att.name}
+            onOpen={() => setViewingShot({ pieces: (b.attachments ?? []).map((a) => a.data), name: att.name })}
+          />
+        )}
+        {b.kind === "herta" && att && <img className="sticker" src={att.data} alt={att.name ?? "表情"} />}
+        {b.kind === "herta" && b.surface === "speech" && settings.ttsEnabled && (
+          <button className="say" onClick={() => void speakBlock(b.text)} title="用她的声音念出来">
+            ▶ 念
+          </button>
+        )}
+        {b.text && <p>{b.text}</p>}
+      </>
+    );
+  };
 
   return (
     <div className="app">
@@ -682,6 +731,8 @@ export function App() {
         />
       )}
 
+      {viewingShot && <ShotViewer pieces={viewingShot.pieces} name={viewingShot.name} onClose={() => setViewingShot(null)} />}
+
       <main className="feed" ref={feedRef} onScroll={onFeedScroll}>
         {showOpening && opening && (
           <article className="bubble herta speech opening">
@@ -702,25 +753,7 @@ export function App() {
             </p>
           ) : (
             <article key={i} data-idx={i} className={"bubble " + b.kind + (b.kind === "herta" ? " " + b.surface : "")}>
-              {b.kind === "user" && b.attachments && b.attachments.length > 0 && (
-                <img className="shot" src={b.attachments[0].data} alt={b.attachments[0].name ?? "图"} />
-              )}
-              {b.kind === "herta" && b.attachments && b.attachments.length > 0 && (
-                <img className="sticker" src={b.attachments[0].data} alt={b.attachments[0].name ?? "表情"} />
-              )}
-              {b.kind === "herta" && b.surface === "speech" && settings.ttsEnabled && (
-                <button className="say" onClick={() => void speakBlock(b.text)} title="用她的声音念出来">
-                  ▶ 念
-                </button>
-              )}
-              {b.kind === "herta" && b.surface === "thought" ? (
-                <details>
-                  <summary>想法</summary>
-                  <p>{b.text}</p>
-                </details>
-              ) : (
-                <p>{b.text}</p>
-              )}
+              {bodyOf(b)}
             </article>
           )
         )}
@@ -734,9 +767,19 @@ export function App() {
       )}
 
       <footer className="composer">
+        {pendingImage && !VISION_MODEL.test(settings.model) && (
+          <p className="notice">
+            「{settings.model}」不一定收图：换成 deepseek-flash 才能让她真看见；不收图会退回纯文字。
+          </p>
+        )}
         {pendingImage && (
           <div className="shotPreview">
-            <img src={pendingImage.data} alt="待发送的图" />
+            <img
+              className={previewTall ? "tall" : ""}
+              src={pendingImage.pieces[0] ?? ""}
+              alt="待发送的图"
+              onLoad={(e) => setPreviewTall(pendingImage.pieces.length > 1 || isTallImage(e.currentTarget))}
+            />
             <button onClick={() => setPendingImage(null)} aria-label="移除图片">
               ✕
             </button>
@@ -754,16 +797,27 @@ export function App() {
             setImageBusy(true);
             void (async () => {
               try {
-                const { dataUrl, mediaType } = await compressImage(file);
+                const pieces = await prepareImage(file);
                 let caption = "";
-                if (settings.visionModel) {
-                  caption = await captionImage(
-                    transport,
-                    { apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.visionModel },
-                    dataUrl
+                // 主模型自己看得见就不用再描述一遍（省一次调用，也省一份重复的上下文）；
+                // 只有「模型不吃图 + 配了视觉模型」才走老路。长图逐片描述，最多六片。
+                if (settings.visionModel && !VISION_MODEL.test(settings.model)) {
+                  const seen = pieces.slice(0, 6);
+                  const parts = await Promise.all(
+                    seen.map((dataUrl) =>
+                      captionImage(
+                        transport,
+                        { apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.visionModel },
+                        dataUrl
+                      ).catch(() => "")
+                    )
                   );
+                  caption = parts.filter(Boolean).join("\n");
+                  if (pieces.length > seen.length) {
+                    caption += "\n（后面还有 " + (pieces.length - seen.length) + " 段没细看）";
+                  }
                 }
-                setPendingImage({ mediaType, data: dataUrl, name: file.name, caption });
+                setPendingImage({ mediaType: "image/jpeg", pieces, name: file.name, caption });
               } catch (err) {
                 setError("这张图没看明白：" + (err instanceof Error ? err.message : String(err)));
               } finally {

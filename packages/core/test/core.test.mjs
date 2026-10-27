@@ -30,6 +30,7 @@ import { runToolLoop, toProviderMessages, toProviderTools } from "../src/tools.t
 import { buildMoodPrompt, parseMood } from "../src/mood.ts";
 import { humanizeError, splitApiError } from "../src/errors.ts";
 import { buildPresenceNote, presenceAt, timePhrase } from "../src/presence.ts";
+import { planImageSlices } from "../src/image.ts";
 
 /** 桌面版原文抽出来的 196 个函数：复核提示词与分隔符从它注入，不在 core 里重写。 */
 import * as H from "../../../runtime/prompts-code.zh.mjs";
@@ -121,6 +122,18 @@ test("标题：从第一条用户消息取，句末断行，超长加省略号",
   assert.equal(deriveTitle(b("在干嘛呀")), "在干嘛呀");
   assert.equal(deriveTitle(b("你今天怎么这么慢？我等了半天了")), "你今天怎么这么慢？");
   assert.ok(deriveTitle(b("这是一段特别特别长的没有标点的话说了很多很多字")).endsWith("…"));
+});
+
+test("标题：只发图那条一个字都没有，也不能退回「新的对话」", () => {
+  const pics = [
+    {
+      kind: "user",
+      text: "",
+      at: "2026-10-26T00:00:00Z",
+      attachments: [{ mediaType: "image/jpeg", data: "data:image/jpeg;base64,AA", name: "a.jpg" }],
+    },
+  ];
+  assert.equal(deriveTitle(pics), "（一张图）");
 });
 
 test("追加：标题只补一次，时间会推进", () => {
@@ -1010,6 +1023,22 @@ test("工具格式：assistant 的 tool_calls 与 tool 结果也要转成接口�
   assert.equal(out[2].tool_call_id, "c1");
 });
 
+test("工具格式：带图的消息内容原样放行，image_url 片段不能被拍平成字符串", () => {
+  const out = toProviderMessages([
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "这张图里是什么" },
+        { type: "image_url", image_url: { url: "data:image/jpeg;base64,AA" } },
+      ],
+    },
+  ]);
+  assert.ok(Array.isArray(out[0].content));
+  assert.equal(out[0].content[0].type, "text");
+  assert.equal(out[0].content[1].type, "image_url");
+  assert.equal(out[0].content[1].image_url.url, "data:image/jpeg;base64,AA");
+});
+
 /* ---------------------------------------------------------------- 心情 */
 
 test("心情：从回答里认出八种之一，认不出就按默认", () => {
@@ -1171,6 +1200,55 @@ test("序列化：想的块回「想」，说的块回「说」，不混轨", ()
   assert.ok(text.includes("（我 想）\n他又来了。\n（/我 想）"));
   assert.ok(text.includes("（我 说）\n在。\n（/我 说）"));
   assert.ok(text.includes("〔系统〕图片已读"));
+});
+
+test("序列化：带图的那句要留一行「附了一张图」，只发图时不能是空白", () => {
+  const att = [{ mediaType: "image/jpeg", data: "data:image/jpeg;base64,AA", name: "a.jpg" }];
+  const withText = serializeRecord([{ kind: "user", text: "能看到图吗", at: "2026-10-26T00:00:00Z", attachments: att }]);
+  assert.ok(withText.includes("能看到图吗\n（附了一张图：a.jpg）"));
+
+  const only = serializeRecord([{ kind: "user", text: "", at: "2026-10-26T00:00:00Z", attachments: att }]);
+  assert.equal(only, "（开拓者 说）\n（附了一张图：a.jpg）\n（/开拓者 说）");
+
+  // 长图切出来的几片要她说得清是「一张图切成几段」，不然会当成好几张截图
+  const sliced = serializeRecord([
+    { kind: "user", text: "", at: "2026-10-26T00:00:00Z", attachments: [...att, ...att, ...att] },
+  ]);
+  assert.ok(sliced.includes("（附了一张图：a.jpg，切成 3 段，按顺序接起来是一整张）"));
+});
+
+test("长图切片：普通竖图不切；长截图按宽度切段、首尾相接、每片不超单图预算", () => {
+  const one = planImageSlices(720, 1604);
+  assert.equal(one.width, 720);
+  assert.equal(one.slices.length, 1);
+  assert.deepEqual(one.slices[0], { top: 0, height: 1604 });
+
+  const long = planImageSlices(1080, 12000);
+  assert.equal(long.width, 960, "宽度要封顶，不然请求体太大");
+  assert.ok(long.slices.length >= 6, "1:12 的长图必须切开，整张寄过去只会糊成一条");
+  assert.equal(long.slices[0].top, 0);
+  const last = long.slices[long.slices.length - 1];
+  assert.equal(last.top + last.height, long.height, "最后一片要铺到底");
+  for (let i = 0; i < long.slices.length; i += 1) {
+    assert.ok(long.slices[i].height <= 960 * 1.4 + 1, "单片超过官方单图预算，缩下来字还是糊");
+    if (i > 0) assert.equal(long.slices[i].top, long.slices[i - 1].top + long.slices[i - 1].height, "切片之间不能有缝");
+  }
+});
+
+test("长图切片：超长图有片数上限；宽图只缩不切", () => {
+  const wild = planImageSlices(1080, 40000);
+  assert.equal(wild.slices.length, 12, "片数不封顶，一张图能把额度烧穿");
+  const last = wild.slices[wild.slices.length - 1];
+  assert.equal(last.top + last.height, wild.height);
+
+  const wide = planImageSlices(4000, 3000);
+  assert.equal(wide.width, 960);
+  assert.equal(wide.height, 720);
+  assert.equal(wide.slices.length, 1);
+
+  // 9:16 的竖拍照片：960×1707 还在官方单图预算里，别没事切成两片
+  const portrait = planImageSlices(1080, 1920);
+  assert.equal(portrait.slices.length, 1);
 });
 
 /* ---------------------------------------------------------------- 复核 */

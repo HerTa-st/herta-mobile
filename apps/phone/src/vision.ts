@@ -1,44 +1,74 @@
 /**
  * 看图。
  *
- * DeepSeek 的对话模型不吃图片，所以这里走的是旧手机版验证过的路子：
- * 先把图压到长边 1280，交给一个视觉模型描述成文字，再把文字当附件塞进对话。
- *
- * 这不是"多模态对话"，是"她看了一眼，然后记住自己看到了什么"——
- * 在手机上这种做法的代价最小，也不会因为模型不支持图片而整条链路崩掉。
+ * 主模型自己能看图的（deepseek-flash 收 image_url 片段），图随消息直接进请求。
+ * 这个文件干两件事：
+ *   1. 把相册/相机来的图压成「模型看得清」的一到多片（长图要切，见 prepareImage）；
+ *   2. 给不收图的模型留一条「先描述再进对话」的老路（captionImage）。
  */
 
+import { planImageSlices } from "@herta/core";
 import type { ChatMessage, ChatPart } from "@herta/protocol";
 import { collect } from "./stream.ts";
 import type { ChatTransport } from "./transport.ts";
 
-/** 本地压缩：长边不超过 1280，转成 jpeg。手机直出的大图会被运营商网络拖死。 */
-export function compressImage(file: File, maxSide = 1280, quality = 0.82): Promise<{ dataUrl: string; mediaType: string }> {
+function decodeFile(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("读不了这个文件"));
     reader.onload = () => {
       const img = new Image();
       img.onerror = () => reject(new Error("这不像是一张图"));
-      img.onload = () => {
-        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
-        const w = Math.max(1, Math.round(img.width * scale));
-        const h = Math.max(1, Math.round(img.height * scale));
-        const canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          reject(new Error("这台机器画不了图"));
-          return;
-        }
-        ctx.drawImage(img, 0, 0, w, h);
-        resolve({ dataUrl: canvas.toDataURL("image/jpeg", quality), mediaType: "image/jpeg" });
-      };
+      img.onload = () => resolve(img);
       img.src = String(reader.result);
     };
     reader.readAsDataURL(file);
   });
+}
+
+/** 压一张小图（表情包用）：长边不超过 maxSide，转 jpeg。 */
+export function compressImage(file: File, maxSide = 512, quality = 0.85): Promise<{ dataUrl: string; mediaType: string }> {
+  return decodeFile(file).then((img) => {
+    const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.max(1, Math.round(img.naturalWidth * scale));
+    const h = Math.max(1, Math.round(img.naturalHeight * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("这台机器画不了图");
+    ctx.drawImage(img, 0, 0, w, h);
+    return { dataUrl: canvas.toDataURL("image/jpeg", quality), mediaType: "image/jpeg" };
+  });
+}
+
+/**
+ * 把一张图压成「模型看得清」的一到多片。
+ *
+ * 官方单图预算：单边最长 8192 像素、每张图最多算 1024 个 token。1:13 的手机
+ * 长截图整张寄过去，边长先超限；就算收下，那点预算摊到一万多像素的高度上，
+ * 字也只会糊成灰带。所以先按宽度切段：每片 ≈ 1:1.4，各自都在单图预算内。
+ *
+ * 切出来的是这一条消息的附件：气泡里只显示第一片当缩略图，点开是整摞。
+ */
+export async function prepareImage(file: File, quality = 0.82): Promise<string[]> {
+  const img = await decodeFile(file);
+  const plan = planImageSlices(img.naturalWidth, img.naturalHeight);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = plan.width;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("这台机器画不了图");
+
+  const out: string[] = [];
+  for (const s of plan.slices) {
+    canvas.height = s.height;
+    ctx.clearRect(0, 0, plan.width, s.height);
+    // 整张按缩放后的尺寸铺上去，画布只留这一段——不用为每片各算一次缩放
+    ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, 0, -s.top, plan.width, plan.height);
+    out.push(canvas.toDataURL("image/jpeg", quality));
+  }
+  return out;
 }
 
 export interface VisionConfig {

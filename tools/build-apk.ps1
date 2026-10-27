@@ -15,6 +15,19 @@ $ErrorActionPreference = 'Stop'
 $root = Resolve-Path "$PSScriptRoot\.."
 $app = Join-Path $root 'apps\phone'
 
+# -GradleHome 默认指向仓库内的 .gradle-dist（换机器时放这儿）；这台机器上那份没有解压到
+# 那里，gradle wrapper 早就把 9.2.1 下到 G: 了，于是往那边找一次。都没找到再说清楚要什么，
+# 而不是让 & 报一句「不是 cmdlet」——那句对下一个人毫无帮助。
+if (-not (Test-Path (Join-Path $GradleHome 'bin\gradle.bat'))) {
+  $cached = Get-ChildItem 'G:\gradle-home\wrapper\dists\gradle-9.2.1-bin' -Recurse -Depth 3 -Filter 'gradle.bat' -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+  if ($cached) { $GradleHome = Split-Path (Split-Path $cached.FullName -Parent) -Parent }
+}
+if (-not (Test-Path (Join-Path $GradleHome 'bin\gradle.bat'))) {
+  throw "找不到 gradle：$GradleHome 下没有 bin\gradle.bat。把解压好的 gradle 放进去，或用 -GradleHome 指定。"
+}
+Write-Host ("[0/4] gradle: " + $GradleHome)
+
 if (-not $SkipWeb) {
   Write-Host '[1/4] 类型检查'
   Push-Location $root
