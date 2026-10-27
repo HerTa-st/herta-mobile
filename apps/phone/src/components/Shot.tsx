@@ -10,6 +10,7 @@
  * 「一摞图」而不是一张：气泡用第一片当缩略图，点开把整摞按原样接起来。
  */
 import { useState } from "react";
+import { longPressProps } from "./long-press.ts";
 
 /** 高 / 宽 超过这个数就算「长图」。1.9 ≈ 竖着的 A4 截图，再长就没法按比例缩了。 */
 const TALL_RATIO = 1.9;
@@ -18,10 +19,32 @@ export function isTallImage(el: HTMLImageElement): boolean {
   return el.naturalWidth > 0 && el.naturalHeight / el.naturalWidth >= TALL_RATIO;
 }
 
-export function Shot({ pieces, name, onOpen }: { pieces: string[]; name?: string; onOpen(): void }) {
+export function Shot({
+  pieces,
+  name,
+  onOpen,
+  onLongPress,
+}: {
+  pieces: string[];
+  name?: string;
+  onOpen(): void;
+  /** 长按：存进表情箱。手机上这是唯一不打断看图的手势。 */
+  onLongPress?(): void;
+}) {
   const [tall, setTall] = useState(pieces.length > 1);
+  const press = onLongPress ? longPressProps(onLongPress) : null;
   return (
-    <button type="button" className={"shot" + (tall ? " tall" : "")} onClick={onOpen} aria-label={tall ? "看长图" : "看图"}>
+    <button
+      type="button"
+      className={"shot" + (tall ? " tall" : "")}
+      onClick={() => {
+        // 长按之后补上来的那次 click 不算"点开"
+        if (press?.fired()) return;
+        onOpen();
+      }}
+      aria-label={tall ? "看长图" : "看图"}
+      {...(press?.props ?? {})}
+    >
       <img
         src={pieces[0] ?? ""}
         alt={name ?? "图"}

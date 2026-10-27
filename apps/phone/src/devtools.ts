@@ -21,10 +21,14 @@ export interface ToolContext {
   visionModel: string;
   /** 允许翻相册。 */
   albumEnabled: boolean;
-  /** 她自己的表情库。 */
+  /** 她自己的表情库（不含你的箱——混在一起她会开始发你存的图）。 */
   stickers: StickerRecord[];
-  /** 挑中一张时回调给回合层，由它贴到她这句话上。 */
+  /** 挑中一张时回调给回合层，由它贴一张表情块。 */
   onSticker(record: StickerRecord): void;
+  /** 你这一轮发的那张表情（没发就是空的）。她可以把它收进自己库里。 */
+  currentSticker?: StickerRecord | null;
+  /** 她把你的表情收进库时回调；回合层负责落库。 */
+  onKeepSticker?(record: StickerRecord): void;
 }
 
 /** 在 Web Worker 里跑一小段 JS，超时就掐掉——不阻塞界面，也不让她卡死整个 App。 */
@@ -281,9 +285,30 @@ export function buildTools(ctx: ToolContext): ToolImpl[] {
     },
   };
 
+  /**
+   * 收下你发的这张表情。
+   *
+   * 只在"你这一轮确实发了一张"时才注册——她要是每轮都看得见这把工具，
+   * 就会在你说「在吗」的时候把上一张表情再收一次。
+   */
+  const keepSticker: ToolImpl = {
+    spec: {
+      name: "keep_sticker",
+      description: "把开拓者刚发的那张表情收进自己的库，以后可以自己发。觉得这张有用、合自己胃口时用。",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+    async run() {
+      const src = ctx.currentSticker;
+      if (!src) throw new Error("他这一轮没有发表情。");
+      ctx.onKeepSticker?.(src);
+      return "收进库里了：" + src.name + (src.tags.length ? "（" + src.tags.join("、") + "）" : "");
+    },
+  };
+
   // 表情库空着就不给表情工具；相册开关关着就不给相册工具——
   // 否则她每轮都可能去调一个必然失败的东西
   const base = [now, clipboard, sandbox, search, device, readFile];
   const withSticker = ctx.stickers.length > 0 ? [...base, sticker] : base;
-  return ctx.albumEnabled ? [...withSticker, album, lookAtPhoto] : withSticker;
+  const withKeep = ctx.currentSticker ? [...withSticker, keepSticker] : withSticker;
+  return ctx.albumEnabled ? [...withKeep, album, lookAtPhoto] : withKeep;
 }

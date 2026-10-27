@@ -788,3 +788,65 @@ body {
   font: inherit;
   font-size: 13px;
 }
+
+/* ------------------------------------------------------------ 表情面板 */
+
+/* 从输入框抽起来的一层：两个页签（她的 / 我的），同一块网格，
+   右下角那个「+」跟着当前页签走——你在哪一页，图就加进哪个库。 */
+.stickerTray {
+  margin: 0 2px 4px;
+  padding: 8px 10px 10px;
+  border-radius: 18px;
+  background: var(--card);
+  box-shadow: 0 10px 28px rgba(88, 118, 130, 0.16);
+  max-height: 46vh;
+  overflow-y: auto;
+}
+.trayHead { display: flex; align-items: center; gap: 6px; padding: 2px 2px 8px; }
+.trayHead button {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+.trayHead button.on { background: #eef4f5; color: var(--ink); }
+.trayClose { margin-left: auto; width: 24px; height: 24px; padding: 0; border-radius: 50%; font-size: 11px; }
+.trayGrid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.trayCell, .trayAdd {
+  aspect-ratio: 1;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: none;
+  padding: 0;
+  overflow: hidden;
+}
+.trayCell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.trayAdd { position: relative; display: grid; place-items: center; color: #9fadb9; font-size: 20px; }
+.trayAdd input { display: none; }
+
+/* 表情块自己一个气泡：它没有台词，不该在话里留个空段落 */
+.bubble.stickerBubble { padding: 6px; }
+.bubble.stickerBubble img { margin: 0; }
+
+.composerAttach.on { background: #eef4f5; color: var(--ink); }
+
+/* 一句话的回执：存表情、收表情这种小事也得说一声 */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 96px;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgba(38, 50, 58, 0.86);
+  color: #fff;
+  font-size: 12.5px;
+  line-height: 1.6;
+  z-index: 30;
+  pointer-events: none;
+}
+
