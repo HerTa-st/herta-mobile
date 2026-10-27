@@ -32,6 +32,7 @@ import { Shot, ShotViewer, isTallImage } from "./components/Shot.tsx";
 import { Splash } from "./components/Splash.tsx";
 import { UsageChip } from "./components/UsageChip.tsx";
 import { useChatTurn } from "./hooks/useChatTurn.ts";
+import { useProactive } from "./hooks/useProactive.ts";
 import { seedPureIfNeeded } from "./pure.ts";
 import { captionImage, compressImage, prepareImage } from "./vision.ts";
 import { tagSticker } from "./sticker-tag.ts";
@@ -269,6 +270,19 @@ export function App() {
     onKeepSticker: (record) => keepStickerRef.current(record),
     onError: reportError,
     onNeedKey: () => setShowSettings(true),
+  });
+
+  // 她到点自己找你：常驻服务保活 + 每分钟看一眼 + 走一遍人格装配
+  useProactive({
+    settings,
+    session,
+    setSession,
+    persist,
+    memories,
+    dreamState,
+    mood,
+    busy,
+    onError: reportError,
   });
 
   /** 从表情面板发一张：文字是空的，这一轮的起点是那张表情块。 */
