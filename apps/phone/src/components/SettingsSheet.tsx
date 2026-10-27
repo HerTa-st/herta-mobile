@@ -6,6 +6,7 @@ import type { StickerRecord } from "../storage.ts";
 export function SettingsSheet({
   settings,
   onChange,
+  onClose,
   mood,
   fileNames,
   onFile,
@@ -15,6 +16,7 @@ export function SettingsSheet({
 }: {
   settings: Settings;
   onChange(patch: Partial<Settings>): void;
+  onClose(): void;
   mood: string;
   fileNames: string[];
   onFile(file: File): void;
@@ -24,6 +26,12 @@ export function SettingsSheet({
 }) {
   return (
     <div className="sheet">
+      <div className="sheetHead">
+        <span>设置</span>
+        <button type="button" className="sheetClose" onClick={onClose} aria-label="关闭设置">
+          ✕
+        </button>
+      </div>
       <label>
         API Key
         <input

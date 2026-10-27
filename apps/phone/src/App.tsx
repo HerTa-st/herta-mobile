@@ -729,6 +729,7 @@ export function App() {
         <SettingsSheet
           settings={settings}
           onChange={(patch) => setSettings({ ...settings, ...patch })}
+          onClose={() => setShowSettings(false)}
           mood={mood}
           fileNames={fileNames}
           stickers={stickers}
