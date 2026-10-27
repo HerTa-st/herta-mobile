@@ -28,6 +28,7 @@ import { GraphView } from "./components/GraphView.tsx";
 import { MemoryViewer } from "./components/MemoryViewer.tsx";
 import { SettingsSheet } from "./components/SettingsSheet.tsx";
 import { Shot, ShotViewer, isTallImage } from "./components/Shot.tsx";
+import { UsageChip } from "./components/UsageChip.tsx";
 import { useChatTurn } from "./hooks/useChatTurn.ts";
 import { seedPureIfNeeded } from "./pure.ts";
 import { captionImage, compressImage, prepareImage } from "./vision.ts";
@@ -624,6 +625,7 @@ export function App() {
           </button>
         )}
         {b.text && <p>{b.text}</p>}
+        {b.kind === "herta" && b.surface === "speech" && b.usage && <UsageChip usage={b.usage} />}
       </>
     );
   };

@@ -55,6 +55,19 @@ function parseSseChunk(chunk: string): ChatDelta[] {
     }
     try {
       const j = JSON.parse(payload);
+      // DeepSeek 把整次请求的 usage 挂在最后一块上（无论有没有设 stream_options）。
+      // 那段没有正文，choices 里也不会有增量——不在这里接住就永远拿不到用量。
+      const u = j?.usage;
+      if (u) {
+        out.push({
+          type: "usage",
+          usage: {
+            prompt: Number(u.prompt_tokens ?? 0),
+            completion: Number(u.completion_tokens ?? 0),
+            cached: Number(u.prompt_cache_hit_tokens ?? u.prompt_tokens_details?.cached_tokens ?? 0),
+          },
+        });
+      }
       const choice = j?.choices?.[0];
       const piece = choice?.delta?.content;
       if (typeof piece === "string" && piece) out.push({ type: "text", text: piece });

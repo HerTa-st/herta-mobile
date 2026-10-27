@@ -496,6 +496,26 @@ body {
   font: inherit;
   font-size: 11px;
 }
+/* 这一轮的 token 用量：安静的一枚小徽章，点开才展开明细 */
+.usageRow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.usageChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 10.5px;
+  line-height: 1.7;
+  opacity: 0.8;
+}
+.usageChip svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
+.usageChip:active { opacity: 1; }
+.usageDetail { font-size: 10.5px; line-height: 1.7; color: var(--muted); opacity: 0.85; }
+
 .bubble.opening { align-self: flex-start; }
 .bubble .play {
   margin-top: 8px;

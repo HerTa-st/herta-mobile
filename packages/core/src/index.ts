@@ -15,6 +15,7 @@ export * from "./mood.ts";
 export * from "./presence.ts";
 export * from "./errors.ts";
 export * from "./image.ts";
+export * from "./usage.ts";
 export * from "./dream.ts";
 export type { DreamPrompt } from "./dream.ts";
 export * from "./openings.ts";
