@@ -802,36 +802,71 @@ export function App() {
             })();
           }}
         />
-        <textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="跟她说点什么"
-          rows={1}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              dispatch();
-            }
-          }}
-        />
-        <button
-          className="ghost"
-          onClick={() => imageInputRef.current?.click()}
-          disabled={imageBusy}
-          title="给她看一张图"
-        >
-          {imageBusy ? "…" : "🖼"}
-        </button>
-        <button className="ghost" onClick={() => void retract()} disabled={busy || blocks.length === 0} title="撤回上一轮">
-          ↶
-        </button>
-        {busy ? (
-          <button onClick={stop}>打断</button>
-        ) : (
-          <button onClick={dispatch} disabled={!draft.trim() && !pendingImage}>
-            说
+        {!busy && blocks.length > 0 && (
+          <button className="composerRetract" onClick={() => void retract()} title="撤回上一轮">
+            ↶ 撤回上一轮
           </button>
         )}
+
+        <div className="composerBar">
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="给黑塔发消息…"
+            rows={1}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                dispatch();
+              }
+            }}
+          />
+          <button
+            className="composerAttach"
+            onClick={() => imageInputRef.current?.click()}
+            disabled={imageBusy}
+            aria-label="发一张图"
+            title="给她看一张图"
+          >
+            {imageBusy ? (
+              <span className="attachBusy">…</span>
+            ) : (
+              <svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true">
+                <path
+                  d="M20.5 11.6 12 20.1a5.4 5.4 0 0 1-7.6-7.6l8.2-8.2a3.6 3.6 0 0 1 5.1 5.1l-8.2 8.2a1.8 1.8 0 0 1-2.6-2.6l7.5-7.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            )}
+          </button>
+          {busy ? (
+            <button className="composerSend stopping" onClick={stop} aria-label="打断">
+              <span className="stopMark" />
+            </button>
+          ) : (
+            <button
+              className="composerSend"
+              onClick={dispatch}
+              disabled={!draft.trim() && !pendingImage}
+              aria-label="发送"
+            >
+              <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
+                <path
+                  d="M12 19V6M5.6 12.4 12 6l6.4 6.4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          )}
+        </div>
       </footer>
     </div>
   );

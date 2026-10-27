@@ -548,53 +548,87 @@ body {
 
 /* ---------------------------------------------------------------- 输入 */
 
+/* 一条胶囊装下全部：输入 → 回形针 → 圆形发送键。
+   外面不再有独立的方按钮，底部只留这一条，背景就是页面本身。 */
 .composer {
-  flex-wrap: wrap;
   display: flex;
-  gap: 8px;
-  align-items: flex-end;
-  padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 12px calc(10px + env(safe-area-inset-bottom));
   background: transparent;
 }
-.composer textarea {
-  flex: 1;
-  resize: none;
-  max-height: 120px;
+
+.composerBar {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 6px 6px 6px 16px;
+  border-radius: 24px;
   background: var(--card);
-  border: 1px solid transparent;
-  border-radius: 20px;
+  box-shadow: 0 8px 24px rgba(88, 118, 130, 0.12);
+}
+.composerBar textarea {
+  flex: 1;
+  min-height: 38px;
+  max-height: 120px;
+  resize: none;
+  border: 0;
+  background: none;
+  padding: 9px 0;
   color: var(--ink);
-  padding: 11px 16px;
   font: inherit;
   font-size: 15px;
-  box-shadow: var(--shadow);
+  line-height: 1.45;
+  outline: none;
 }
-.composer textarea::placeholder { color: #a9b6bf; }
-.composer button {
-  background: #dfe9ec;
-  color: var(--ink);
+.composerBar textarea::placeholder { color: #9fadb9; }
+
+.composerAttach {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
   border: 0;
   border-radius: 50%;
-  width: 44px;
-  height: 44px;
-  font: inherit;
-  font-size: 15px;
-  box-shadow: var(--shadow-soft);
-}
-.composer button:disabled { opacity: 0.45; }
-.composer .ghost {
   background: none;
-  box-shadow: none;
-  border: 1px solid var(--line);
-  color: var(--muted);
+  color: #93a1ad;
+  font: inherit;
+}
+.composerAttach:active { background: #f0f5f6; }
+.composerAttach:disabled { opacity: 0.5; }
+.attachBusy { font-size: 14px; color: var(--muted); }
+
+.composerSend {
+  flex: none;
   width: 40px;
   height: 40px;
-  font-size: 14px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: #bfd0e8;
+  color: #ffffff;
+  transition: background 0.18s ease, opacity 0.18s ease;
 }
-.composer .ghost:disabled { opacity: 0.3; }
+.composerSend:not(:disabled) { background: #a9bedd; }
+.composerSend:disabled { opacity: 0.75; }
+.composerSend.stopping { background: #d9c3c8; }
+.stopMark { width: 11px; height: 11px; border-radius: 2px; background: #ffffff; }
+
+.composerRetract {
+  align-self: flex-end;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  padding: 0 6px;
+  opacity: 0.85;
+}
+
 .composer .notice {
-  flex-basis: 100%;
-  margin: 0 2px 0;
+  margin: 0 4px;
   font-size: 12px;
   line-height: 1.6;
   color: #b07b3c;
