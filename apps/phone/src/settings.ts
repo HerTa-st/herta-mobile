@@ -47,6 +47,10 @@ export interface Settings {
   openEnabled: boolean;
   /** 把东西分享到别的 App。 */
   shareEnabled: boolean;
+  /** 看你现在在哪儿（经纬度）。 */
+  locationEnabled: boolean;
+  /** 打开相机拍一张，再让视觉模型描述给她。 */
+  cameraEnabled: boolean;
   /** 她主动找你（常驻后台 + 到点醒来说一句）。 */
   proactiveEnabled: boolean;
   /** 主动说话时带完整记忆检索（默认只带最近 8 块对话，便宜很多）。 */
@@ -78,6 +82,8 @@ export const DEFAULT_SETTINGS: Settings = {
   statusEnabled: false,
   openEnabled: false,
   shareEnabled: false,
+  locationEnabled: false,
+  cameraEnabled: false,
   proactiveEnabled: false,
   proactiveDeepMemory: false,
   ttsEnabled: false,

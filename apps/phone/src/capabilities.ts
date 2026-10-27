@@ -8,13 +8,18 @@
  * 不要假装成功——假成功会在真机上变成"她说了但什么都没发生"。
  */
 
-import { Capacitor } from "@capacitor/core";
+import { Capacitor, registerPlugin } from "@capacitor/core";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { Calendar } from "@capacitor/calendar";
 import { Device } from "@capacitor/device";
 import { Network } from "@capacitor/network";
 import { AppLauncher } from "@capacitor/app-launcher";
 import { Share } from "@capacitor/share";
+/** 自己写的定位插件：LocationManager 一次询问，不碰 Play Services（省四兆）。 */
+const HertaLocation = registerPlugin<{
+  getCurrent(): Promise<{ latitude: number; longitude: number; accuracy?: number }>;
+}>("HertaLocation");
+import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
 import { getKV, setKV } from "./storage.ts";
 
 export function isNative(): boolean {
@@ -197,6 +202,48 @@ export async function phoneStatus(): Promise<PhoneStatus> {
     /* 同上 */
   }
   return out;
+}
+
+/* ------------------------------------------------------------ 定位 / 相机 */
+
+export interface Fix {
+  latitude: number;
+  longitude: number;
+  accuracy?: number;
+}
+
+/**
+ * 现在在哪儿。
+ *
+ * 只给坐标，不做逆地理编码——那要另一个付费接口，而"纬度 31.23, 东经 121.47"
+ * 已经够她自己判断（她本来就知道今天在哪个城市）。
+ */
+export async function whereAmI(): Promise<Fix> {
+  needNative("定位");
+  const fix = await HertaLocation.getCurrent();
+  if (typeof fix?.latitude !== "number" || typeof fix?.longitude !== "number") {
+    throw new Error("没定位到。");
+  }
+  return { latitude: fix.latitude, longitude: fix.longitude, accuracy: fix.accuracy };
+}
+
+/**
+ * 拍一张。
+ *
+ * 返回的是 data URL——她看不到图（工具结果只能是文字），所以调用方会先让
+ * 视觉模型描述一遍。相机权限由插件自己申请。
+ */
+export async function snapPhoto(): Promise<{ data: string; mediaType: string }> {
+  needNative("相机");
+  const photo = await Camera.getPhoto({
+    quality: 80,
+    width: 1280,
+    resultType: CameraResultType.DataUrl,
+    source: CameraSource.Camera,
+    saveToGallery: false,
+  });
+  if (!photo.dataUrl) throw new Error("拍完了但没拿到图。");
+  return { data: photo.dataUrl, mediaType: "image/" + (photo.format || "jpeg") };
 }
 
 /* ------------------------------------------------------------ 打开 / 分享 */

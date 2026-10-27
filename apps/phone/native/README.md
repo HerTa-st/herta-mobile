@@ -21,7 +21,8 @@ npx cap sync android
 | `HertaHttpPlugin.java` | 原生 HTTP，绕开 WebView 在 `https://localhost` 上的 CORS；SSE 按空行切块 |
 | `HertaGalleryPlugin.java` | 相册：先列目录（便宜），再按 id 读一张（缩到长边 1024 / JPEG 80） |
 | `HertaKeeperService.java` | 常驻前台服务：让进程活着，她到点才能主动说话 |
-| `HertaKeepAlivePlugin.java` | 上面那个服务的开关（start / stop） |
+| `HertaKeepAlivePlugin.java` | 上面那个服务的开关（start / stop），外加"打开系统详情页" |
+| `HertaLocationPlugin.java` | 定位，一次；用系统 LocationManager，不拉 play-services-location（省四兆） |
 | `MainActivity.java` | 三个插件都在 `super.onCreate` **之前**注册 |
 | `AndroidManifest.xml` | 权限（含通知、精确闹钟、日历、前台服务）与 Service 声明 |
 
