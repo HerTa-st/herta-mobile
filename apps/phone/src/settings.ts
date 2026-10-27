@@ -1,5 +1,7 @@
 /** 设置只落在本机：localStorage。密钥不上传、不进日志。 */
 
+import { budgetFor } from "@herta/core";
+
 export interface Settings {
   apiKey: string;
   baseUrl: string;
@@ -14,6 +16,14 @@ export interface Settings {
   reviewEnabled: boolean;
   /** 每轮先判一次心情（八种之一），决定这一轮的语气基线。多一次极便宜的调用。 */
   moodEnabled: boolean;
+  /**
+   * 省 token 模式。
+   *
+   * 一刀切掉一轮里最贵的三样：判心情、复核、长上下文；长图与工具轮也压小。
+   * 具体数字在 core/budget.ts，这里只存开关——这样"省多少"只有一个出处。
+   * 代价是她更容易跑题、记性更短，复核也拦不住她吹牛了。
+   */
+  cheapMode: boolean;
   /** 你离开一阵子之后，她自己做梦。关掉就只有手动按钮能做。 */
   autoDream: boolean;
   /**
@@ -44,6 +54,7 @@ export const DEFAULT_SETTINGS: Settings = {
   memorySeeds: 3,
   reviewEnabled: true,
   moodEnabled: true,
+  cheapMode: false,
   autoDream: true,
   visionModel: "",
   albumEnabled: false,
@@ -70,4 +81,15 @@ export function loadSettings(): Settings {
 
 export function saveSettings(s: Settings): void {
   localStorage.setItem(KEY, JSON.stringify(s));
+}
+
+/** 这一轮实际用的预算（心情 / 复核 / 上下文 / 种子 / 工具轮 / 长图分段）。 */
+export function budgetOf(s: Settings) {
+  return budgetFor({
+    cheap: s.cheapMode,
+    moodEnabled: s.moodEnabled,
+    reviewEnabled: s.reviewEnabled,
+    contextBlocks: s.contextBlocks,
+    memorySeeds: s.memorySeeds,
+  });
 }

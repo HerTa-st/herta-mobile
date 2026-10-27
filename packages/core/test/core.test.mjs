@@ -32,6 +32,7 @@ import { humanizeError, splitApiError } from "../src/errors.ts";
 import { buildPresenceNote, presenceAt, timePhrase } from "../src/presence.ts";
 import { planImageSlices } from "../src/image.ts";
 import { addUsage, emptyUsage, formatTokens, usageTotal } from "../src/usage.ts";
+import { budgetFor } from "../src/budget.ts";
 
 /** 桌面版原文抽出来的 196 个函数：复核提示词与分隔符从它注入，不在 core 里重写。 */
 import * as H from "../../../runtime/prompts-code.zh.mjs";
@@ -922,6 +923,34 @@ test("用量：累加时 cached 与 calls 不能丢", () => {
   assert.equal(b.cached, 240);
   assert.equal(b.calls, 3);
   assert.equal(usageTotal(addUsage(b, null)), 430, "接口没给 usage 就当没发生");
+});
+
+/* ---------------------------------------------------------------- 预算 */
+
+test("预算：正常档照旧；省 token 档砍掉心情与复核、压小上下文", () => {
+  const full = budgetFor({ cheap: false, moodEnabled: true, reviewEnabled: true, contextBlocks: 24, memorySeeds: 3 });
+  assert.equal(full.mood, true);
+  assert.equal(full.review, true);
+  assert.equal(full.contextBlocks, 24);
+  assert.equal(full.memorySeeds, 3);
+  assert.equal(full.toolRounds, 4);
+  assert.equal(full.imagePieces, 12);
+
+  const cheap = budgetFor({ cheap: true, moodEnabled: true, reviewEnabled: true, contextBlocks: 24, memorySeeds: 3 });
+  assert.equal(cheap.mood, false, "判心情是整次请求，省 token 档必须关");
+  assert.equal(cheap.review, false);
+  assert.equal(cheap.contextBlocks, 8);
+  assert.equal(cheap.memorySeeds, 1);
+  assert.equal(cheap.toolRounds, 2);
+  assert.equal(cheap.imagePieces, 4);
+});
+
+test("预算：你自己已经调得更省时，开关不该把数值调大", () => {
+  const b = budgetFor({ cheap: true, moodEnabled: false, reviewEnabled: true, contextBlocks: 4, memorySeeds: 0 });
+  assert.equal(b.contextBlocks, 4);
+  assert.equal(b.memorySeeds, 0);
+  assert.equal(b.mood, false);
+  assert.equal(b.review, false);
 });
 
 /* ---------------------------------------------------------------- 工具 */

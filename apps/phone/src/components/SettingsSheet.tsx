@@ -1,3 +1,4 @@
+import { CHEAP_LIMITS } from "@herta/core";
 import type { Settings } from "../settings.ts";
 import type { StickerRecord } from "../storage.ts";
 
@@ -40,17 +41,39 @@ export function SettingsSheet({
         模型（deepseek-flash 能看图；deepseek-v4-pro 只能读字）
         <input value={settings.model} onChange={(e) => onChange({ model: e.target.value.trim() })} />
       </label>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={settings.cheapMode}
+          onChange={(e) => onChange({ cheapMode: e.target.checked })}
+        />
+        <span>
+          省 token 模式：不判心情、不复核；历史 ≤ {CHEAP_LIMITS.contextBlocks} 块、记忆 ≤{" "}
+          {CHEAP_LIMITS.memorySeeds} 篇、长图 ≤ {CHEAP_LIMITS.imagePieces} 段、工具 ≤ {CHEAP_LIMITS.toolRounds} 轮
+        </span>
+      </label>
+      {settings.cheapMode && (
+        <p className="memNote">
+          每轮少两次请求（判心情、复核），上下文与长图也压小了。代价：她更容易跑题、记性更短，复核也拦不住她吹牛。
+        </p>
+      )}
       <label>
-        带多少块历史
+        带多少块历史{settings.cheapMode ? "（省 token 下按 " + CHEAP_LIMITS.contextBlocks + " 算）" : ""}
         <input
           type="number"
+          disabled={settings.cheapMode}
           value={settings.contextBlocks}
           onChange={(e) => onChange({ contextBlocks: Number(e.target.value) || 24 })}
         />
       </label>
       <label className="check">
-        <input type="checkbox" checked={settings.moodEnabled} onChange={(e) => onChange({ moodEnabled: e.target.checked })} />
-        <span>每轮先判心情（现在是：{mood}）</span>
+        <input
+          type="checkbox"
+          disabled={settings.cheapMode}
+          checked={settings.moodEnabled}
+          onChange={(e) => onChange({ moodEnabled: e.target.checked })}
+        />
+        <span>每轮先判心情（现在是：{mood}）{settings.cheapMode ? "——省 token 下不判" : ""}</span>
       </label>
       <label className="check">
         <input type="checkbox" checked={settings.autoDream} onChange={(e) => onChange({ autoDream: e.target.checked })} />
@@ -59,10 +82,11 @@ export function SettingsSheet({
       <label className="check">
         <input
           type="checkbox"
+          disabled={settings.cheapMode}
           checked={settings.reviewEnabled}
           onChange={(e) => onChange({ reviewEnabled: e.target.checked })}
         />
-        <span>说完先让她自己复核（关掉每轮省一次调用）</span>
+        <span>说完先让她自己复核（关掉每轮省一次调用）{settings.cheapMode ? "——省 token 下不复核" : ""}</span>
       </label>
       <label>
         视觉模型（可选：主模型不收图时用来描述；翻相册也靠它）

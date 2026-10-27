@@ -48,7 +48,7 @@ import {
   type SessionMeta,
   type StickerRecord,
 } from "./storage.ts";
-import { loadSettings, saveSettings, type Settings } from "./settings.ts";
+import { budgetOf, loadSettings, saveSettings, type Settings } from "./settings.ts";
 import { pickTransport } from "./transport.ts";
 import { loadPromptCode } from "./prompts.ts";
 import { synthesize } from "./tts.ts";
@@ -799,7 +799,8 @@ export function App() {
             setImageBusy(true);
             void (async () => {
               try {
-                const pieces = await prepareImage(file);
+                // 省 token 档把长图压到 4 段：每段都按 1024 token 算，12 段太贵
+                const pieces = await prepareImage(file, { maxPieces: budgetOf(settings).imagePieces });
                 let caption = "";
                 // 主模型自己看得见就不用再描述一遍（省一次调用，也省一份重复的上下文）；
                 // 只有「模型不吃图 + 配了视觉模型」才走老路。长图逐片描述，最多六片。
