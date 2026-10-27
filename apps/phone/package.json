@@ -12,7 +12,13 @@
     "sync": "cap sync android"
   },
   "dependencies": {
+    "@capacitor/app-launcher": "^8.0.1",
+    "@capacitor/calendar": "^1.0.1",
     "@capacitor/core": "^8.5.3",
+    "@capacitor/device": "^8.0.3",
+    "@capacitor/local-notifications": "^8.3.1",
+    "@capacitor/network": "^8.0.1",
+    "@capacitor/share": "^8.0.3",
     "@herta/core": "*",
     "@herta/protocol": "*",
     "react": "^19.3.1",

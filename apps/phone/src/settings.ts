@@ -36,6 +36,21 @@ export interface Settings {
   visionModel: string;
   /** 允许她翻你的相册。默认关——这是隐私开关，得你自己打开。 */
   albumEnabled: boolean;
+  /* 手机能力。全部默认关：她自己不能替你把它们打开，得你在「她能做什么」里逐个勾。 */
+  /** 到点提醒（系统通知）。 */
+  remindersEnabled: boolean;
+  /** 读日历、往日历里写日程。 */
+  calendarEnabled: boolean;
+  /** 看电量、联网、占用空间。 */
+  statusEnabled: boolean;
+  /** 用系统打开链接 / 别的 App。 */
+  openEnabled: boolean;
+  /** 把东西分享到别的 App。 */
+  shareEnabled: boolean;
+  /** 她主动找你（常驻后台 + 到点醒来说一句）。 */
+  proactiveEnabled: boolean;
+  /** 主动说话时带完整记忆检索（默认只带最近 8 块对话，便宜很多）。 */
+  proactiveDeepMemory: boolean;
   /** 云端语音：让她能说任意一句话，而不只是那 41 条录音。 */
   ttsEnabled: boolean;
   ttsProvider: "openai" | "minimax";
@@ -58,6 +73,13 @@ export const DEFAULT_SETTINGS: Settings = {
   autoDream: true,
   visionModel: "",
   albumEnabled: false,
+  remindersEnabled: false,
+  calendarEnabled: false,
+  statusEnabled: false,
+  openEnabled: false,
+  shareEnabled: false,
+  proactiveEnabled: false,
+  proactiveDeepMemory: false,
   ttsEnabled: false,
   ttsProvider: "openai",
   ttsApiKey: "",

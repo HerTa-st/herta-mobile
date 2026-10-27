@@ -6,6 +6,7 @@
  */
 
 import type { ToolImpl } from "@herta/core";
+import { buildSystemTools, type SystemToolsContext } from "./devtools-system.ts";
 import { captionImage } from "./vision.ts";
 import { ensureGalleryPermission, listPhotos, readPhoto } from "./gallery.ts";
 import type { StickerRecord } from "./storage.ts";
@@ -29,6 +30,10 @@ export interface ToolContext {
   currentSticker?: StickerRecord | null;
   /** 她把你的表情收进库时回调；回合层负责落库。 */
   onKeepSticker?(record: StickerRecord): void;
+  /** 手机能力：提醒 / 日历 / 状态 / 打开 / 分享。每个对应设置里一个开关。 */
+  system: SystemToolsContext;
+  /** 省 token 档：写类工具不注册。 */
+  cheap: boolean;
 }
 
 /** 在 Web Worker 里跑一小段 JS，超时就掐掉——不阻塞界面，也不让她卡死整个 App。 */
@@ -310,5 +315,6 @@ export function buildTools(ctx: ToolContext): ToolImpl[] {
   const base = [now, clipboard, sandbox, search, device, readFile];
   const withSticker = ctx.stickers.length > 0 ? [...base, sticker] : base;
   const withKeep = ctx.currentSticker ? [...withSticker, keepSticker] : withSticker;
-  return ctx.albumEnabled ? [...withKeep, album, lookAtPhoto] : withKeep;
+  const withSystem = [...withKeep, ...buildSystemTools(ctx.system, { cheap: ctx.cheap })];
+  return ctx.albumEnabled ? [...withSystem, album, lookAtPhoto] : withSystem;
 }

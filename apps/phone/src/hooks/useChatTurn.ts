@@ -48,6 +48,16 @@ const TOOL_LABEL: Record<string, string> = {
   web_search: "上网查了",
   device: "看了手机状态",
   read_file: "读了文件",
+  sticker: "翻出一张表情",
+  keep_sticker: "收下了那张表情",
+  remind: "设了个提醒",
+  reminders: "看了自己的提醒",
+  cancel_reminder: "撤了一条提醒",
+  calendar: "看了日历",
+  add_event: "写进日历了",
+  phone_status: "看了手机状态",
+  open: "打开了东西",
+  share: "调出了分享面板",
 };
 
 /**
@@ -239,6 +249,14 @@ export function useChatTurn(opts: {
         },
         currentSticker: sticker ?? null,
         onKeepSticker: (record) => onKeepSticker(record),
+        system: {
+          reminders: settings.remindersEnabled,
+          calendar: settings.calendarEnabled,
+          status: settings.statusEnabled,
+          open: settings.openEnabled,
+          share: settings.shareEnabled,
+        },
+        cheap: settings.cheapMode,
       });
       const toolNotes: Block[] = [];
 
@@ -247,6 +265,8 @@ export function useChatTurn(opts: {
           {
             tools,
             maxRounds: budget.toolRounds,
+            // 写类单算：一轮最多动三次手（见 core/tools.ts）
+            maxWrites: 3,
             stream: (r) =>
               transport.stream({
                 apiKey: settings.apiKey,
