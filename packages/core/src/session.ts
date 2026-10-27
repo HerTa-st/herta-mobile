@@ -7,16 +7,17 @@
  */
 
 import type { Block, Session } from "../../protocol/src/index.ts";
+import { isUserTurn, userTurnSummary } from "./sticker.ts";
 
 export const EMPTY_TITLE = "新的对话";
 
 /** 从第一条用户消息里取标题：她不负责起名，模型起名留到 M2 的 dream 之后。 */
 export function deriveTitle(blocks: readonly Block[], max = 16): string {
-  const first = blocks.find((b) => b.kind === "user");
-  if (!first || first.kind !== "user") return EMPTY_TITLE;
+  const first = blocks.find(isUserTurn);
+  if (!first) return EMPTY_TITLE;
 
-  // 只发图的消息一个字的正文都没有：标题不能因此退回「新的对话」。
-  const flat = first.text.replace(/\s+/g, " ").trim() || (first.attachments?.length ? "（一张图）" : "");
+  // 只发图或只发了一张表情时，一个字的正文都没有：标题不能因此退回「新的对话」。
+  const flat = userTurnSummary(first);
   if (!flat) return EMPTY_TITLE;
 
   // 优先在句末标点处断，断不出来再按字数硬截——手机上的标题就一行。
@@ -52,7 +53,8 @@ export function appendBlocks(session: Session, blocks: readonly Block[], now: Da
 export function retractLastTurn(session: Session): Session {
   let cut = -1;
   for (let i = session.blocks.length - 1; i >= 0; i -= 1) {
-    if (session.blocks[i].kind === "user") {
+    // 你发一张表情也是一轮的开头：撤回到那张表情，而不是把上一轮的台词也一起吞掉
+    if (isUserTurn(session.blocks[i])) {
       cut = i;
       break;
     }
@@ -72,6 +74,6 @@ export function trimForContext(blocks: readonly Block[], maxBlocks: number): Blo
   if (maxBlocks <= 0 || blocks.length <= maxBlocks) return [...blocks];
 
   let start = blocks.length - maxBlocks;
-  while (start > 0 && blocks[start].kind !== "user") start -= 1;
+  while (start > 0 && !isUserTurn(blocks[start])) start -= 1;
   return blocks.slice(start);
 }

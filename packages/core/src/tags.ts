@@ -75,6 +75,16 @@ export function serializeRecord(record: readonly Block[], { maxBlocks = 24 }: Se
         : "";
       const body = (b.text ?? "") + (pic ? (b.text ? "\n" : "") + pic : "");
       out.push("（开拓者 说）\n" + body + "\n（/开拓者 说）");
+    } else if (b.kind === "sticker") {
+      // 表情没有台词，只有一行旁白。
+      // 你发的记成"你在说话"（那确实是你这一轮唯一的一句话）；
+      // 她发的记成系统旁白——写成她的话，她会以为"（发来一张表情）"是能照抄的句式，
+      // 于是下一轮不调工具，直接在嘴里写一句括号。
+      if (b.from === "user") {
+        out.push("（开拓者 说）\n（发来一张表情：" + b.name + "）\n（/开拓者 说）");
+      } else {
+        out.push("〔系统〕（她发来一张表情：" + b.name + "）");
+      }
     } else if (b.kind === "herta") {
       const tag = b.surface === "thought" ? "想" : "说";
       out.push("（我 " + tag + "）\n" + (b.text ?? "") + "\n（/我 " + tag + "）");

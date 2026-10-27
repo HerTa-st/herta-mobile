@@ -66,10 +66,12 @@ export function useChatTurn(opts: {
   dreamState: DreamState | null;
   files: Map<string, string>;
   stickers: StickerRecord[];
+  /** 她把你的表情收进库时：落库并刷新列表。 */
+  onKeepSticker(record: StickerRecord): void;
   onError(message: string | null): void;
   onNeedKey(): void;
 }) {
-  const { settings, session, setSession, persist, memories, dreamState, files, stickers, onError, onNeedKey } = opts;
+  const { settings, session, setSession, persist, memories, dreamState, files, stickers, onKeepSticker, onError, onNeedKey } = opts;
   const [busy, setBusy] = useState(false);
   const [mood, setMood] = useState<string>(DEFAULT_MOOD);
   // 打开 App 时把上次的心情接上；超过三小时 loadMoodState 会返回 null，就当没有
@@ -85,8 +87,13 @@ export function useChatTurn(opts: {
     };
   }, []);
   const abort = useRef<AbortController | null>(null);
-  const send = useCallback(async (text: string, attachments?: { mediaType: string; data: string; name?: string }[]) => {
-    if ((!text.trim() && !attachments?.length) || busy || !session) return;
+  const send = useCallback(async (
+    text: string,
+    attachments?: { mediaType: string; data: string; name?: string }[],
+    /** 这一轮是"发了一张表情"：那么起点不是一条文字消息，而是表情块。 */
+    sticker?: StickerRecord
+  ) => {
+    if ((!text.trim() && !attachments?.length && !sticker) || busy || !session) return;
     if (!settings.apiKey) {
       onError("先填 API Key。她不会替你保管，只存在这台手机上。");
       onNeedKey();
@@ -96,13 +103,18 @@ export function useChatTurn(opts: {
     setBusy(true);
     
 
-    const userBlock: Block = {
-      kind: "user",
-      text,
-      at: new Date().toISOString(),
-      ...(attachments && attachments.length > 0 ? { attachments } : {}),
-    };
-    const history = appendBlocks(session, [userBlock]);
+    const at = new Date().toISOString();
+    // 发一张表情和发一条文字是两种起点：表情块没有台词，但它同样"是你开的口"，
+    // 序列化、截断、撤回都按这个认（见 core/sticker.ts）。
+    const opening: Block = sticker
+      ? { kind: "sticker", from: "user", stickerId: sticker.id, name: sticker.name, at }
+      : {
+          kind: "user",
+          text,
+          at,
+          ...(attachments && attachments.length > 0 ? { attachments } : {}),
+        };
+    const history = appendBlocks(session, [opening]);
     setSession(history);
     void persist(history);
 
@@ -191,10 +203,14 @@ export function useChatTurn(opts: {
        * 多一次调用、还丢掉细节。这里只带**这一轮**的图：历史轮的图不重复寄，
        * 转录里那一行「（附了一张图）」够她把话接上。
        */
-      const pictures: ChatPart[] = (userBlock.attachments ?? []).map((a) => ({
-        type: "image_url",
-        image_url: { url: a.data },
-      }));
+      // 表情也让她看见：光给一行标签，她回的话常常和梗对不上。
+      // 一张表情按单图预算算（约 1024 token），比一次工具轮便宜。
+      const pictures: ChatPart[] = sticker
+        ? [{ type: "image_url", image_url: { url: sticker.data } }]
+        : (attachments ?? []).map((a) => ({
+            type: "image_url",
+            image_url: { url: a.data },
+          }));
       const systemMessage: ChatMessage = { role: "system", content: prefix };
       /** 这一轮真正发出去的形状。模型不收图时会换成纯文字那份——复核重说也得跟着换。 */
       let messages: ChatMessage[] = [
@@ -214,12 +230,15 @@ export function useChatTurn(opts: {
         apiKey: settings.apiKey,
         baseUrl: settings.baseUrl,
         files,
-        stickers,
+        // 只有她的库：你的箱不该参与"她挑一张发出去"
+        stickers: stickers.filter((s) => s.owner !== "mine"),
         visionModel: settings.visionModel,
         albumEnabled: settings.albumEnabled,
         onSticker: (record) => {
           pickedSticker = record;
         },
+        currentSticker: sticker ?? null,
+        onKeepSticker: (record) => onKeepSticker(record),
       });
       const toolNotes: Block[] = [];
 
@@ -354,15 +373,20 @@ export function useChatTurn(opts: {
           surface: "speech",
           text: speech,
           at: new Date().toISOString(),
-          ...(pickedSticker
-            ? {
-                attachments: [
-                  { mediaType: (pickedSticker as StickerRecord).mediaType, data: (pickedSticker as StickerRecord).data, name: (pickedSticker as StickerRecord).name },
-                ],
-              }
-            : {}),
           // 一次都没接到回执（别家接口不给 usage）就别挂一枚写着 0 的徽章
           ...(spent.calls ? { usage: spent } : {}),
+        });
+      }
+      // 她挑中那张表情：单起一块，不贴在某句话上（表情没有台词，挂在话里会留个空段落）。
+      // 块里只留引用，图仍在库里——删了库，历史还在，只是那张显示成「已删」。
+      const herPick = pickedSticker as StickerRecord | null;
+      if (herPick) {
+        tail.push({
+          kind: "sticker",
+          from: "herta",
+          stickerId: herPick.id,
+          name: herPick.name,
+          at: new Date().toISOString(),
         });
       }
 
@@ -388,7 +412,7 @@ export function useChatTurn(opts: {
       abort.current = null;
       setBusy(false);
     }
-  }, [busy, files, memories, onError, onNeedKey, persist, session, settings]);
+  }, [busy, files, memories, onError, onKeepSticker, onNeedKey, persist, session, settings, stickers]);
 
   const stop = useCallback(() => abort.current?.abort(), []);
 

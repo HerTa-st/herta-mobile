@@ -40,7 +40,27 @@ export interface SystemBlock {
   at: string;
 }
 
-export type Block = UserBlock | HertaBlock | SystemBlock;
+/**
+ * 一张表情。
+ *
+ * 它不挂在某句话的附件上，而是自己一块：表情本来就是"发了一张"这件事本身，
+ * 没有台词。挂在话上都时候，她发一张表情就会在气泡里留下一个空段落。
+ *
+ * 块里只留引用：库里那张图只存一份。库删了块还在，渲染时显示「（表情已删）」——
+ * 历史不该因为删了一张表情就少一行。
+ */
+export interface StickerBlock {
+  kind: "sticker";
+  /** 谁发的：她发的是她库里的，你发的是你表情箱里的。 */
+  from: "herta" | "user";
+  /** 库里那条记录的 id。 */
+  stickerId: string;
+  /** 存一份名字：库删了也还能说清是哪张。 */
+  name: string;
+  at: string;
+}
+
+export type Block = UserBlock | HertaBlock | SystemBlock | StickerBlock;
 
 export type SessionOrigin = "phone" | "import" | "pc";
 

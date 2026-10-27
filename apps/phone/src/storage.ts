@@ -21,14 +21,19 @@ export const STORE_MEMORIES = "memories";
 export const STORE_KV = "kv";
 export const STORE_STICKERS = "stickers";
 
+/** 表情是谁的：她的库（她发给你）还是你的箱（你发给她）。 */
+export type StickerOwner = "herta" | "mine";
+
 export interface StickerRecord {
   id: string;
   name: string;
-  /** 粗略标签，她按心情挑的时候用。 */
+  /** 粗略标签，她按心情挑的时候用。配了视觉模型时自动打，手改也行。 */
   tags: string[];
   data: string;
   mediaType: string;
   createdAt: string;
+  /** 老记录没有这个字段（那时候只有她的库），读出来一律按她的算。 */
+  owner: StickerOwner;
 }
 
 export interface SessionMeta {
@@ -126,7 +131,9 @@ export async function clearAll(): Promise<void> {
 
 export async function listStickers(): Promise<StickerRecord[]> {
   const all = (await tx<StickerRecord[]>(STORE_STICKERS, "readonly", (s) => s.getAll() as IDBRequest<StickerRecord[]>)) ?? [];
-  return all.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  return all
+    .map((s) => (s.owner ? s : { ...s, owner: "herta" as StickerOwner }))
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 }
 
 export async function putSticker(record: StickerRecord): Promise<void> {

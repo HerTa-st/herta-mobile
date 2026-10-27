@@ -8,6 +8,7 @@ import { extractTagged, parseTagged, isPlaceholder, serializeRecord, parseSuperv
 import { parseNarrative, stripStageDirections } from "../src/narrative.ts";
 import { buildReviewMessages, decideReview, vetoHints } from "../src/supervisor.ts";
 import { EMPTY_TITLE, appendBlocks, createSession, deriveTitle, retractLastTurn, trimForContext } from "../src/session.ts";
+import { isUserTurn } from "../src/sticker.ts";
 import { MemoryInMemory, memoryFileName, memoryTitle, nextMemoryIndex } from "../src/memory.ts";
 import { extractJson, runDreamPass } from "../src/dream.ts";
 import { importSessionId, parseImportBundle, planImport, sessionFromImport } from "../src/import.ts";
@@ -1430,4 +1431,62 @@ test("打回话术：{{reason}} 被替换，外面那层〔〕被剥掉", async 
   assert.ok(hints.veto.includes("把没做过的事说成做过"));
   assert.ok(!hints.veto.startsWith("〔"));
   assert.ok(!hints.veto.endsWith("〕"));
+});
+
+
+/* -------------------------------------------------------------- 表情块 */
+
+const stickerBlock = (from, name = "无语") => ({
+  kind: "sticker",
+  from,
+  stickerId: "s1",
+  name,
+  at: "2026-10-28T00:00:00Z",
+});
+
+test("表情块：她发的记成旁白，你发的记成你这一轮说的话", () => {
+  const text = serializeRecord(
+    [
+      { kind: "user", text: "在吗", at: "2026-10-28T00:00:00Z" },
+      stickerBlock("herta", "得意"),
+      stickerBlock("user", "无语"),
+    ],
+    { maxBlocks: 0 }
+  );
+  // 她那张不能写成「（我 说）」：那会教她照着写括号，而不是下一轮去调工具
+  assert.ok(text.includes("〔系统〕（她发来一张表情：得意）"), "她的表情没有记成旁白");
+  assert.ok(!text.includes("（我 说）\n（发来一张表情"), "她的表情被写成她的话了");
+  // 你那张得是发言——她要知道这一轮你说的是这张图
+  assert.ok(text.includes("（开拓者 说）\n（发来一张表情：无语）\n（/开拓者 说）"), "你的表情没有记成发言");
+});
+
+test("表情块：只发了一张表情也能起标题，不会退回「新的对话」", () => {
+  assert.equal(deriveTitle([stickerBlock("user")]), "（一张表情）");
+  assert.equal(deriveTitle([stickerBlock("herta")]), EMPTY_TITLE);
+});
+
+test("撤回：发完表情之后撤回，从那张表情开始切，不吞掉上一轮", () => {
+  const blocks = [
+    { kind: "user", text: "在吗", at: "2026-10-28T00:00:00Z" },
+    { kind: "herta", surface: "speech", text: "在。", at: "2026-10-28T00:00:00Z" },
+    stickerBlock("user"),
+    { kind: "herta", surface: "speech", text: "干什么。", at: "2026-10-28T00:00:00Z" },
+  ];
+  const cut = retractLastTurn({ id: "s", title: "t", origin: "phone", createdAt: "", updatedAt: "", blocks });
+  assert.equal(cut.blocks.length, 2);
+  assert.equal(cut.blocks[1].text, "在。");
+});
+
+test("上下文截断：截断点落在表情这块上，不从她的话中间切", () => {
+  const blocks = [
+    { kind: "user", text: "一", at: "" },
+    { kind: "herta", surface: "speech", text: "一答", at: "" },
+    { kind: "user", text: "二", at: "" },
+    { kind: "herta", surface: "speech", text: "二答", at: "" },
+    stickerBlock("user"),
+    { kind: "herta", surface: "speech", text: "三答", at: "" },
+  ];
+  const kept = trimForContext(blocks, 2);
+  assert.ok(isUserTurn(kept[0]), "截断后不是从一轮的开头开始");
+  assert.equal(kept.length, 2);
 });

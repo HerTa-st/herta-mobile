@@ -25,12 +25,15 @@ import { Drawer } from "./components/Drawer.tsx";
 import { GraphView } from "./components/GraphView.tsx";
 import { MemoryViewer } from "./components/MemoryViewer.tsx";
 import { SettingsSheet } from "./components/SettingsSheet.tsx";
+import { StickerTray } from "./components/StickerTray.tsx";
+import { longPressProps } from "./components/long-press.ts";
 import { Shot, ShotViewer, isTallImage } from "./components/Shot.tsx";
 import { Splash } from "./components/Splash.tsx";
 import { UsageChip } from "./components/UsageChip.tsx";
 import { useChatTurn } from "./hooks/useChatTurn.ts";
 import { seedPureIfNeeded } from "./pure.ts";
 import { captionImage, compressImage, prepareImage } from "./vision.ts";
+import { tagSticker } from "./sticker-tag.ts";
 import { useMemory } from "./hooks/useMemory.ts";
 import { MemoryGraph } from "./MemoryGraph.tsx";
 import { collect } from "./stream.ts";
@@ -110,6 +113,10 @@ export function App() {
   /** 待发的图是不是长图：是就裁成竖卡片，不然预览也只剩一条线。 */
   const [previewTall, setPreviewTall] = useState(false);
   const [stickers, setStickers] = useState<StickerRecord[]>([]);
+  /** 表情面板：从输入框抽起来的一层 */
+  const [showTray, setShowTray] = useState(false);
+  /** 一句话的回执（「存进表情箱了」）。她看不到控制台，这种小事也得说一声。 */
+  const [toast, setToast] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [viewing, setViewing] = useState<MemoryRecord | null>(null);
   const [showGraph, setShowGraph] = useState(false);
@@ -118,6 +125,8 @@ export function App() {
   const dreamingRef = useRef(false);
   /** 用户手动选给她读的文件：工具只能读这里，不能自己翻磁盘。 */
   const filesRef = useRef(new Map<string, string>());
+  /** 她把你的表情收进库时要落库；存库函数定义在后面，用 ref 把这根线接上。 */
+  const keepStickerRef = useRef<(record: StickerRecord) => void>(() => undefined);
   const feedRef = useRef<HTMLElement | null>(null);
   /** 用户是不是"贴着底部"。他往上一翻就松手，不再跟着新消息跑。 */
   const stickToBottom = useRef(true);
@@ -254,9 +263,20 @@ export function App() {
     dreamState,
     files: filesRef.current,
     stickers,
+    // 她把你发的表情收进库：走同一条存库路径（重复的会被挡掉）
+    onKeepSticker: (record) => keepStickerRef.current(record),
     onError: reportError,
     onNeedKey: () => setShowSettings(true),
   });
+
+  /** 从表情面板发一张：文字是空的，这一轮的起点是那张表情块。 */
+  const sendSticker = useCallback(
+    (record: StickerRecord) => {
+      setShowTray(false);
+      void send("", undefined, record);
+    },
+    [send]
+  );
 
   /** 真正落库：去重 → 只写新的。永远不覆盖已有会话。 */
   const applyBundle = useCallback(
@@ -384,30 +404,80 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** 往表情库里加图：压到 512，文件名当标签。 */
-  const addStickers = useCallback(async (files: File[]) => {
-    for (const file of files) {
-      try {
-        const { dataUrl, mediaType } = await compressImage(file, 512, 0.85);
-        await putSticker({
-          id: crypto.randomUUID(),
-          name: file.name.replace(/\.[^.]+$/, ""),
-          tags: [],
-          data: dataUrl,
-          mediaType,
-          createdAt: new Date().toISOString(),
-        });
-      } catch (e) {
-        setError("这张表情没加进去：" + (e instanceof Error ? e.message : String(e)));
-      }
-    }
-    setStickers(await listStickers());
+  const flashToast = useCallback((message: string) => {
+    setToast(message);
+    window.setTimeout(() => setToast((cur) => (cur === message ? null : cur)), 1800);
   }, []);
+
+  /**
+   * 往表情库里加图：压到 512，配了视觉模型就顺手打一组标签。
+   *
+   * 标签是"互发表情"能不能成立的关键：没有它，她挑表情只能随机，
+   * 那就跟把一堆图扔进抽奖箱没区别。打标失败不算失败——加图照常完成。
+   */
+  const addStickers = useCallback(
+    async (files: File[], owner: "herta" | "mine" = "herta") => {
+      const vision = settings.visionModel && settings.apiKey ? settings.visionModel : "";
+      for (const file of files) {
+        try {
+          const { dataUrl, mediaType } = await compressImage(file, 512, 0.85);
+          const tags = vision
+            ? await tagSticker(transport, { apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: vision }, dataUrl)
+            : [];
+          await putSticker({
+            id: crypto.randomUUID(),
+            name: file.name.replace(/\.[^.]+$/, ""),
+            tags,
+            data: dataUrl,
+            mediaType,
+            createdAt: new Date().toISOString(),
+            owner,
+          });
+        } catch (e) {
+          setError("这张表情没加进去：" + (e instanceof Error ? e.message : String(e)));
+        }
+      }
+      setStickers(await listStickers());
+    },
+    [settings.apiKey, settings.baseUrl, settings.visionModel]
+  );
 
   const removeSticker = useCallback(async (id: string) => {
     await deleteSticker(id);
     setStickers(await listStickers());
   }, []);
+
+  /**
+   * 把一张图存进表情箱（同一张只存一次）。
+   * 长按聊天里的图、或者她收下你的表情，都走这里。
+   */
+  const saveToBox = useCallback(
+    async (data: string, name: string, mediaType: string, tags: string[], owner: "herta" | "mine") => {
+      const all = await listStickers();
+      const where = owner === "mine" ? "你的箱" : "她的库";
+      if (all.some((s) => s.owner === owner && s.data === data)) {
+        flashToast("这张已经在" + where + "里了");
+        return;
+      }
+      await putSticker({
+        id: crypto.randomUUID(),
+        name,
+        tags,
+        data,
+        mediaType,
+        createdAt: new Date().toISOString(),
+        owner,
+      });
+      setStickers(await listStickers());
+      flashToast(owner === "mine" ? "存进表情箱了" : "她已经收下了");
+    },
+    [flashToast]
+  );
+
+  // 收表情要存库，存库的函数在下面（它要用 flashToast 与 setStickers）。
+  // 用一个 ref 把回调接过去：回合层只认这个 ref，不等函数定义顺序。
+  keepStickerRef.current = (record) =>
+    void saveToBox(record.data, record.name, record.mediaType, record.tags, "herta");
 
   const runImport = useCallback(async () => {
     const parsed = parseImportBundle(importText);
@@ -495,6 +565,7 @@ export function App() {
     setDraft("");
     setPendingImage(null);
     setPreviewTall(false);
+    setShowTray(false);
     // 长图切出来的每一片都是独立附件：模型逐片看，气泡把它们接成一摞
     void send(
       text,
@@ -503,6 +574,11 @@ export function App() {
   }, [draft, pendingImage, send]);
 
   const blocks = useMemo(() => session?.blocks ?? [], [session]);
+  /** 表情块只存引用：渲染时按 id 去库里找那张图。 */
+  const stickerById = useMemo(() => new Map(stickers.map((s) => [s.id, s])), [stickers]);
+  /** 她的库（她发给你用）与你的箱（你发给她用）分开。 */
+  const herStickers = useMemo(() => stickers.filter((s) => s.owner !== "mine"), [stickers]);
+  const myStickers = useMemo(() => stickers.filter((s) => s.owner === "mine"), [stickers]);
 
   /* 搜索需要在内存里扫全文，所以查的时候才把会话都读出来（几十条，几十万字，毫秒级）。 */
   useEffect(() => {
@@ -597,6 +673,8 @@ export function App() {
             pieces={(b.attachments ?? []).map((a) => a.data)}
             name={att.name}
             onOpen={() => setViewingShot({ pieces: (b.attachments ?? []).map((a) => a.data), name: att.name })}
+            // 长按存进表情箱：手机上这是唯一不打断看图的手势
+            onLongPress={() => void saveToBox(att.data, att.name ?? "图", att.mediaType, [], "mine")}
           />
         )}
         {b.kind === "herta" && att && <img className="sticker" src={att.data} alt={att.name ?? "表情"} />}
@@ -704,8 +782,8 @@ export function App() {
           onClose={() => setShowSettings(false)}
           mood={mood}
           fileNames={fileNames}
-          stickers={stickers}
-          onAddStickers={(files) => void addStickers(files)}
+          stickers={herStickers}
+          onAddStickers={(files) => void addStickers(files, "herta")}
           onRemoveSticker={(id) => void removeSticker(id)}
           onFile={(file) => {
             void file.text().then((text) => {
@@ -721,18 +799,41 @@ export function App() {
       <main className="feed" ref={feedRef} onScroll={onFeedScroll}>
         {blocks.length === 0 && <p className="empty">她还没开口。说点什么。</p>}
 
-        {blocks.map((b, i) =>
-          b.kind === "system" ? (
-            <p key={i} className="note">
-              {b.body}
-            </p>
-          ) : (
+        {blocks.map((b, i) => {
+          if (b.kind === "system") {
+            return (
+              <p key={i} className="note">
+                {b.body}
+              </p>
+            );
+          }
+          if (b.kind === "sticker") {
+            const rec = stickerById.get(b.stickerId);
+            // 库被删了也留一行：历史不该因为一张表情没了就凭空少一段
+            if (!rec) {
+              return (
+                <p key={i} className="note">
+                  （表情已删：{b.name}）
+                </p>
+              );
+            }
+            const press = longPressProps(() =>
+              void saveToBox(rec.data, rec.name, rec.mediaType, rec.tags, b.from === "herta" ? "mine" : "herta")
+            );
+            return (
+              <article key={i} data-idx={i} className={"bubble stickerBubble " + b.from}>
+                <img className="sticker" src={rec.data} alt={rec.name} title={rec.tags.join("、") || rec.name} {...press.props} />
+              </article>
+            );
+          }
+          return (
             <article key={i} data-idx={i} className={"bubble " + b.kind + (b.kind === "herta" ? " " + b.surface : "")}>
               {bodyOf(b)}
             </article>
-          )
-        )}
+          );
+        })}
         {error && <p className="error">{error}</p>}
+        {toast && <p className="toast">{toast}</p>}
       </main>
 
       {!atBottom && (
@@ -808,6 +909,17 @@ export function App() {
           </button>
         )}
 
+        {showTray && (
+          <StickerTray
+            her={herStickers}
+            mine={myStickers}
+            onPick={sendSticker}
+            onAdd={(files, owner) => void addStickers(files, owner)}
+            onRemove={(id) => void removeSticker(id)}
+            onClose={() => setShowTray(false)}
+          />
+        )}
+
         <div className="composerBar">
           <textarea
             value={draft}
@@ -821,6 +933,25 @@ export function App() {
               }
             }}
           />
+          <button
+            className={"composerAttach" + (showTray ? " on" : "")}
+            onClick={() => setShowTray((v) => !v)}
+            aria-label="发表情"
+            title="发表情"
+          >
+            <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+              <circle cx="12" cy="12" r="8.4" fill="none" stroke="currentColor" strokeWidth="1.7" />
+              <circle cx="9.2" cy="9.9" r="1.05" fill="currentColor" />
+              <circle cx="14.8" cy="9.9" r="1.05" fill="currentColor" />
+              <path
+                d="M8.6 14.1c.9 1.1 2 1.65 3.4 1.65s2.5-.55 3.4-1.65"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
           <button
             className="composerAttach"
             onClick={() => imageInputRef.current?.click()}
