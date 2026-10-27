@@ -26,17 +26,20 @@ export function StickerTray({
   onRemove(id: string): void;
   onClose(): void;
 }) {
-  const [tab, setTab] = useState<"herta" | "mine">("herta");
+  // 默认停在「我的」：这一层是你用来发表情的，先给你自己的箱。
+  // 只有一种情况例外——箱是空的、她的库有东西，那就先显示她的，
+  // 不然第一次打开是一张空面板，等于什么都没说。
+  const [tab, setTab] = useState<"herta" | "mine">(mine.length > 0 || her.length === 0 ? "mine" : "herta");
   const list = tab === "herta" ? her : mine;
 
   return (
     <div className="stickerTray">
       <div className="trayHead">
-        <button type="button" className={tab === "herta" ? "on" : ""} onClick={() => setTab("herta")}>
-          她的（{her.length}）
-        </button>
         <button type="button" className={tab === "mine" ? "on" : ""} onClick={() => setTab("mine")}>
           我的（{mine.length}）
+        </button>
+        <button type="button" className={tab === "herta" ? "on" : ""} onClick={() => setTab("herta")}>
+          她的（{her.length}）
         </button>
         <button type="button" className="trayClose" onClick={onClose} aria-label="收起表情">
           ✕
@@ -77,7 +80,7 @@ export function StickerTray({
         {list.length === 0
           ? tab === "herta"
             ? "她的库还是空的。加几张，她就会在合适的时候自己挑一张发出来。"
-            : "你的箱还是空的。加几张，或者长按聊天里的图存进来。"
+            : "你的箱还是空的。点右上角的 ＋ 加几张，或者长按聊天里的图存进来。"
           : "点一张发给对方；长按一张删掉。"}
       </p>
     </div>

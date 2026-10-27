@@ -58,6 +58,7 @@ const TOOL_LABEL: Record<string, string> = {
   phone_status: "看了手机状态",
   open: "打开了东西",
   share: "调出了分享面板",
+  plan_ping: "排了下次找你的时间",
 };
 
 /**
@@ -255,6 +256,7 @@ export function useChatTurn(opts: {
           status: settings.statusEnabled,
           open: settings.openEnabled,
           share: settings.shareEnabled,
+          proactive: settings.proactiveEnabled && !settings.cheapMode,
         },
         cheap: settings.cheapMode,
       });
