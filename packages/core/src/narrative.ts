@@ -16,6 +16,23 @@
  * 是最不能接受的一种坏输出——宁可这一轮空着让她重说。
  */
 
+/**
+ * 念出来的文本：把「（转了下椅子）」这种动作标注去掉。
+ *
+ * 动作是写给人看的，念出来就是一句奇怪的旁白。只去**短**括号标注：
+ * 全角括号里的 1~20 字，或半角括号里带中文的短标注——`f(x)` 这种不能误伤。
+ * 去完只剩空白就返回空串，调用方据此跳过这次合成。
+ */
+export function stripStageDirections(text: string): string {
+  return String(text ?? "")
+    .replace(/（[^（）]{1,20}）/g, "")
+    .replace(/\((?=[^()]*[\u4e00-\u9fa5])[^()]{1,20}\)/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/^[ \t]+|[ \t]+$/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export interface Narrative {
   thought: string;
   speech: string;
