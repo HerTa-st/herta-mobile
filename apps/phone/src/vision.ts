@@ -12,7 +12,7 @@ import type { ChatMessage, ChatPart } from "@herta/protocol";
 import { collect } from "./stream.ts";
 import type { ChatTransport } from "./transport.ts";
 
-function decodeFile(file: File): Promise<HTMLImageElement> {
+function decodeFile(file: Blob): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("读不了这个文件"));
@@ -24,6 +24,26 @@ function decodeFile(file: File): Promise<HTMLImageElement> {
     };
     reader.readAsDataURL(file);
   });
+}
+
+/**
+ * data URL → Blob。
+ *
+ * 自己解 base64，不用 `fetch(data:)`——那条路要 Chrome 65+ 的 WebView，
+ * 侧载到老机器上会整条拍照路径挂掉；而且失败时它只会说 "Failed to fetch"，
+ * 分不清是「没拍到」还是「拍到了读不出来」。
+ */
+export function dataUrlToBlob(dataUrl: string): Blob {
+  const comma = dataUrl.indexOf(",");
+  if (comma < 0) throw new Error("这不是一张 data URL");
+  const head = dataUrl.slice(0, comma);
+  const body = dataUrl.slice(comma + 1);
+  const mediaType = /^data:([^;,]+)/i.exec(head)?.[1] ?? "image/jpeg";
+  if (!/;base64/i.test(head)) return new Blob([decodeURIComponent(body)], { type: mediaType });
+  const binary = atob(body);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mediaType });
 }
 
 /** 压一张小图（表情包用）：长边不超过 maxSide，转 jpeg。 */
@@ -52,7 +72,7 @@ export function compressImage(file: File, maxSide = 512, quality = 0.85): Promis
  * 切出来的是这一条消息的附件：气泡里只显示第一片当缩略图，点开是整摞。
  */
 export async function prepareImage(
-  file: File,
+  file: Blob,
   opts: { quality?: number; maxPieces?: number } = {}
 ): Promise<string[]> {
   const { quality = 0.82, maxPieces } = opts;
