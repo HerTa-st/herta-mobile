@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Block, HertaBlock, ImportBundle, Session, UserBlock } from "@herta/protocol";
 import {
+  appendBlocks,
   createSession,
   effectiveWeight,
   humanizeError,
@@ -27,6 +28,7 @@ import { MemoryViewer } from "./components/MemoryViewer.tsx";
 import { SettingsSheet } from "./components/SettingsSheet.tsx";
 import { CapabilitiesSheet } from "./components/CapabilitiesSheet.tsx";
 import { Onboarding } from "./components/Onboarding.tsx";
+import { ToolLogSheet } from "./components/ToolLogSheet.tsx";
 import { StickerTray } from "./components/StickerTray.tsx";
 import { longPressProps } from "./components/long-press.ts";
 import { Shot, ShotViewer, isTallImage } from "./components/Shot.tsx";
@@ -37,6 +39,7 @@ import { useProactive } from "./hooks/useProactive.ts";
 import { seedPureIfNeeded } from "./pure.ts";
 import { captionImage, compressImage, prepareImage } from "./vision.ts";
 import { tagSticker } from "./sticker-tag.ts";
+import { dueReminders, markReminderSpoken } from "./capabilities.ts";
 import { useMemory } from "./hooks/useMemory.ts";
 import { MemoryGraph } from "./MemoryGraph.tsx";
 import { collect } from "./stream.ts";
@@ -97,6 +100,7 @@ export function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showCaps, setShowCaps] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showToolLog, setShowToolLog] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState("");
@@ -271,8 +275,54 @@ export function App() {
     [refreshList]
   );
 
+  /** 她这一句要接进哪个会话（补齐提醒时用，避免闭包里拿到旧的）。 */
+  const sessionRef = useRef<Session | null>(null);
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+
+  /**
+   * 到点的提醒补进对话。
+   *
+   * 系统通知只是一条通知——它响的时候她并没有"说话"。用户点开 App 发现对话里空着，
+   * 就是因为这里没补。打开 App、切回前台各补一次；补过的记 spokenAt，不会重说。
+   */
+  const flushReminders = useCallback(async () => {
+    const current = sessionRef.current;
+    if (!current) return;
+    let due: Awaited<ReturnType<typeof dueReminders>> = [];
+    try {
+      due = await dueReminders();
+    } catch {
+      return;
+    }
+    if (due.length === 0) return;
+    let next = current;
+    for (const { record } of due) {
+      next = appendBlocks(next, [
+        { kind: "herta", surface: "speech", text: record.title + "\n" + record.text, at: new Date().toISOString() },
+      ]);
+    }
+    setSession(next);
+    await persist(next);
+    for (const { record, at } of due) await markReminderSpoken(record.id, at);
+  }, [persist]);
+
+  useEffect(() => {
+    const run = () => void flushReminders();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") run();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    const t = window.setTimeout(run, 1200);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.clearTimeout(t);
+    };
+  }, [flushReminders, session?.id]);
+
   /** 一个回合的全过程都在这里：判心情、算行踪、带工具说话、复核、落库。 */
-  const { send, stop, busy, mood } = useChatTurn({
+  const { send, stop, busy, mood, typing } = useChatTurn({
     settings,
     session,
     setSession,
@@ -817,6 +867,7 @@ export function App() {
           onAddStickers={(files) => void addStickers(files, "herta")}
           onRemoveSticker={(id) => void removeSticker(id)}
           onOpenCapabilities={() => setShowCaps(true)}
+          onOpenToolLog={() => setShowToolLog(true)}
           onFile={(file) => {
             void file.text().then((text) => {
               filesRef.current.set(file.name, text);
@@ -837,6 +888,8 @@ export function App() {
           }}
         />
       )}
+
+      {showToolLog && <ToolLogSheet onClose={() => setShowToolLog(false)} />}
 
       {showCaps && (
         <CapabilitiesSheet
@@ -884,6 +937,7 @@ export function App() {
             </article>
           );
         })}
+        {typing && <p className="note typing">她正在敲字…</p>}
         {error && <p className="error">{error}</p>}
         {toast && <p className="toast">{toast}</p>}
       </main>

@@ -19,6 +19,8 @@ export interface ToolResult {
   name: string;
   ok: boolean;
   content: string;
+  /** 这次调用带的参数（记日志用；模型看不到）。 */
+  args?: Record<string, unknown>;
 }
 
 export interface ToolImpl {
@@ -159,6 +161,7 @@ export async function runToolLoop(
 
     for (const call of calls) {
       deps.onToolCall?.(call);
+      const args = parseArgs(call.arguments);
       const impl = byName.get(call.name);
       let content: string;
       let ok = true;
@@ -172,13 +175,13 @@ export async function runToolLoop(
       } else {
         if (impl.spec.kind === "write") writes += 1;
         try {
-          content = await impl.run(parseArgs(call.arguments));
+          content = await impl.run(args);
         } catch (e) {
           ok = false;
           content = "失败了：" + (e instanceof Error ? e.message : String(e));
         }
       }
-      const result: ToolResult = { id: call.id, name: call.name, ok, content };
+      const result: ToolResult = { id: call.id, name: call.name, ok, content, args };
       results.push(result);
       deps.onToolResult?.(result);
       messages.push({ role: "tool", tool_call_id: call.id, name: call.name, content });
