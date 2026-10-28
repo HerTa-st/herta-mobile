@@ -151,9 +151,10 @@ npm run dev:phone # 浏览器里跑 UI
 
 ```powershell
 pwsh -File tools\build-apk.ps1                    # 正常版
-pwsh -File tools\build-apk.ps1 -Variant pure       # 纯净版：只留那 628 条对话，没有记忆
-pwsh -File tools\build-apk.ps1 -Variant blank      # 白纸版：连对话也不带，清完库是空的
+pwsh -File tools\build-apk.ps1 -Variant blank      # 白纸版：清完库是空的
 ```
+
+（`-Variant pure` 已退役：内置的那 628 条对话是用户自己的聊天记录，2026-10-28 已从仓库与 git 历史里删除；pure 现在与 blank 等价。）
 
 产物在 `apps/phone/android/app/build/outputs/apk/debug/app-debug.apk`，
 也会拷一份到 `dist-apk/`。
