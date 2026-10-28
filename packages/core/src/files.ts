@@ -9,9 +9,10 @@
  * 分类决定后面走哪条路：
  * - image：进看图管线（和相机同一条）
  * - text：解成字符串，放进她能读的文件（read_file 工具）
+ * - doc：PDF / DOCX / PPTX / XLSX——先抽文字，再走 text 同一条落库路径
  * - other：二进制 / 暂时读不了的格式，明确拒绝，不硬读成乱码
  */
-export type PickedFileKind = "image" | "text" | "other";
+export type PickedFileKind = "image" | "text" | "doc" | "other";
 
 export interface PickedFileInfo {
   name: string;
@@ -47,6 +48,17 @@ const TEXT_EXT = new RegExp("\\.(" + TEXT_FILE_EXTENSIONS.join("|") + ")$", "i")
 /** 文本文件读进内存的上限。read_file 只回 8000 字，再大也是浪费内存。 */
 export const TEXT_FILE_MAX_BYTES = 512 * 1024;
 
+/** 能抽文字出来的文档格式（新版 Office 是 zip+xml；老版 .doc/.xls/.ppt 是二进制，不支持）。 */
+export const DOC_FILE_EXTENSIONS: readonly string[] = ["pdf", "docx", "pptx", "xlsx"];
+
+const DOC_EXT = new RegExp("\\.(" + DOC_FILE_EXTENSIONS.join("|") + ")$", "i");
+
+/** 源文件（PDF/Office）大小上限：手机上解大 PDF 会卡，先兜一道。 */
+export const DOC_FILE_MAX_BYTES = 20 * 1024 * 1024;
+
+/** OOXML / PDF 的 MIME：pdf、vnd.openxmlformats-officedocument.* */
+const DOC_MIME = /^(application\/pdf|application\/vnd\.openxmlformats-officedocument\.(wordprocessingml|spreadsheetml|presentationml)\.)/;
+
 /**
  * 这个挑选回来的文件该走哪条路。
  *
@@ -66,6 +78,8 @@ export function classifyPickedFile(file: PickedFileInfo): PickedFileKind {
   if (mime.startsWith("text/")) return "text";
   if (mime === "application/json" || mime.endsWith("+json")) return "text";
   if (mime === "application/xml" || mime.endsWith("+xml")) return "text";
+  // PDF / 新版 Office：能抽出文字，走 doc 那条（先抽再落库）
+  if (DOC_MIME.test(mime)) return "doc";
   // .ts 双义：Android 的 MimeTypeMap 把 .ts 映射成 video/mp2t，真正的 TypeScript 源码会被误拒。
   // 视频很少用 .ts 传，而且 512KB 上限 + 文本解码校验会把视频挡掉，所以按源码处理。
   if (mime === "video/mp2t" && /\.ts$/i.test(name)) return "text";
@@ -77,9 +91,12 @@ export function classifyPickedFile(file: PickedFileInfo): PickedFileKind {
   ) {
     // Excel 导出的 CSV 常被标成 vnd.ms-excel；扩展名是文本就别拒
     if (TEXT_EXT.test(name)) return "text";
+    // .xlsx/.docx 被塞进 zip/office 的 MIME 时靠扩展名兜住
+    if (DOC_EXT.test(name)) return "doc";
     return "other";
   }
   if (IMAGE_EXT.test(name)) return "image";
+  if (DOC_EXT.test(name)) return "doc";
   if (TEXT_EXT.test(name)) return "text";
   if (PLAIN_TEXT_NAME.test(name)) return "text";
   return "other";

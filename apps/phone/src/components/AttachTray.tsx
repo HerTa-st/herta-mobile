@@ -66,7 +66,7 @@ export function AttachTray({
           </span>
           <span>
             <b>选文件</b>
-            <em>图片或文本文件</em>
+            <em>图片 / 文本 / 文档</em>
           </span>
         </button>
       </div>

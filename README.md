@@ -74,7 +74,7 @@ npm run dev:phone # 浏览器里跑 UI
 | 记忆代谢 | ✅ 权重 / 20 条整理 / 50 条遗忘 / 星图 |
 | 基础工具（离线） | ✅ 时间、剪贴板、沙箱计算、联网搜索、设备状态、读文件 |
 | 看图 | ✅ 回形针 →「拍照」直接进系统相机、或「选文件」挑一张图：本地按宽度切段（官方单图上限 8192 像素 / 1024 token，长截图整张寄不是被拒就是糊成灰带）→ 每片作为 image_url 随消息发给 deepseek-flash；模型不收图时自动退回纯文字并提示换模型 |
-| 给她读文件 | ✅ 回形针「选文件」不限类型：文本文件（txt / md / json / csv / log / 代码等）解码后放进她能读的列表并落盘，聊天里留一行提示；编码自动认（UTF-8 / UTF-16 带 BOM / GBK）；PDF / Word / 压缩包这类二进制、以及 WebView 解不了的 HEIC 都会明说读不了。单文件 ≤512KB、整库 ≤2MB，设置页那个入口也并到同一条逻辑 |
+| 给她读文件 | ✅ 回形针「选文件」不限类型：文本文件解码后、PDF / Word(.docx) / Excel(.xlsx) / PPT(.pptx) 抽出文字后，都进她能读的列表并落盘，聊天里留一行提示；编码自动认（UTF-8 / UTF-16 带 BOM / GBK）。扫描件 PDF（没有文字层）抽不出字会说明，压缩包/老版 .doc/.xls/.ppt/HEIC 明说读不了。文本单件 ≤512KB、整库 ≤2MB、文档源文件 ≤20MB，设置页那个入口也并到同一条逻辑 |
 | 每轮用量 | ✅ 她那句话下面一枚「1.2k tok」小徽章：接口的 usage 逐次累加（判心情 / 工具轮 / 复核 / 重说），点开看输入 / 输出 / 缓存命中 / 调用次数 |
 | 省 token 开关 | ✅ 设置里一档：不判心情、不复核，历史 ≤ 8 块、记忆 ≤ 1 篇、长图 ≤ 4 段、工具 ≤ 2 轮（数字只在 `core/budget.ts` 定义） |
 | 表情包 | ✅ 她在合适的时候自己挑一张发出来（库空的就不给她这个工具） |
@@ -92,7 +92,7 @@ npm run dev:phone # 浏览器里跑 UI
 | `calc` | 在 Web Worker 里跑一小段 JS | 2 秒超时，无网络无文件 |
 | `web_search` | DeepSeek 官方搜索接口 | 走原生通道，不踩 CORS |
 | `device` | 联网状态、屏幕、语言 | 只读 |
-| `read_file` | 读**你手动选给她的**文本文件（回形针「选文件」或设置页都能加；落盘，重启后还在） | 不能自己翻手机；单文件 ≤512KB、整库 ≤2MB，读时截 8000 字 |
+| `read_file` | 读**你手动选给她的**文件（文本 / PDF / Word / Excel / PPT；回形针「选文件」或设置页都能加；落盘，重启后还在） | 不能自己翻手机；文本单件 ≤512KB、整库 ≤2MB，读时截 8000 字 |
 
 工具循环在 `core/src/tools.ts`：模型要么说话、要么发一次 `tool_call`，执行完把结果塞回去再问一遍。
 **最多四轮**——不封顶的话，一个想不清楚的模型能在这循环里烧掉你一天的额度。
@@ -156,6 +156,12 @@ pwsh -File tools\build-apk.ps1 -Variant blank      # 白纸版：清完库是空
 ```
 
 （`-Variant pure` 已退役：内置的那 628 条对话是用户自己的聊天记录，2026-10-28 已从仓库与 git 历史里删除；pure 现在与 blank 等价。）
+
+v0.28.9 起多了两个 web 依赖：`pdfjs-dist`（PDF 抽字）与 `fflate`（解 docx/xlsx/pptx 的 zip）。
+PDF 抽字要求较新的 Android System WebView（pdf.js v4 约需 Chrome 119+）；老机器上会提示更新 WebView，不影响图片与文本。
+PDF.js 的中文 CID 字体要 Adobe CMaps（1.1MB），构建前由 `tools/copy-pdfjs-cmaps.mjs` 从
+`node_modules` 拷进 `assets/pdfjs/cmaps`（依赖产物，不进 git）；npm 的 `prebuild*` 钩子会自动跑。
+换机器 `npm install` 之后直接构建即可。
 
 产物在 `apps/phone/android/app/build/outputs/apk/debug/app-debug.apk`，
 也会拷一份到 `dist-apk/`。

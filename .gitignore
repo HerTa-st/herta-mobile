@@ -13,3 +13,5 @@ apps/phone/android/debug.keystore
 build.log
 build*.log
 dist-apk/
+# pdfjs 的 CMaps：构建前从 node_modules 拷进 publicDir，依赖产物不进 git
+assets/pdfjs/

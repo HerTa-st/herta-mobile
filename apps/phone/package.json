@@ -4,9 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "copy:pdfjs": "node ../../tools/copy-pdfjs-cmaps.mjs",
+    "predev": "npm run copy:pdfjs",
     "dev": "vite",
+    "prebuild:pure": "npm run copy:pdfjs",
     "build:pure": "vite build --mode pure",
+    "prebuild:blank": "npm run copy:pdfjs",
     "build:blank": "vite build --mode blank",
+    "prebuild": "npm run copy:pdfjs",
     "build": "vite build",
     "preview": "vite preview",
     "sync": "cap sync android"
@@ -22,6 +27,8 @@
     "@capacitor/share": "^8.0.3",
     "@herta/core": "*",
     "@herta/protocol": "*",
+    "fflate": "^0.8.3",
+    "pdfjs-dist": "^4.10.38",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },

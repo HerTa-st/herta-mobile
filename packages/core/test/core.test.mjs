@@ -41,6 +41,7 @@ import {
   TEXT_FILE_MAX_BYTES,
   trimTextFiles,
 } from "../src/files.ts";
+import { decodeXmlEntities, docxXmlToText, pptxXmlToText, xlsxXmlToText } from "../src/documents.ts";
 import { addUsage, emptyUsage, formatTokens, usageTotal } from "../src/usage.ts";
 import { budgetFor } from "../src/budget.ts";
 
@@ -1438,14 +1439,26 @@ test("选文件分类：图片、文本、其它各走各的路", () => {
   assert.equal(classifyPickedFile({ name: ".gitignore", type: "" }), "text");
   assert.equal(classifyPickedFile({ name: "data.geojson", type: "" }), "text");
 
-  // 二进制/文档：别因为扩展名像文本就硬读成乱码
-  assert.equal(classifyPickedFile({ name: "a.pdf", type: "application/pdf" }), "other");
+  // PDF / 新版 Office：能抽文字，归 doc
+  assert.equal(classifyPickedFile({ name: "a.pdf", type: "application/pdf" }), "doc");
+  assert.equal(classifyPickedFile({ name: "a.pdf", type: "" }), "doc");
   assert.equal(
     classifyPickedFile({ name: "a.docx", type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }),
-    "other"
+    "doc"
   );
-  assert.equal(classifyPickedFile({ name: "a.zip", type: "application/zip" }), "other");
+  assert.equal(classifyPickedFile({ name: "a.docx", type: "" }), "doc");
+  assert.equal(
+    classifyPickedFile({ name: "a.pptx", type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }),
+    "doc"
+  );
+  assert.equal(
+    classifyPickedFile({ name: "a.xlsx", type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+    "doc"
+  );
+  // 老版 Office 是二进制复合文档，抽不出文字；压缩包也不碰
+  assert.equal(classifyPickedFile({ name: "a.doc", type: "application/msword" }), "other");
   assert.equal(classifyPickedFile({ name: "a.xls", type: "application/vnd.ms-excel" }), "other");
+  assert.equal(classifyPickedFile({ name: "a.zip", type: "application/zip" }), "other");
   // Excel 导出的 CSV 常被标成 vnd.ms-excel：扩展名是文本就不能拒（复核实测抓到的那条）
   assert.equal(classifyPickedFile({ name: "导出.csv", type: "application/vnd.ms-excel" }), "text");
   // .ts 既是 TypeScript 也是 MPEG-TS：Android 把它映射成视频 MIME，按源码放行
@@ -1467,6 +1480,47 @@ test("选文件分类：图片、文本、其它各走各的路", () => {
   assert.equal(classifyPickedFile({ name: "x", type: "application/atom+xml" }), "text");
   assert.equal(classifyPickedFile({ name: "?", type: "" }), "other");
   assert.equal(TEXT_FILE_MAX_BYTES, 512 * 1024);
+});
+
+test("Office 抽字：Word / PPT / Excel 的 XML 变成能读的文字", () => {
+  // Word：段落换行、tab、实体反解
+  const docx = [
+    "<w:document><w:body>",
+    "<w:p><w:r><w:t>第一段</w:t></w:r></w:p>",
+    '<w:p><w:r><w:t>a</w:t></w:r><w:r><w:tab/><w:t>b &amp; c</w:t></w:r></w:p>',
+    "<w:p><w:r><w:t>&lt;tag&gt;</w:t></w:r></w:p>",
+    "</w:body></w:document>",
+  ].join("");
+  assert.equal(docxXmlToText(docx), "第一段\na\tb & c\n<tag>");
+
+  // PPT：按页顺序，页与页之间空一行
+  // 一段被拆成两个 run（改过字体）：要拼回一行，别一个词一行
+  const slides = [
+    "<a:p><a:r><a:t>标题</a:t></a:r><a:r><a:t>副标题</a:t></a:r></a:p>",
+    "<a:p><a:r><a:t>第二页</a:t></a:r></a:p>",
+  ];
+  assert.equal(pptxXmlToText(slides), "第 1 页\n标题副标题\n\n第 2 页\n第二页");
+
+  // Excel：sharedStrings 按索引取值、数字原样、同表按行
+  const shared = "<sst><si><t>姓名</t></si><si><t>分数</t></si></sst>";
+  const sheet = [
+    '<worksheet><sheetData>',
+    '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>',
+    '<row r="2"><c r="A2" t="inlineStr"><is><t>张三</t></is></c><c r="B2"><v>42</v></c></row>',
+    "</sheetData></worksheet>",
+  ].join("");
+  assert.equal(xlsxXmlToText([sheet], shared), "第 1 张表\n姓名\t分数\n张三\t42");
+
+  // 自闭合的空单元格要占位，后面的值不能左移
+  const gappy = [
+    "<worksheet><sheetData>",
+    '<row r="1"><c r="A1"><v>1</v></c><c r="B1"/><c r="C1"><v>3</v></c></row>',
+    "</sheetData></worksheet>",
+  ].join("");
+  assert.equal(xlsxXmlToText([gappy], ""), "第 1 张表\n1\t\t3");
+
+  // 实体反解兜底：不认识的实体原样留着
+  assert.equal(decodeXmlEntities("&amp;&lt;&#65;&#x42;&unknown;"), "&<AB&unknown;");
 });
 
 test("选文件解码：UTF-8 / UTF-16 / GBK 都要能读，二进制要被认出来", () => {

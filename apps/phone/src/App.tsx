@@ -44,6 +44,7 @@ import { useChatTurn } from "./hooks/useChatTurn.ts";
 import { useProactive } from "./hooks/useProactive.ts";
 import { seedPureIfNeeded } from "./pure.ts";
 import { captionImage, compressImage, dataUrlToBlob, prepareImage } from "./vision.ts";
+import { extractDocumentText, type DocumentFormat } from "./doc-text.ts";
 import { tagSticker } from "./sticker-tag.ts";
 import { cameraFailureText, dueReminders, formatBytes, isNative, markReminderSpoken, snapPhoto } from "./capabilities.ts";
 import { useMemory } from "./hooks/useMemory.ts";
@@ -75,6 +76,9 @@ const memoryStore = new IdbMemoryStore();
 
 /** 模型名里带这些的，当它自己能看图（deepseek-flash / 各家 VL）。 */
 const VISION_MODEL = /flash|vision|vl|omni/i;
+
+/** 文档格式的显示名：toast 里说「从 Word 抽出 1234 字」比说 docx 好懂。 */
+const DOC_LABEL: Record<DocumentFormat, string> = { pdf: "PDF", docx: "Word", pptx: "PPT", xlsx: "Excel" };
 
 export function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings);
@@ -125,6 +129,8 @@ export function App() {
     caption: string;
   } | null>(null);
   const [imageBusy, setImageBusy] = useState(false);
+  /** 正在抽文字的文档名（null = 没在抽）。抽大 PDF 要十几秒，得让用户看见进度。 */
+  const [docReading, setDocReading] = useState<string | null>(null);
   /** 点开看整张图（长图缩略裁过，原图在这里）。 */
   const [viewingShot, setViewingShot] = useState<{ pieces: string[]; name?: string } | null>(null);
   /** 待发的图是不是长图：是就裁成竖卡片，不然预览也只剩一条线。 */
@@ -138,6 +144,8 @@ export function App() {
   const [toast, setToast] = useState<string | null>(null);
   /** 回形针的「选文件」：现在什么都收，按类型分流（图片 / 文本 / 其它）。 */
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  /** 防重入：抽文档期间又选了一份，两份 buffer + 两份 pdf.js 文档同时进内存会卡死。 */
+  const docBusyRef = useRef(false);
   /** 浏览器里没有相机插件：退回带 capture 的 file input（桌面浏览器会开文件选择）。 */
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const [viewing, setViewing] = useState<MemoryRecord | null>(null);
@@ -787,108 +795,163 @@ export function App() {
   }, [ingestImage, reportError]);
 
   /**
-   * 把一个文本文件放进「她能读的文件」。
-   *
-   * 原来只有设置页那一个入口，现在回形针的「选文件」也走这里——两处共用 filesRef，
-   * 她那边只有一个 read_file 工具，不该有两套。
+   * 文字进「她能读的文件」：落盘、聊天里留提示、toast。
+   * 纯文本文件与 PDF / Office 抽出来的文字都走这一条——后面只有一份存储、一个 read_file。
    */
+  const addReadableText = useCallback(
+    async (name: string, text: string, suffix: string, opts: { truncate?: boolean } = {}) => {
+      let body = text;
+      let note = suffix;
+      if (body.length > TEXT_FILE_MAX_BYTES) {
+        // 文本文件可以叫用户截一段再选；PDF/Word 没法截，只能替她截断
+        if (!opts.truncate) {
+          reportError(
+            "「" + name + "」抽出 " + Math.round(body.length / 1024) + "KB 文字，太长了——她能读的单个文件上限是 " +
+              Math.round(TEXT_FILE_MAX_BYTES / 1024) + "KB，截一段再选。"
+          );
+          return;
+        }
+        body = body.slice(0, TEXT_FILE_MAX_BYTES);
+        note += "（太长，只放了前 " + Math.round(TEXT_FILE_MAX_BYTES / 1024) + "KB 文字）";
+      }
+      filesRef.current.set(name, body);
+      setFileNames([...filesRef.current.keys()]);
+      // 落盘：重启之后她还读得到，聊天里那条提示才不会变成假话
+      let dropped: string[] = [];
+      try {
+        const saved = await saveReadableFile({ name, text: body, at: new Date().toISOString() });
+        dropped = saved.dropped;
+        filesRef.current.clear();
+        for (const f of saved.kept) filesRef.current.set(f.name, f.text);
+        setFileNames([...filesRef.current.keys()]);
+      } catch {
+        /* 落盘失败不影响这次能用 */
+      }
+      // 聊天里留一行痕迹：文件塞进去了却什么都不显示，用户会以为没成功。
+      // 用 ref 判当前状态：await 期间她可能已经开始说话，闭包里的 busy/session 会是旧的。
+      const current = sessionRef.current;
+      if (current && !busyRef.current) {
+        const at = new Date().toISOString();
+        const notes: Block[] = [
+          {
+            kind: "system",
+            label: "系统",
+            // 写成中立句：这条既要给你看，也会作为〔系统〕进她的转录，
+            // 用「你」会让她分不清是谁在说话
+            body: "（「" + name + "」已放进她能读的文件里；想让她看就说「看看 " + name + "」。）",
+            at,
+          },
+        ];
+        // 淘汰不只在 toast 里说：她那边也留一条，否则她的上下文还认为文件在
+        if (dropped.length > 0) {
+          notes.push({
+            kind: "system",
+            label: "系统",
+            body: "（整库超过 2MB，「" + dropped.join("」、「") + "」已从她能读的文件里移出。）",
+            at,
+          });
+        }
+        const next = appendBlocks(current, notes);
+        setSession(next);
+        // 文件本身已经加进去了；这条提示写不进去不算失败
+        try {
+          await persist(next);
+        } catch {
+          /* 忽略 */
+        }
+      }
+      // 淘汰必须说出来：文件静默消失、聊天里提示还在，就又是"她以为文件在"的老毛病
+      const evictNote = dropped.length > 0 ? "；整库超过 2MB，已移出最早的：" + dropped.join("、") : "";
+      flashToast("「" + name + "」她能读了" + note + evictNote);
+    },
+    [flashToast, persist, reportError]
+  );
+
+  /** 纯文本文件：先解码（GBK / UTF-16 直接当 UTF-8 读会静默乱码），再进文件库。 */
   const addReadableFile = useCallback(
     async (file: File) => {
       // 文件名要进 system 旁白，先清洗（换行/「」〔〕能伪造一行系统提示）
       const name = sanitizeFileName(file.name);
       if (file.size > TEXT_FILE_MAX_BYTES) {
         reportError(
-          "「" + name + "」有 " + formatBytes(file.size) + "，太大了——她能读的单个文件上限是 " +
+          "「" + name + "」有 " + formatBytes(file.size) + "，太大了——她能读的单个文本文件上限是 " +
             Math.round(TEXT_FILE_MAX_BYTES / 1024) + "KB，截一段再选。"
         );
         return;
       }
-      // 设置页那个入口也走这里，而 accept 在部分 ROM 上会被忽略——
-      // 别把 PDF 静默读成乱码，也别把图片报成「文件读不出来」（图片该走回形针看图）
+      // 调用方理论上已经分过类；设置页等入口也走这里，accept 在部分 ROM 上会被忽略
       const kind = classifyPickedFile(file);
       if (kind !== "text") {
         reportError(
           kind === "image"
-            ? "「" + name + "」是图片——图片直接发给她看就行，这里只放文本文件。"
-            : "「" + name + "」不是文本文件——这里只能放 txt / md / json / csv / log / 代码这类。"
+            ? "「" + name + "」是图片——直接发给她看就行，这里只放能读的文件。"
+            : "「" + name + "」不是文本文件——这里只能放文本、PDF / Word / Excel / PPT。"
         );
         return;
       }
       try {
-        // 手动解码：GBK / UTF-16 的 txt 直接按 UTF-8 读会静默变乱码（见 core/files.ts）
         const decoded = decodeTextFile(new Uint8Array(await file.arrayBuffer()));
-        filesRef.current.set(name, decoded.text);
-        setFileNames([...filesRef.current.keys()]);
-        // 落盘：重启之后她还读得到，聊天里那条提示才不会变成假话
-        let dropped: string[] = [];
-        try {
-          const saved = await saveReadableFile({ name, text: decoded.text, at: new Date().toISOString() });
-          dropped = saved.dropped;
-          filesRef.current.clear();
-          for (const f of saved.kept) filesRef.current.set(f.name, f.text);
-          setFileNames([...filesRef.current.keys()]);
-        } catch {
-          /* 落盘失败不影响这次能用 */
-        }
-        // 聊天里留一行痕迹：文件塞进去了却什么都不显示，用户会以为没成功。
-        // 用 ref 判当前状态：await 期间她可能已经开始说话，闭包里的 busy/session 会是旧的。
-        const current = sessionRef.current;
-        if (current && !busyRef.current) {
-          const at = new Date().toISOString();
-          const notes: Block[] = [
-            {
-              kind: "system",
-              label: "系统",
-              // 写成中立句：这条既要给你看，也会作为〔系统〕进她的转录，
-              // 用「你」会让她分不清是谁在说话
-              body: "（「" + name + "」已放进她能读的文件里；想让她看就说「看看 " + name + "」。）",
-              at,
-            },
-          ];
-          // 淘汰不只在 toast 里说：她那边也留一条，否则她的上下文还认为文件在
-          if (dropped.length > 0) {
-            notes.push({
-              kind: "system",
-              label: "系统",
-              body: "（整库超过 2MB，「" + dropped.join("」、「") + "」已从她能读的文件里移出。）",
-              at,
-            });
-          }
-          const next = appendBlocks(current, notes);
-          setSession(next);
-          // 文件本身已经加进去了；这条提示写不进去不算失败
-          try {
-            await persist(next);
-          } catch {
-            /* 忽略 */
-          }
-        }
         const encodingNote = decoded.encoding === "utf-8" ? "" : "（按 " + decoded.encoding.toUpperCase() + " 解）";
-        // 淘汰必须说出来：文件静默消失、聊天里提示还在，就又是"她以为文件在"的老毛病
-        const evictNote =
-          dropped.length > 0 ? "；整库超过 2MB，已移出最早的：" + dropped.join("、") : "";
-        flashToast("「" + name + "」她能读了" + encodingNote + evictNote);
+        await addReadableText(name, decoded.text, encodingNote);
       } catch (err) {
         reportError("这个文件读不出来：" + (err instanceof Error ? err.message : String(err)));
       }
     },
-    [flashToast, persist, reportError]
+    [addReadableText, reportError]
   );
 
   /**
-   * 回形针选回来的文件按类型分流：图片进看图管线、文本给她读、其它明说读不了。
-   * 文件名与 MIME 都要看——文件管理器给的 MIME 有时是空的（见 core/files.ts）。
+   * PDF / Word / Excel / PPT：先抽文字，再走文本文件同一条落库路径。
+   * 扫描件 PDF 抽不到文字（没有文字层），要提示用户转图片发给她看。
    */
-  const pickFile = useCallback(
+  const addDocument = useCallback(
+    async (file: File) => {
+      const name = sanitizeFileName(file.name);
+      if (docBusyRef.current) {
+        reportError("还在读上一份文档，等它读完再选。");
+        return;
+      }
+      docBusyRef.current = true;
+      setDocReading(name);
+      try {
+        const { format, text } = await extractDocumentText(file);
+        const trimmed = text.trim();
+        if (!trimmed) {
+          reportError("「" + name + "」里没抽到文字——可能是扫描件/图片版；把它转成图片发给她看。");
+          return;
+        }
+        // 文档没法让用户自己截，超长时由 addReadableText 截断并注明
+        await addReadableText(name, trimmed, "（从 " + DOC_LABEL[format] + " 抽出 " + trimmed.length + " 字）", {
+          truncate: true,
+        });
+      } catch (err) {
+        reportError("这个文档读不出来：" + (err instanceof Error ? err.message : String(err)));
+      } finally {
+        docBusyRef.current = false;
+        setDocReading(null);
+      }
+    },
+    [addReadableText, reportError]
+  );
+
+  /**
+   * 「能读的文件」入口：文本与文档都收，图片请走回形针看图。
+   * 设置页那个 file input 也走这里——accept 在部分 ROM 上会被忽略，分类兜底不能省。
+   */
+  const ingestReadable = useCallback(
     (file: File) => {
       const name = sanitizeFileName(file.name);
       const kind = classifyPickedFile(file);
-      if (kind === "image") {
-        void ingestImage(file, name);
-        return;
-      }
       if (kind === "text") {
         void addReadableFile(file);
+        return;
+      }
+      if (kind === "doc") {
+        void addDocument(file);
+        return;
+      }
+      if (kind === "image") {
+        reportError("「" + name + "」是图片——直接发给她看就行，这里只放能读的文件。");
         return;
       }
       // HEIC 是图片，但 WebView 解不了——单独给一句，别让她以为是文件坏了。
@@ -898,10 +961,25 @@ export function App() {
         return;
       }
       reportError(
-        "「" + name + "」这种文件她现在读不了：只收图片和文本文件（txt / md / json / csv / log / 代码等）。PDF、Word、压缩包还不行。"
+        "「" + name + "」这种文件她现在读不了：支持图片、文本文件和 PDF / Word(.docx) / Excel(.xlsx) / PPT(.pptx)；老版 .doc/.xls/.ppt 和压缩包还不行。"
       );
     },
-    [addReadableFile, ingestImage, reportError]
+    [addDocument, addReadableFile, reportError]
+  );
+
+  /**
+   * 回形针选回来的文件按类型分流：图片进看图管线，其余交给「能读的文件」入口。
+   * 文件名与 MIME 都要看——文件管理器给的 MIME 有时是空的（见 core/files.ts）。
+   */
+  const pickFile = useCallback(
+    (file: File) => {
+      if (classifyPickedFile(file) === "image") {
+        void ingestImage(file, sanitizeFileName(file.name));
+        return;
+      }
+      ingestReadable(file);
+    },
+    [ingestImage, ingestReadable]
   );
 
   const blocks = useMemo(() => session?.blocks ?? [], [session]);
@@ -1119,7 +1197,7 @@ export function App() {
           onOpenCapabilities={() => setShowCaps(true)}
           onOpenToolLog={() => setShowToolLog(true)}
           onOpenBackup={() => setShowBackup(true)}
-          onFile={(file) => void addReadableFile(file)}
+          onFile={(file) => ingestReadable(file)}
         />
       )}
 
@@ -1208,6 +1286,9 @@ export function App() {
       )}
 
       <footer className="composer">
+        {docReading && (
+          <p className="notice">正在读「{docReading}」…大文档要十几秒，读完会出现在她能读的文件里。</p>
+        )}
         {pendingImage && !VISION_MODEL.test(settings.model) && (
           <p className="notice">
             「{settings.model}」不一定收图：换成 deepseek-flash 才能让她真看见；不收图会退回纯文字。
@@ -1268,7 +1349,7 @@ export function App() {
               fileInputRef.current?.click();
             }}
             onClose={() => setShowAttach(false)}
-            busy={imageBusy}
+            busy={imageBusy || docReading !== null}
           />
         )}
 
@@ -1327,7 +1408,7 @@ export function App() {
               setShowTray(false);
               setShowAttach((v) => !v);
             }}
-            disabled={imageBusy}
+            disabled={imageBusy || docReading !== null}
             aria-label="拍照或选文件"
             aria-expanded={showAttach}
             title="拍照或选文件"
