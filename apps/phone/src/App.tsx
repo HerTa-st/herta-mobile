@@ -16,6 +16,7 @@ import {
   searchMemories,
   searchSessions,
   shareIdFromInput,
+  READABLE_FILE_EVENT_NOTE,
   sanitizeFileName,
   shouldConsolidate,
   stripStageDirections,
@@ -58,6 +59,7 @@ import {
   listSessions,
   listStickers,
   loadSession,
+  appendToolLog,
   putSession,
   putSticker,
   type SessionMeta,
@@ -827,6 +829,18 @@ export function App() {
       } catch {
         /* 落盘失败不影响这次能用 */
       }
+      // 审计页留一条：文件是什么时候、以什么名字进来的（聊天页不显示，见下面的 hidden 块）
+      void appendToolLog({
+        at: new Date().toISOString(),
+        sessionId: sessionRef.current?.id ?? "",
+        name: "可读文件",
+        label: "文件库",
+        ok: true,
+        args: JSON.stringify({ name, chars: body.length }),
+        content:
+          "「" + name + "」已放进她能读的文件" +
+          (dropped.length > 0 ? "；移出：" + dropped.join("、") : ""),
+      }).catch(() => undefined);
       // 聊天里留一行痕迹：文件塞进去了却什么都不显示，用户会以为没成功。
       // 用 ref 判当前状态：await 期间她可能已经开始说话，闭包里的 busy/session 会是旧的。
       const current = sessionRef.current;
@@ -836,8 +850,9 @@ export function App() {
           {
             kind: "system",
             label: "系统",
-            // 写成中立句：这条既要给你看，也会作为〔系统〕进她的转录，
-            // 用「你」会让她分不清是谁在说话
+            hidden: true,
+            // 写成中立句：这条会作为〔系统〕进她的转录，用「你」会让她分不清是谁在说话。
+            // 聊天页不显示（hidden），只在「工具调用记录」里能查到。
             body: "（「" + name + "」已放进她能读的文件里；想让她看就说「看看 " + name + "」。）",
             at,
           },
@@ -847,6 +862,7 @@ export function App() {
           notes.push({
             kind: "system",
             label: "系统",
+            hidden: true,
             body: "（整库超过 2MB，「" + dropped.join("」、「") + "」已从她能读的文件里移出。）",
             at,
           });
@@ -1243,6 +1259,9 @@ export function App() {
 
         {blocks.map((b, i) => {
           if (b.kind === "system") {
+            // 文件库事件只在「工具调用记录」里显示，聊天流里不刷屏；
+            // 老版本写下的块没有 hidden 标记，按正文再认一遍（见 core 的 READABLE_FILE_EVENT_NOTE）
+            if (b.hidden || READABLE_FILE_EVENT_NOTE.test(b.body)) return null;
             return (
               <p key={i} className="note">
                 {b.body}

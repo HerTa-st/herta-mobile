@@ -56,6 +56,13 @@ const DOC_EXT = new RegExp("\\.(" + DOC_FILE_EXTENSIONS.join("|") + ")$", "i");
 /** 源文件（PDF/Office）大小上限：手机上解大 PDF 会卡，先兜一道。 */
 export const DOC_FILE_MAX_BYTES = 20 * 1024 * 1024;
 
+/**
+ * 文件库事件的 system 旁白（「已放进她能读的文件里」/「已从她能读的文件里移出」）。
+ * v0.28.10 起这类块的 hidden=true，聊天流不显示、只进「工具调用记录」；
+ * 这里再按正文认一遍，是为了兼容升级前写下的老块与老备份。
+ */
+export const READABLE_FILE_EVENT_NOTE = /已放进她能读的文件里|已从她能读的文件里移出/;
+
 /** OOXML / PDF 的 MIME：pdf、vnd.openxmlformats-officedocument.* */
 const DOC_MIME = /^(application\/pdf|application\/vnd\.openxmlformats-officedocument\.(wordprocessingml|spreadsheetml|presentationml)\.)/;
 

@@ -10,6 +10,7 @@
  */
 
 import type { Session } from "../../protocol/src/index.ts";
+import { READABLE_FILE_EVENT_NOTE } from "./files.ts";
 import { memoryTitle, type MemoryRecord } from "./memory.ts";
 
 export interface BlockHit {
@@ -62,6 +63,8 @@ export function searchSessions(sessions: readonly Session[], query: string, limi
   for (const session of sessions) {
     const hits: BlockHit[] = [];
     for (const [index, block] of session.blocks.entries()) {
+      // 文件库事件（hidden 或老版本没标记的）聊天里不显示，搜到了也没法跳，别占命中
+      if (block.kind === "system" && (block.hidden || READABLE_FILE_EVENT_NOTE.test(block.body))) continue;
       const text = blockText(block as { kind: string; text?: string; body?: string });
       if (!text) continue;
       if (text.toLowerCase().includes(q)) {

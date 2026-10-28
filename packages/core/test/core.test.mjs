@@ -1775,6 +1775,54 @@ test("备份：大小说人话", () => {
   assert.equal(formatSize(3 * 1024 * 1024), "3.00 MB");
 });
 
+test("隐藏块：聊天里不显示，但她的转录里仍在、检索不占命中", () => {
+  const blocks = [
+    { kind: "user", text: "在吗", at: "2026-10-28T00:00:00Z" },
+    { kind: "system", label: "系统", body: "（「a.json」已放进她能读的文件里）", at: "2026-10-28T00:00:01Z", hidden: true },
+  ];
+  // 她得知道文件放进来了——序列化不过滤 hidden
+  const transcript = serializeRecord(blocks, { maxBlocks: 0 });
+  assert.ok(transcript.includes("已放进她能读的文件里"));
+  // 但聊天搜索不该被这条刷到（搜到了也没法跳）
+  const session = { id: "s", title: "t", origin: "phone", createdAt: "", updatedAt: "", blocks };
+  assert.equal(searchSessions([session], "a.json").length, 0);
+  assert.equal(searchSessions([session], "在吗").length, 1);
+
+  // 升级前写下的块没有 hidden 标记：按正文也要认出来跳过
+  const legacy = {
+    id: "s2",
+    title: "t",
+    origin: "phone",
+    createdAt: "",
+    updatedAt: "",
+    blocks: [{ kind: "system", label: "系统", body: "（「old.json」已放进她能读的文件里；…）", at: "" }],
+  };
+  assert.equal(searchSessions([legacy], "old.json").length, 0);
+});
+
+test("备份：隐藏块恢复后仍然隐藏", () => {
+  const { bundle } = buildBackupBundle({
+    sessions: [
+      {
+        id: "s1",
+        title: "t",
+        origin: "phone",
+        createdAt: "",
+        updatedAt: "",
+        blocks: [
+          { kind: "system", label: "系统", body: "（文件库事件）", at: "2026-10-28T00:00:00Z", hidden: true },
+          { kind: "system", label: "系统", body: "普通旁白", at: "2026-10-28T00:00:01Z" },
+        ],
+      },
+    ],
+    memories: [],
+  });
+  const parsed = parseBackupBundle(JSON.stringify(bundle));
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.bundle.sessions[0].blocks[0].hidden, true);
+  assert.equal(parsed.bundle.sessions[0].blocks[1].hidden, undefined);
+});
+
 test("回复判定：问句一定回，而且比平时更快", () => {
   const q = decideReply({ text: "现在几点？", bond: 0, random: () => 0.99 });
   assert.equal(q.reply, true);
