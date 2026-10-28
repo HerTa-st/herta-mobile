@@ -15,6 +15,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(HertaLocationPlugin.class);
         registerPlugin(HertaNotifyPlugin.class);
         registerPlugin(HertaA11yPlugin.class);
+        registerPlugin(HertaBackupPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

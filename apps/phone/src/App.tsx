@@ -29,6 +29,7 @@ import { SettingsSheet } from "./components/SettingsSheet.tsx";
 import { CapabilitiesSheet } from "./components/CapabilitiesSheet.tsx";
 import { Onboarding } from "./components/Onboarding.tsx";
 import { ToolLogSheet } from "./components/ToolLogSheet.tsx";
+import { BackupSheet } from "./components/BackupSheet.tsx";
 import { StickerTray } from "./components/StickerTray.tsx";
 import { longPressProps } from "./components/long-press.ts";
 import { Shot, ShotViewer, isTallImage } from "./components/Shot.tsx";
@@ -101,6 +102,7 @@ export function App() {
   const [showCaps, setShowCaps] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showToolLog, setShowToolLog] = useState(false);
+  const [showBackup, setShowBackup] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState("");
@@ -890,6 +892,7 @@ export function App() {
           onRemoveSticker={(id) => void removeSticker(id)}
           onOpenCapabilities={() => setShowCaps(true)}
           onOpenToolLog={() => setShowToolLog(true)}
+          onOpenBackup={() => setShowBackup(true)}
           onFile={(file) => {
             void file.text().then((text) => {
               filesRef.current.set(file.name, text);
@@ -912,6 +915,18 @@ export function App() {
       )}
 
       {showToolLog && <ToolLogSheet onClose={() => setShowToolLog(false)} />}
+
+      {showBackup && (
+        <BackupSheet
+          settings={settings}
+          onClose={() => setShowBackup(false)}
+          onRestored={() => {
+            void refreshList();
+            void refreshMemories();
+            void listStickers().then(setStickers);
+          }}
+        />
+      )}
 
       {showCaps && (
         <CapabilitiesSheet

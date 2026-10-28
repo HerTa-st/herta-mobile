@@ -10,6 +10,7 @@ import { buildReviewMessages, decideReview, vetoHints } from "../src/supervisor.
 import { EMPTY_TITLE, appendBlocks, createSession, deriveTitle, retractLastTurn, trimForContext } from "../src/session.ts";
 import { isUserTurn } from "../src/sticker.ts";
 import { bondLevel, daysSince, decideReply } from "../src/reply.ts";
+import { buildBackupBundle, formatSize, parseBackupBundle, planRestore } from "../src/backup.ts";
 import { MemoryInMemory, memoryFileName, memoryTitle, nextMemoryIndex } from "../src/memory.ts";
 import { extractJson, runDreamPass } from "../src/dream.ts";
 import { importSessionId, parseImportBundle, planImport, sessionFromImport } from "../src/import.ts";
@@ -1504,6 +1505,88 @@ test("撤回：发完表情之后撤回，从那张表情开始切，不吞掉�
   const cut = retractLastTurn({ id: "s", title: "t", origin: "phone", createdAt: "", updatedAt: "", blocks });
   assert.equal(cut.blocks.length, 2);
   assert.equal(cut.blocks[1].text, "在。");
+});
+
+/* -------------------------------------------------------------- 备份 */
+
+const sampleSession = () => ({
+  id: "s1",
+  title: "在吗",
+  origin: "phone",
+  createdAt: "2026-10-28T00:00:00Z",
+  updatedAt: "2026-10-28T00:00:00Z",
+  blocks: [
+    { kind: "user", text: "在吗", at: "2026-10-28T00:00:00Z" },
+    { kind: "herta", surface: "speech", text: "在。", at: "2026-10-28T00:00:00Z" },
+    { kind: "sticker", from: "herta", stickerId: "k1", name: "无语", at: "2026-10-28T00:00:00Z" },
+  ],
+});
+
+test("备份：打包再拆包，会话/记忆/表情一样不少", () => {
+  const { bundle, stats } = buildBackupBundle({
+    sessions: [sampleSession()],
+    memories: [{ name: "### 废案_01：测试.txt", body: "正文", createdAt: "2026-10-28T00:00:00Z" }],
+    stickers: [
+      { id: "k1", name: "无语", tags: ["无语"], data: "data:image/jpeg;base64,AAA", mediaType: "image/jpeg", createdAt: "2026-10-28T00:00:00Z" },
+    ],
+    from: "Herta 手机端",
+  });
+  assert.equal(stats.blocks, 3);
+  assert.ok(stats.bytes > 0);
+
+  const parsed = parseBackupBundle(JSON.stringify(bundle));
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.bundle.sessions.length, 1);
+  assert.equal(parsed.bundle.sessions[0].blocks.length, 3);
+  assert.equal(parsed.bundle.sessions[0].blocks[2].stickerId, "k1", "表情块丢了引用");
+  assert.equal(parsed.bundle.stickers?.[0].id, "k1");
+  assert.equal(parsed.bundle.from, "Herta 手机端");
+});
+
+test("备份：不是备份包就拒；坏块丢掉但整包还能进", () => {
+  assert.equal(parseBackupBundle("{").ok, false);
+  assert.equal(parseBackupBundle(JSON.stringify({ format: "herta-import", version: 1, sessions: [] })).ok, false);
+
+  const bad = {
+    format: "herta-backup",
+    version: 1,
+    exportedAt: "2026-10-28T00:00:00Z",
+    sessions: [{ id: "s1", blocks: [{ kind: "user", text: "hi", at: "" }, { kind: "???", at: "" }] }],
+    memories: [],
+  };
+  const parsed = parseBackupBundle(JSON.stringify(bad));
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.bundle.sessions[0].blocks.length, 1, "坏块应当被丢掉");
+});
+
+test("备份：导入只加不覆盖，重复的跳过", () => {
+  const { bundle } = buildBackupBundle({
+    sessions: [sampleSession()],
+    memories: [{ name: "m1", body: "x", createdAt: "" }],
+    stickers: [
+      { id: "k1", name: "无语", tags: [], data: "data:image/jpeg;base64,AAA", mediaType: "image/jpeg", createdAt: "" },
+    ],
+  });
+  const dup = planRestore(bundle, {
+    sessionIds: new Set(["s1"]),
+    memoryNames: new Set(["m1"]),
+    stickerIds: new Set(["k1"]),
+  });
+  assert.equal(dup.sessions.length, 0);
+  assert.equal(dup.skipped.sessions, 1);
+  assert.equal(dup.skipped.memories, 1);
+  assert.equal(dup.skipped.stickers, 1);
+
+  const fresh = planRestore(bundle, { sessionIds: new Set(), memoryNames: new Set(), stickerIds: new Set() });
+  assert.equal(fresh.sessions.length, 1);
+  assert.equal(fresh.memories.length, 1);
+  assert.equal(fresh.stickers.length, 1);
+});
+
+test("备份：大小说人话", () => {
+  assert.equal(formatSize(900), "900 B");
+  assert.equal(formatSize(2048), "2.0 KB");
+  assert.equal(formatSize(3 * 1024 * 1024), "3.00 MB");
 });
 
 test("回复判定：问句一定回，而且比平时更快", () => {
