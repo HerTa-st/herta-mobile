@@ -39,7 +39,8 @@ export function ToolLogSheet({ onClose }: { onClose(): void }) {
         </button>
       </div>
       <p className="memNote">
-        她自己动手的每一次都记在这里：叫什么、带了什么参数、成没成、返回了什么。只留最近两百条。
+        她自己动手的每一次都记在这里：叫什么、带了什么参数、成没成、返回了什么；
+        你放进来的文件（文件库）也记一条，聊天页不显示这些旁白。只留最近两百条。
       </p>
       <button type="button" className="onboardBtn" onClick={() => void wipe()} disabled={busy || rows.length === 0}>
         {busy ? "清着…" : "全清掉"}

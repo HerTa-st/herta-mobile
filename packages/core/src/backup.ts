@@ -135,7 +135,14 @@ function sanitizeBlock(raw: unknown): Block | null {
       at,
     };
   }
-  return { kind: "system", label: raw.label === "差分协处理器" ? "差分协处理器" : "系统", body: String(raw.body ?? ""), at };
+  return {
+    kind: "system",
+    label: raw.label === "差分协处理器" ? "差分协处理器" : "系统",
+    body: String(raw.body ?? ""),
+    at,
+    // 隐藏标记要跟着备份走：不然恢复之后文件库事件又会在聊天里刷屏
+    ...(raw.hidden === true ? { hidden: true } : {}),
+  };
 }
 
 /**

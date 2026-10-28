@@ -146,7 +146,7 @@ export async function deleteSticker(id: string): Promise<void> {
 
 /* ---------------------------------------------------------- 工具调用记录 */
 
-/** 一次工具调用。只留最近两百条——这是给人看的审计记录，不是数据库。 */
+/** 一次工具调用或一条文件库事件。只留最近两百条——这是给人看的审计记录，不是数据库。 */
 export interface ToolLogEntry {
   at: string;
   sessionId: string;

@@ -38,6 +38,12 @@ export interface SystemBlock {
   body: string;
   digest?: string;
   at: string;
+  /**
+   * 只在「工具调用记录」这类审计页里显示，聊天流里不显示。
+   * 用途：文件库事件（收了一份文件、淘汰了旧的）——它们是给她的上下文与给你查账的，
+   * 不该在聊天里刷屏。她那边照旧能在转录里看到（serializeRecord 不过滤）。
+   */
+  hidden?: boolean;
 }
 
 /**
