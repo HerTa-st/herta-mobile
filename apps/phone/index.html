@@ -2,7 +2,13 @@
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+    <!-- interactive-widget=resizes-content：键盘弹出时缩布局视口，而不是盖住输入框
+         （红米这类 20:9 长屏 + Android 15 边到边，不加这条输入框会被键盘顶掉） -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, interactive-widget=resizes-content"
+    />
+    <meta name="format-detection" content="telephone=no" />
     <meta name="theme-color" content="#f8fbfa" />
     <title>Herta</title>
     <style>

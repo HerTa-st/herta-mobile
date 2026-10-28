@@ -96,7 +96,9 @@ export function MemoryGraph({
     let height = 0;
 
     const resize = () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      // 2.75 倍屏（红米 K70 这类）上压到 2 倍会糊；星图是低频重绘，放到 3 倍不心疼。
+  // 开屏那个几千字/帧的动画另有上限（见 Splash.tsx），别跟着抬。
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
       const rect = canvas.getBoundingClientRect();
       width = rect.width;
       height = rect.height;

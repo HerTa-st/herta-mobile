@@ -18,6 +18,10 @@
 
 * { box-sizing: border-box; }
 
+/* Android WebView 会在宽屏上自己放大正文字号（text autosizing），
+   那会让同一句话在你的机器和朋友的机器上行数不一样。按我们自己的规矩来。 */
+html { -webkit-text-size-adjust: 100%; }
+
 html, body, #root { height: 100%; margin: 0; }
 
 body {
@@ -412,6 +416,9 @@ body {
 
 .feed {
   flex: 1;
+  /* 键盘弹出时窗口会变矮：不给 min-height:0，flex 子项不肯收缩，
+     它会把自己和下面的输入框一起顶出屏幕（长屏机器上最明显）。 */
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 14px 16px 8px;
@@ -943,6 +950,18 @@ body {
 }
 .toolBody.full { display: block; -webkit-line-clamp: unset; white-space: pre-wrap; }
 .toolArgs { font-size: 11px; color: var(--muted); opacity: 0.8; word-break: break-all; }
+
+/* ------------------------------------------------------------ 屏幕适配 */
+
+/* 红米 K70：1220×2712、密度 2.75 → CSS 视口约 443×986。
+   比 390 宽一截的机器上，15px 的字占屏比例偏小，正文抬到 16px。
+   断点按 CSS 宽度算（WebView 已经把密度折进去了），所以任何 420 以上的机器都受益。 */
+@media (min-width: 420px) {
+  body { font-size: 16px; }
+  .bubble { font-size: 16px; }
+  .composerBar textarea { font-size: 15.5px; }
+  .feed { padding-left: 18px; padding-right: 18px; }
+}
 
 .onboardDone {
   width: 100%;
