@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 边到边让出来的那两条（状态栏、手势条）显示的就是它。
+     和页面顶部的青白渐变同色，不然会看到一条突兀的白边。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="270"
+        android:startColor="#EAF6F4"
+        android:endColor="#EEF7F6" />
+</shape>
