@@ -1,37 +1,30 @@
 /**
- * 纯净版。
+ * 白纸版（以及退役的纯净版）。
  *
- * 用 `vite build --mode pure` 打出的一份特殊构建：装上去第一次打开就把本地数据全清掉，
- * 只留那 628 条对话。没有种子记忆、没有旧会话、没有表情包。
+ * `vite build --mode blank`：装上去第一次打开把本地数据全清掉——没有会话、没有记忆、
+ * 没有表情包，她只带着自传和话术从零开始。而且**只对"新装"是白纸**：库里已经有东西
+ * 说明是老用户在换安装包，这时不清库。
  *
- * 另有一档 `--mode blank`：白纸版。连那 628 条也不带，清完库就是真空——没有会话、
- * 没有记忆、没有表情包，她只带着自传和话术从零开始。想要"什么都没发生过"的那种干净，
- * 用这一档；那份 887KB 的对话也会一起被摇掉。
+ * `--mode pure` 曾经会灌入那 628 条内置对话。2026-10-28 用户要求把那段聊天历史从
+ * 仓库里清掉，数据文件已删；现在 pure 与 blank 的行为一致，只为兼容旧构建命令留着。
  *
- * 为什么用 mode 而不是环境变量：mode 是构建期常量，打包时那一整支代码会被静态求值，
- * 普通构建里这段连同那份 887KB 的对话一起被摇掉，不会平白撑大安装包。
+ * 为什么用 mode 而不是环境变量：mode 是构建期常量，普通构建里这段代码会被静态求值摇掉。
  */
 
-import { loadPureSession } from "./data/loader.ts";
-import { clearAll, hasLocalData, listSessions, putSession } from "./storage.ts";
-import { parseImportBundle, planImport } from "@herta/core";
+import { clearAll, hasLocalData } from "./storage.ts";
 
 export const PURE = import.meta.env.MODE === "pure";
-/** 白纸版：不带那 628 条对话，清完库什么都不留。 */
+/** 白纸版：清完库什么都不留。 */
 export const BLANK = import.meta.env.MODE === "blank";
 
 /**
- * 每档一个标记。
- *
- * 装白纸版盖在纯净版上时（同一个包名），如果共用标记，628 条对话还留在库里——
- * "白纸"就成了句空话。分开记，每一档第一次跑都会把库清一遍。
+ * 每档一个标记：装另一档盖上去时，得重新清一次——不然"白纸"就是句空话。
  */
 const MODE = import.meta.env.MODE;
 const PURE_FLAG = "herta.seed." + MODE + ".v1";
 
 /**
- * 把库清空，然后只放那一条对话进去。
- * 只在**第一次**打开时做一次——否则你跟她聊两句、切到后台回来，历史就没了。
+ * 清库。只在**第一次**打开这一档时做一次——否则你跟她聊两句、切到后台回来，历史就没了。
  */
 export async function seedPureIfNeeded(): Promise<void> {
   if (!PURE && !BLANK) return;
@@ -40,24 +33,12 @@ export async function seedPureIfNeeded(): Promise<void> {
   // 种子记忆只搬一次的标记：白纸版也不能让四篇废案回来
   localStorage.setItem("herta.seeded.v1", "1");
 
-  // 白纸版只对"新装"是白纸。库里已经有东西说明是老用户在换安装包，
-  // 这时候清库就是删他的数据——不做。
-  if (BLANK && (await hasLocalData().catch(() => true))) {
+  // 白纸版只对"新装"是白纸：库里已经有东西，就别删人家的数据
+  if (await hasLocalData().catch(() => true)) {
     localStorage.setItem(PURE_FLAG, "1");
     return;
   }
 
   await clearAll();
-
-  // 白纸版到此为止：库已经空了，什么都不灌
-  if (PURE) {
-    const bundle = await loadPureSession();
-    const parsed = parseImportBundle(JSON.stringify(bundle));
-    if (parsed.ok) {
-      const plan = planImport(parsed.bundle, new Set((await listSessions()).map((s) => s.id)));
-      for (const s of plan.toWrite) await putSession(s);
-    }
-  }
-
   localStorage.setItem(PURE_FLAG, "1");
 }
