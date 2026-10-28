@@ -15,6 +15,7 @@ export function SettingsSheet({
   onRemoveSticker,
   onOpenCapabilities,
   onOpenToolLog,
+  onOpenBackup,
 }: {
   settings: Settings;
   onChange(patch: Partial<Settings>): void;
@@ -27,6 +28,7 @@ export function SettingsSheet({
   onRemoveSticker(id: string): void;
   onOpenCapabilities(): void;
   onOpenToolLog(): void;
+  onOpenBackup(): void;
 }) {
   const capCount = [
     settings.statusEnabled,
@@ -51,6 +53,10 @@ export function SettingsSheet({
       <button type="button" className="sheetLink" onClick={onOpenToolLog}>
         <span>工具调用记录</span>
         <span className="sheetLinkHint">她动过什么手 ›</span>
+      </button>
+      <button type="button" className="sheetLink" onClick={onOpenBackup}>
+        <span>备份与迁移</span>
+        <span className="sheetLinkHint">打包换机 ›</span>
       </button>
       <label>
         API Key

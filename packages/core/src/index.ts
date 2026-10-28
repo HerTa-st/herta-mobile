@@ -23,6 +23,7 @@ export * from "./persona.ts";
 export * from "./tags.ts";
 export * from "./sticker.ts";
 export * from "./reply.ts";
+export * from "./backup.ts";
 export * from "./supervisor.ts";
 
 export const CORE_VERSION = "0.1.0-dev";
