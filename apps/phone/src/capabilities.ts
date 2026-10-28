@@ -44,6 +44,8 @@ export interface ReminderRecord {
   repeat: "once" | "daily" | "weekly";
   /** repeat=weekly 时用，1=周一 … 7=周日。 */
   weekday?: number;
+  /** 上一次把这条说进对话的时间。同一次到点只说一次——她不该每次打开 App 都把八点那句话重说一遍。 */
+  spokenAt?: string;
 }
 
 const REMINDER_KEY = "reminders";
@@ -102,6 +104,77 @@ export async function scheduleReminder(record: ReminderRecord): Promise<void> {
 
   const list = await listReminders();
   await saveReminders([...list.filter((r) => r.id !== record.id), record]);
+}
+
+/**
+ * 这条提醒"最近一次该响"是什么时候。
+ *
+ * 一次性：到点那一刻；每天：今天这个点（还没到就用昨天）；每周：往前找到最近那个星期几。
+ * 响过之后的时间点才算"该说"——时间在未来的不算。
+ */
+export function lastOccurrence(record: ReminderRecord, now: Date = new Date()): Date | null {
+  const at = (day: Date, hh: number, mm: number) => {
+    const d = new Date(day);
+    d.setHours(hh, mm, 0, 0);
+    return d;
+  };
+  if (record.repeat === "once") {
+    const when = new Date(record.when);
+    return Number.isNaN(when.getTime()) || when > now ? null : when;
+  }
+  const hh = Number(record.when.slice(0, 2));
+  const mm = Number(record.when.slice(3, 5));
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+
+  if (record.repeat === "daily") {
+    const today = at(now, hh, mm);
+    if (today <= now) return today;
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    return at(yesterday, hh, mm);
+  }
+
+  // weekly：1=周一…7=周日，JS 的 getDay 是 0=周日
+  const want = record.weekday ?? 1;
+  for (let back = 0; back <= 7; back += 1) {
+    const day = new Date(now);
+    day.setDate(day.getDate() - back);
+    const iso = day.getDay() === 0 ? 7 : day.getDay();
+    if (iso !== want) continue;
+    const occ = at(day, hh, mm);
+    if (occ <= now) return occ;
+  }
+  return null;
+}
+
+export interface DueReminder {
+  record: ReminderRecord;
+  at: Date;
+}
+
+/**
+ * 已经响过、但还没说进对话的那些。
+ *
+ * 为什么要有这一步：系统通知只是一条通知，她并没有"说过话"。用户点开 App 看到通知
+ * 却看到对话里什么都没有，就是这里漏了补齐。打开 App 时补一次，补完记 spokenAt。
+ */
+export async function dueReminders(now: Date = new Date()): Promise<DueReminder[]> {
+  const list = await listReminders();
+  const out: DueReminder[] = [];
+  for (const record of list) {
+    const at = lastOccurrence(record, now);
+    if (!at) continue;
+    const spoken = record.spokenAt ? new Date(record.spokenAt) : null;
+    if (spoken && spoken >= at) continue;
+    out.push({ record, at });
+  }
+  return out;
+}
+
+/** 记下"这条已经说过了"，免得下次打开又说一遍。 */
+export async function markReminderSpoken(id: number, at: Date): Promise<void> {
+  const list = await listReminders();
+  await saveReminders(list.map((r) => (r.id === id ? { ...r, spokenAt: at.toISOString() } : r)));
 }
 
 export async function cancelReminder(id: number): Promise<void> {

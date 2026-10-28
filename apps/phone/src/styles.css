@@ -834,6 +834,9 @@ body {
 .composerAttach.on { background: #eef4f5; color: var(--ink); }
 
 /* 一句话的回执：存表情、收表情这种小事也得说一声 */
+/* 「正在敲字」：一行安静的旁白，别做成动画气泡——那太像别的聊天软件 */
+.note.typing { font-style: italic; opacity: 0.75; }
+
 .toast {
   position: fixed;
   left: 50%;
@@ -909,6 +912,37 @@ body {
 }
 .a11yList .capRow { padding: 6px 0; }
 .a11yList em { color: var(--muted); font-size: 11px; }
+
+/* 工具调用记录：一行一条，点开看全文与参数 */
+.toolLog { display: flex; flex-direction: column; gap: 6px; }
+.toolRow {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+.toolRow.bad { border-color: #e2b4ae; }
+.toolHead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.toolHead b { font-size: 13.5px; font-weight: 600; }
+.toolHead em { font-style: normal; font-size: 11px; color: var(--muted); }
+.toolBody {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.toolBody.full { display: block; -webkit-line-clamp: unset; white-space: pre-wrap; }
+.toolArgs { font-size: 11px; color: var(--muted); opacity: 0.8; word-break: break-all; }
 
 .onboardDone {
   width: 100%;

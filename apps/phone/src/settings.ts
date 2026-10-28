@@ -27,6 +27,11 @@ export interface Settings {
   /** 你离开一阵子之后，她自己做梦。关掉就只有手动按钮能做。 */
   autoDream: boolean;
   /**
+   * 她会看时机回话：有时不接（尤其是收尾那句）、有时慢半拍。
+   * 关掉就回到"每句立刻回"——调提示词的时候有用。
+   */
+  replyPacing: boolean;
+  /**
    * 看图用的视觉模型（可选）。
    *
    * 主模型自己就能看图时（deepseek-flash 收 image_url 片段），这一栏用不上；
@@ -81,6 +86,7 @@ export const DEFAULT_SETTINGS: Settings = {
   moodEnabled: true,
   cheapMode: false,
   autoDream: true,
+  replyPacing: true,
   visionModel: "",
   albumEnabled: false,
   remindersEnabled: false,

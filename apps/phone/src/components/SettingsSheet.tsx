@@ -14,6 +14,7 @@ export function SettingsSheet({
   onAddStickers,
   onRemoveSticker,
   onOpenCapabilities,
+  onOpenToolLog,
 }: {
   settings: Settings;
   onChange(patch: Partial<Settings>): void;
@@ -25,6 +26,7 @@ export function SettingsSheet({
   onAddStickers(files: File[]): void;
   onRemoveSticker(id: string): void;
   onOpenCapabilities(): void;
+  onOpenToolLog(): void;
 }) {
   const capCount = [
     settings.statusEnabled,
@@ -45,6 +47,10 @@ export function SettingsSheet({
       <button type="button" className="sheetLink" onClick={onOpenCapabilities}>
         <span>她能做什么</span>
         <span className="sheetLinkHint">{capCount > 0 ? capCount + " 项开着" : "全关着"} ›</span>
+      </button>
+      <button type="button" className="sheetLink" onClick={onOpenToolLog}>
+        <span>工具调用记录</span>
+        <span className="sheetLinkHint">她动过什么手 ›</span>
       </button>
       <label>
         API Key
@@ -100,6 +106,14 @@ export function SettingsSheet({
       <label className="check">
         <input type="checkbox" checked={settings.autoDream} onChange={(e) => onChange({ autoDream: e.target.checked })} />
         <span>我走开之后她自己做梦（关掉就只有手动按钮）</span>
+      </label>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={settings.replyPacing}
+          onChange={(e) => onChange({ replyPacing: e.target.checked })}
+        />
+        <span>她会看时机回话（有时不接、有时慢半拍；聊得越久回得越快）</span>
       </label>
       <label className="check">
         <input

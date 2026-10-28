@@ -9,6 +9,7 @@ import { parseNarrative, stripStageDirections } from "../src/narrative.ts";
 import { buildReviewMessages, decideReview, vetoHints } from "../src/supervisor.ts";
 import { EMPTY_TITLE, appendBlocks, createSession, deriveTitle, retractLastTurn, trimForContext } from "../src/session.ts";
 import { isUserTurn } from "../src/sticker.ts";
+import { bondLevel, daysSince, decideReply } from "../src/reply.ts";
 import { MemoryInMemory, memoryFileName, memoryTitle, nextMemoryIndex } from "../src/memory.ts";
 import { extractJson, runDreamPass } from "../src/dream.ts";
 import { importSessionId, parseImportBundle, planImport, sessionFromImport } from "../src/import.ts";
@@ -1503,6 +1504,36 @@ test("撤回：发完表情之后撤回，从那张表情开始切，不吞掉�
   const cut = retractLastTurn({ id: "s", title: "t", origin: "phone", createdAt: "", updatedAt: "", blocks });
   assert.equal(cut.blocks.length, 2);
   assert.equal(cut.blocks[1].text, "在。");
+});
+
+test("回复判定：问句一定回，而且比平时更快", () => {
+  const q = decideReply({ text: "现在几点？", bond: 0, random: () => 0.99 });
+  assert.equal(q.reply, true);
+  assert.ok(q.delayMs > 0);
+  assert.ok(q.reason.includes("必答"));
+});
+
+test("回复判定：收尾句在低关系时不接，关系满了就接", () => {
+  const low = decideReply({ text: "睡了晚安", bond: 0, random: () => 0.5 });
+  assert.equal(low.reply, false, "刚认识时收尾句应当可以不接");
+  const high = decideReply({ text: "睡了晚安", bond: 1, random: () => 0.5 });
+  assert.equal(high.reply, true, "关系满了还冷场就不对了");
+  assert.ok(high.reason.includes("收尾"));
+});
+
+test("回复判定：关系越好回得越快", () => {
+  const low = decideReply({ text: "今天有点累", bond: 0, random: () => 0.5 });
+  const high = decideReply({ text: "今天有点累", bond: 1, random: () => 0.5 });
+  assert.equal(low.reply, true);
+  assert.equal(high.reply, true);
+  assert.ok(high.delayMs < low.delayMs, "关系满了应当回得更快");
+});
+
+test("好感度：聊得多、记得多、认识久就更近，且落在 0~1", () => {
+  assert.equal(bondLevel({ blocks: 0, memories: 0, days: 0 }), 0);
+  assert.equal(bondLevel({ blocks: 999, memories: 999, days: 999 }), 1);
+  assert.ok(bondLevel({ blocks: 80, memories: 12, days: 20 }) > 0.4);
+  assert.equal(daysSince("2026-10-01T00:00:00Z", new Date("2026-10-03T06:00:00Z").getTime()), 2);
 });
 
 test("上下文截断：截断点落在表情这块上，不从她的话中间切", () => {

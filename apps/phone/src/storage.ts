@@ -144,6 +144,36 @@ export async function deleteSticker(id: string): Promise<void> {
   await tx(STORE_STICKERS, "readwrite", (s) => s.delete(id));
 }
 
+/* ---------------------------------------------------------- 工具调用记录 */
+
+/** 一次工具调用。只留最近两百条——这是给人看的审计记录，不是数据库。 */
+export interface ToolLogEntry {
+  at: string;
+  sessionId: string;
+  name: string;
+  label: string;
+  ok: boolean;
+  /** 参数压成一行 JSON（可能很长，UI 自己折）。 */
+  args: string;
+  content: string;
+}
+
+const TOOL_LOG_KEY = "toolLog";
+const TOOL_LOG_MAX = 200;
+
+export async function appendToolLog(entry: ToolLogEntry): Promise<void> {
+  const cur = (await getKV<ToolLogEntry[]>(TOOL_LOG_KEY)) ?? [];
+  await setKV(TOOL_LOG_KEY, [entry, ...cur].slice(0, TOOL_LOG_MAX));
+}
+
+export async function listToolLog(): Promise<ToolLogEntry[]> {
+  return (await getKV<ToolLogEntry[]>(TOOL_LOG_KEY)) ?? [];
+}
+
+export async function clearToolLog(): Promise<void> {
+  await setKV(TOOL_LOG_KEY, []);
+}
+
 /* -------------------------------------------------------------- 零散状态 */
 
 export async function getKV<T>(key: string): Promise<T | null> {

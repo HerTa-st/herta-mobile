@@ -17,6 +17,9 @@ import {
   pickSeeds,
   presenceAt,
   addUsage,
+  bondLevel,
+  daysSince,
+  decideReply,
   emptyUsage,
   runToolLoop,
   serializeRecord,
@@ -32,7 +35,7 @@ import {
 import { BrowserAssetSource } from "../assets-browser.ts";
 import { captionImage } from "../vision.ts";
 import { buildTools } from "../devtools.ts";
-import { loadMoodState, saveMoodState, type StickerRecord } from "../storage.ts";
+import { appendToolLog, loadMoodState, saveMoodState, type StickerRecord } from "../storage.ts";
 import { loadPromptCode } from "../prompts.ts";
 import { budgetOf, type Settings } from "../settings.ts";
 import { collectDetailed } from "../stream.ts";
@@ -92,6 +95,8 @@ export function useChatTurn(opts: {
 }) {
   const { settings, session, setSession, persist, memories, dreamState, files, stickers, onKeepSticker, onError, onNeedKey } = opts;
   const [busy, setBusy] = useState(false);
+  /** 她在"想一下"的那几秒（或者说，在装作想一下）。 */
+  const [typing, setTyping] = useState(false);
   const [mood, setMood] = useState<string>(DEFAULT_MOOD);
   // 打开 App 时把上次的心情接上；超过三小时 loadMoodState 会返回 null，就当没有
   useEffect(() => {
@@ -136,6 +141,39 @@ export function useChatTurn(opts: {
     const history = appendBlocks(session, [opening]);
     setSession(history);
     void persist(history);
+
+    /**
+     * 接不接、多久接。
+     *
+     * 这段在请求之前——不接的时候连模型都不叫，那才是真的"没回"，
+     * 而不是"回了又被藏起来"。关系从会话长度、记忆篇数、认识天数里算。
+     */
+    if (settings.replyPacing !== false) {
+      const bond = bondLevel({
+        blocks: session.blocks.length,
+        memories: memories.length,
+        days: daysSince(session.createdAt),
+      });
+      const decision = decideReply({ text, bond });
+      if (!decision.reply) {
+        const note: Block = {
+          kind: "system",
+          label: "系统",
+          body: "（她看到了，没接话）",
+          at: new Date().toISOString(),
+        };
+        const kept = appendBlocks(history, [note]);
+        setSession(kept);
+        await persist(kept);
+        setBusy(false);
+        return;
+      }
+      if (decision.delayMs > 0) {
+        setTyping(true);
+        await new Promise((r) => setTimeout(r, decision.delayMs));
+        setTyping(false);
+      }
+    }
 
     const ctl = new AbortController();
     abort.current = ctl;
@@ -328,6 +366,16 @@ export function useChatTurn(opts: {
               };
               toolNotes.push(note);
               setSession({ ...history, blocks: [...history.blocks, ...toolNotes] });
+              // 单独的审计记录：她从哪一句话里调了什么、带什么参数、成没成
+              void appendToolLog({
+                at: note.at,
+                sessionId: history.id,
+                name: result.name,
+                label: TOOL_LABEL[result.name] ?? result.name,
+                ok: result.ok,
+                args: JSON.stringify(result.args ?? {}),
+                content: String(result.content).replace(/\s+/g, " ").slice(0, 400),
+              }).catch(() => undefined);
             },
           },
           seed
@@ -458,7 +506,10 @@ export function useChatTurn(opts: {
     }
   }, [busy, files, memories, onError, onKeepSticker, onNeedKey, persist, session, settings, stickers]);
 
+  // 中途被打断（打断/切会话）别把"正在输入"留在界面上
+  useEffect(() => () => setTyping(false), []);
+
   const stop = useCallback(() => abort.current?.abort(), []);
 
-  return { send, stop, busy, mood };
+  return { send, stop, busy, mood, typing };
 }
