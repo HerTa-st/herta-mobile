@@ -74,6 +74,13 @@ export interface Settings {
   ttsModel: string;
   ttsVoice: string;
   ttsGroupId: string;
+  /**
+   * 黑塔币行情接口基址（可选覆盖）。
+   *
+   * 空 = 用构建时注入的 VITE_COIN_API_BASE（开发模式自动落到本地 mock）；
+   * 填了就以这里为准——FC 还没部署时，装机后改这一栏就能接上，不用重打 APK。
+   */
+  coinApiBase: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -108,6 +115,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ttsModel: "tts-1",
   ttsVoice: "alloy",
   ttsGroupId: "",
+  coinApiBase: "",
 };
 
 const KEY = "herta.settings.v1";

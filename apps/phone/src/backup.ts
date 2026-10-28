@@ -16,6 +16,7 @@ import {
 } from "@herta/core";
 import type { Session } from "@herta/protocol";
 import { IdbMemoryStore } from "./memory-idb.ts";
+import { loadCoinWallet, saveCoinWallet } from "./coin/coin-storage.ts";
 import type { Settings } from "./settings.ts";
 import { listSessions, listStickers, loadSession, putSession, putSticker } from "./storage.ts";
 
@@ -64,6 +65,7 @@ export async function buildLocalBackup(
   const loaded = await Promise.all(metas.map((m) => loadSession(m.id)));
   const sessions = loaded.filter((s): s is Session => s !== null);
   const memories = await store.list();
+  const coin = await loadCoinWallet();
   const stickers: BackupSticker[] = opts.withStickers
     ? (await listStickers()).map((s) => ({
         id: s.id,
@@ -81,6 +83,8 @@ export async function buildLocalBackup(
     memories,
     stickers,
     ...(opts.withSettings ? { settings: settingsForBackup(settings) } : {}),
+    // 黑塔币钱包是单机的，换机就该跟着走；没激活过就不写这块
+    ...(coin ? { coin } : {}),
     from: "Herta 手机端",
   });
   return { json: JSON.stringify(bundle), filename: backupFilename(), stats };
@@ -112,7 +116,7 @@ export async function saveBackup(backup: LocalBackup): Promise<string> {
 export interface RestoreOutcome {
   stats: BackupStats;
   from?: string;
-  writes: { sessions: number; memories: number; stickers: number };
+  writes: { sessions: number; memories: number; stickers: number; wallet: boolean };
   skipped: { sessions: number; memories: number; stickers: number };
 }
 
@@ -126,10 +130,12 @@ export async function restoreLocalBackup(text: string): Promise<RestoreOutcome> 
   if (!parsed.ok) throw new Error(parsed.error);
 
   const [metas, memories, stickers] = await Promise.all([listSessions(), store.list(), listStickers()]);
+  const existingWallet = await loadCoinWallet();
   const plan = planRestore(parsed.bundle, {
     sessionIds: new Set(metas.map((m) => m.id)),
     memoryNames: new Set(memories.map((m) => m.name)),
     stickerIds: new Set(stickers.map((s) => s.id)),
+    wallet: existingWallet !== null,
   });
 
   for (const s of plan.sessions) await putSession(s);
@@ -145,11 +151,18 @@ export async function restoreLocalBackup(text: string): Promise<RestoreOutcome> 
       owner: k.owner ?? "herta",
     });
   }
+  // 本地没有钱包才写；有就不覆盖（币是单机的，覆盖等于把本地的抹掉）
+  if (plan.coin) await saveCoinWallet(plan.coin);
 
   return {
     stats: parsed.stats,
     ...(parsed.bundle.from ? { from: parsed.bundle.from } : {}),
-    writes: { sessions: plan.sessions.length, memories: plan.memories.length, stickers: plan.stickers.length },
+    writes: {
+      sessions: plan.sessions.length,
+      memories: plan.memories.length,
+      stickers: plan.stickers.length,
+      wallet: plan.coin !== undefined,
+    },
     skipped: plan.skipped,
   };
 }

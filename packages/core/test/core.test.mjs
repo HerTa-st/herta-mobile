@@ -1823,6 +1823,43 @@ test("备份：隐藏块恢复后仍然隐藏", () => {
   assert.equal(parsed.bundle.sessions[0].blocks[1].hidden, undefined);
 });
 
+test("备份：黑塔币钱包随包走；本机已有钱包不覆盖", () => {
+  const wallet = {
+    version: 1,
+    holdings: 1010,
+    costPrice: 89.03,
+    initialAt: "2026-10-29T09:30:00+08:00",
+    lastSign: { date: "2026-10-29", streak: 1, price: 89.87, reward: 10 },
+    history: [{ date: "2026-10-29", reward: 10, price: 89.87 }],
+    updatedAt: "2026-10-29T10:15:30+08:00",
+  };
+  const { bundle } = buildBackupBundle({ sessions: [sampleSession()], memories: [], coin: wallet });
+  assert.equal(bundle.coin?.holdings, 1010);
+
+  const parsed = parseBackupBundle(JSON.stringify(bundle));
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.bundle.coin?.holdings, 1010);
+  assert.equal(parsed.bundle.coin?.lastSign?.streak, 1);
+
+  // 本机已有钱包：不覆盖（币是单机的，覆盖等于把本地的抹掉）
+  const keep = planRestore(parsed.bundle, {
+    sessionIds: new Set(),
+    memoryNames: new Set(),
+    stickerIds: new Set(),
+    wallet: true,
+  });
+  assert.equal(keep.coin, undefined);
+  // 本机没有：跟着恢复
+  const fresh = planRestore(parsed.bundle, { sessionIds: new Set(), memoryNames: new Set(), stickerIds: new Set() });
+  assert.equal(fresh.coin?.holdings, 1010);
+
+  // 脏钱包（数量不是数）：整块丢掉，不拖垮整包
+  const dirty = { ...bundle, coin: { ...wallet, holdings: "abc" } };
+  const parsedDirty = parseBackupBundle(JSON.stringify(dirty));
+  assert.equal(parsedDirty.ok, true);
+  assert.equal(parsedDirty.bundle.coin, undefined);
+});
+
 test("回复判定：问句一定回，而且比平时更快", () => {
   const q = decideReply({ text: "现在几点？", bond: 0, random: () => 0.99 });
   assert.equal(q.reply, true);

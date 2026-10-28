@@ -29,6 +29,7 @@ import {
 import { BrowserAssetSource } from "./assets-browser.ts";
 import { Drawer } from "./components/Drawer.tsx";
 import { GraphView } from "./components/GraphView.tsx";
+import { CoinView } from "./components/CoinView.tsx";
 import { MemoryViewer } from "./components/MemoryViewer.tsx";
 import { SettingsSheet } from "./components/SettingsSheet.tsx";
 import { CapabilitiesSheet } from "./components/CapabilitiesSheet.tsx";
@@ -69,6 +70,9 @@ import { loadReadableFiles, saveReadableFile } from "./readable-files.ts";
 import { budgetOf, loadSettings, saveSettings, type Settings } from "./settings.ts";
 import { pickTransport } from "./transport.ts";
 import { loadPromptCode } from "./prompts.ts";
+import { resolveCoinApiBase } from "./coin/config.ts";
+import { loadCoinQuote } from "./coin/coin-storage.ts";
+import { onCoinNotificationTap, syncCoinReminder } from "./coin/notify.ts";
 import { synthesize } from "./tts.ts";
 import { playVoice, stopVoice } from "./voice.ts";
 
@@ -152,6 +156,10 @@ export function App() {
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const [viewing, setViewing] = useState<MemoryRecord | null>(null);
   const [showGraph, setShowGraph] = useState(false);
+  /** 黑塔币页：聊天之外的小模块，v1 只从抽屉进。 */
+  const [showCoin, setShowCoin] = useState(false);
+  /** 抽屉入口右侧那枚涨跌幅：只用最后一次成功行情的缓存，没打开过就是 null。 */
+  const [coinPct, setCoinPct] = useState<number | null>(null);
   const [shareInput, setShareInput] = useState("");
   const [importBusy, setImportBusy] = useState(false);
   const dreamingRef = useRef(false);
@@ -165,6 +173,37 @@ export function App() {
   const [atBottom, setAtBottom] = useState(true);
 
   useEffect(() => saveSettings(settings), [settings]);
+
+  /** 行情接口从哪来：设置里手填的优先，其次构建注入；再没有就空（页面会说明未配置）。 */
+  const coinBase = useMemo(() => resolveCoinApiBase(settings.coinApiBase), [settings.coinApiBase]);
+
+  /**
+   * 黑塔币的启动杂活：
+   *   - 把最后一次行情的涨跌幅喂给抽屉入口（不开页也能看见）；
+   *   - 补排每天 09:30 的开盘提醒（用户关掉就静默）；
+   *   - 接住通知点击：点提醒直接落到黑塔币页。
+   */
+  useEffect(() => {
+    void loadCoinQuote().then((cached) => {
+      if (cached) setCoinPct(cached.response.market.changePct);
+    });
+    void syncCoinReminder();
+    // StrictMode 下 effect 会挂载→卸载→再挂载：监听还没 resolve 就轮到 cleanup 时，
+    // 直接把取消函数丢掉会导致监听泄漏（dev 里点一次通知触发两次）。用 cancelled 兜住。
+    let off: (() => void) | null = null;
+    let cancelled = false;
+    void onCoinNotificationTap(() => {
+      setDrawer(false);
+      setShowCoin(true);
+    }).then((fn) => {
+      if (cancelled) fn();
+      else off = fn;
+    });
+    return () => {
+      cancelled = true;
+      off?.();
+    };
+  }, []);
 
   /**
    * 第一次打开：老用户（已经填过 Key）直接立标记跳过；
@@ -1151,6 +1190,7 @@ export function App() {
           shareInput={shareInput}
           nowLine={timePhrase() + " · 她在" + presenceAt().place}
           canDistill={(session?.blocks.length ?? 0) >= 12}
+          coinPct={coinPct}
           actions={{
             newSession: () => void newSession(),
             openSession: (id) => void openSession(id),
@@ -1173,7 +1213,21 @@ export function App() {
             },
             runImport: () => void runImport(),
             importFromLink: () => void importFromLink(),
+            openCoin: () => {
+              setDrawer(false);
+              setShowCoin(true);
+            },
           }}
+        />
+      )}
+
+      {showCoin && (
+        <CoinView
+          // base 变了就重挂：设置里改接口地址后要重新拉，不用杀 app
+          key={coinBase || "coin-no-base"}
+          base={coinBase}
+          onClose={() => setShowCoin(false)}
+          onQuoteChange={(q) => setCoinPct(q ? q.market.changePct : null)}
         />
       )}
 

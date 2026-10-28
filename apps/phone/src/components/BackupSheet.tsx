@@ -3,6 +3,7 @@ import { formatSize, type BackupStats } from "@herta/core";
 import type { Settings } from "../settings.ts";
 import { listSessions, listStickers } from "../storage.ts";
 import { IdbMemoryStore } from "../memory-idb.ts";
+import { loadCoinWallet } from "../coin/coin-storage.ts";
 import { buildLocalBackup, readBackup, restoreLocalBackup, saveBackup, shareBackup } from "../backup.ts";
 
 /**
@@ -23,21 +24,22 @@ export function BackupSheet({
   onClose(): void;
   onRestored(): void;
 }) {
-  const [counts, setCounts] = useState({ sessions: 0, memories: 0, stickers: 0 });
+  const [counts, setCounts] = useState({ sessions: 0, memories: 0, stickers: 0, wallet: false });
   const [withStickers, setWithStickers] = useState(true);
   const [withSettings, setWithSettings] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [lastStats, setLastStats] = useState<BackupStats | null>(null);
-  const [pending, setPending] = useState<{ text: string; stats: BackupStats; from?: string } | null>(null);
+  const [pending, setPending] = useState<{ text: string; stats: BackupStats; from?: string; coin: boolean } | null>(null);
 
   const loadCounts = useCallback(async () => {
-    const [metas, memories, stickers] = await Promise.all([
+    const [metas, memories, stickers, wallet] = await Promise.all([
       listSessions(),
       new IdbMemoryStore().list(),
       listStickers(),
+      loadCoinWallet(),
     ]);
-    setCounts({ sessions: metas.length, memories: memories.length, stickers: stickers.length });
+    setCounts({ sessions: metas.length, memories: memories.length, stickers: stickers.length, wallet: wallet !== null });
   }, []);
 
   useEffect(() => {
@@ -86,7 +88,12 @@ export function BackupSheet({
         setNote("这个文件不能用：" + parsed.error);
         return;
       }
-      setPending({ text, stats: parsed.stats, ...(parsed.bundle.from ? { from: parsed.bundle.from } : {}) });
+      setPending({
+        text,
+        stats: parsed.stats,
+        ...(parsed.bundle.from ? { from: parsed.bundle.from } : {}),
+        coin: parsed.bundle.coin !== undefined,
+      });
     } catch (e) {
       setNote("读不了这个文件：" + (e instanceof Error ? e.message : String(e)));
     }
@@ -100,7 +107,8 @@ export function BackupSheet({
       const w = out.writes;
       const s = out.skipped;
       setNote(
-        "导入完成：会话 " + w.sessions + "、记忆 " + w.memories + "、表情 " + w.stickers + "。" +
+        "导入完成：会话 " + w.sessions + "、记忆 " + w.memories + "、表情 " + w.stickers +
+          (w.wallet ? "、黑塔币钱包" : "") + "。" +
           (s.sessions + s.memories + s.stickers > 0
             ? "跳过已有：" + [s.sessions ? "会话 " + s.sessions : "", s.memories ? "记忆 " + s.memories : "", s.stickers ? "表情 " + s.stickers : ""]
                 .filter(Boolean)
@@ -127,7 +135,8 @@ export function BackupSheet({
       </div>
 
       <p className="memNote">
-        现在这台手机上有 {counts.sessions} 个会话、{counts.memories} 篇记忆、{counts.stickers} 张表情。
+        现在这台手机上有 {counts.sessions} 个会话、{counts.memories} 篇记忆、{counts.stickers} 张表情
+        {counts.wallet ? "，还有黑塔币钱包（会一起打包）" : ""}。
         打包会生成一个 .json 文件，发到新手机，在那台的这一页点「选文件」导进来。
       </p>
 
@@ -180,8 +189,9 @@ export function BackupSheet({
         <>
           <p className="memNote">
             这份包{pending.from ? "来自" + pending.from + "，" : ""}有会话 {pending.stats.sessions}、记忆{" "}
-            {pending.stats.memories}、表情 {pending.stats.stickers}，共 {formatSize(pending.stats.bytes)}。
-            导入不会覆盖已有的东西，重复的会跳过。
+            {pending.stats.memories}、表情 {pending.stats.stickers}
+            {pending.coin ? "、黑塔币钱包" : ""}，共 {formatSize(pending.stats.bytes)}。
+            导入不会覆盖已有的东西，重复的会跳过；本机已有黑塔币钱包时不覆盖钱包。
           </p>
           <button type="button" className="sheetLink" onClick={() => void confirmRestore()} disabled={busy}>
             <span>{busy ? "导入中…" : "确认导入"}</span>

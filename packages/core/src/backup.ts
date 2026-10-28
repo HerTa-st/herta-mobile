@@ -26,6 +26,23 @@ export interface BackupSticker {
   owner?: "herta" | "mine";
 }
 
+/**
+ * 黑塔币钱包。
+ *
+ * 结构刻意和 `@herta/coin` 的 `CoinWallet` 保持一致，但 core 不 import 那个包：
+ * 依赖方向是 coin →（无），core 是地基，不该反过来拉一个业务模块。
+ * 两边形状由 app 层赋值时做结构校验（TypeScript 结构化类型会直接卡住）。
+ */
+export interface BackupCoinWallet {
+  version: 1;
+  holdings: number;
+  costPrice: number;
+  initialAt: string;
+  lastSign: { date: string; streak: number; price: number; reward: number } | null;
+  history: Array<{ date: string; reward: number; price: number }>;
+  updatedAt: string;
+}
+
 export interface BackupBundle {
   format: typeof BACKUP_FORMAT;
   version: number;
@@ -37,6 +54,8 @@ export interface BackupBundle {
   stickers?: BackupSticker[];
   /** 设置（**不含 Key**）。 */
   settings?: Record<string, unknown>;
+  /** 黑塔币钱包（v1 单机；换机时跟着走）。 */
+  coin?: BackupCoinWallet;
 }
 
 export interface BackupStats {
@@ -53,6 +72,7 @@ export interface BuildBackupInput {
   memories: readonly MemoryRecord[];
   stickers?: readonly BackupSticker[];
   settings?: Record<string, unknown>;
+  coin?: BackupCoinWallet;
   from?: string;
   now?: Date;
 }
@@ -79,6 +99,7 @@ export function buildBackupBundle(input: BuildBackupInput): { bundle: BackupBund
     memories: input.memories.map((m) => ({ ...m })),
     ...(input.stickers && input.stickers.length > 0 ? { stickers: input.stickers.map((s) => ({ ...s })) } : {}),
     ...(input.settings ? { settings: input.settings } : {}),
+    ...(input.coin ? { coin: { ...input.coin } } : {}),
   };
   const bytes = byteLength(JSON.stringify(bundle));
   return {
@@ -98,6 +119,52 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 }
 
 export type ParseBackupResult = { ok: true; bundle: BackupBundle; stats: BackupStats } | { ok: false; error: string };
+
+/**
+ * 拆钱包：坏数据丢掉整块，不因为钱包脏了就让整份家底进不来。
+ * 数量/成本价必须是有限数；连签记录坏了就当从没签过（最多丢一条签到，不丢本金）。
+ */
+function sanitizeCoin(raw: unknown): BackupCoinWallet | null {
+  if (!isRecord(raw)) return null;
+  const holdings = Number(raw.holdings);
+  const costPrice = Number(raw.costPrice);
+  if (!Number.isFinite(holdings) || holdings < 0 || !Number.isFinite(costPrice) || costPrice <= 0) return null;
+
+  const at = String(raw.initialAt ?? new Date().toISOString());
+  const updatedAt = String(raw.updatedAt ?? at);
+
+  let lastSign: BackupCoinWallet["lastSign"] = null;
+  if (isRecord(raw.lastSign)) {
+    const streak = Math.floor(Number(raw.lastSign.streak));
+    const price = Number(raw.lastSign.price);
+    const reward = Number(raw.lastSign.reward);
+    const date = String(raw.lastSign.date ?? "");
+    if (date && Number.isFinite(streak) && streak > 0 && Number.isFinite(price) && Number.isFinite(reward)) {
+      lastSign = { date, streak, price, reward };
+    }
+  }
+
+  const history: BackupCoinWallet["history"] = [];
+  if (Array.isArray(raw.history)) {
+    for (const item of raw.history) {
+      if (!isRecord(item)) continue;
+      const date = String(item.date ?? "");
+      const reward = Number(item.reward);
+      const price = Number(item.price);
+      if (date && Number.isFinite(reward) && Number.isFinite(price)) history.push({ date, reward, price });
+    }
+  }
+
+  return {
+    version: 1,
+    holdings,
+    costPrice,
+    initialAt: at,
+    lastSign,
+    history: history.slice(-60),
+    updatedAt,
+  };
+}
 
 const BLOCK_KINDS = new Set(["user", "herta", "system", "sticker"]);
 
@@ -227,7 +294,9 @@ export function parseBackupBundle(raw: string): ParseBackupResult {
     }
   }
 
-  if (sessions.length === 0 && memories.length === 0) {
+  const coin = sanitizeCoin(parsed.coin);
+
+  if (sessions.length === 0 && memories.length === 0 && !coin) {
     return { ok: false, error: "包里没有能用的会话或记忆" };
   }
 
@@ -240,6 +309,7 @@ export function parseBackupBundle(raw: string): ParseBackupResult {
     memories,
     ...(stickers.length > 0 ? { stickers } : {}),
     ...(isRecord(parsed.settings) ? { settings: parsed.settings } : {}),
+    ...(coin ? { coin } : {}),
   };
   return {
     ok: true,
@@ -258,12 +328,15 @@ export interface RestoreExisting {
   sessionIds: ReadonlySet<string>;
   memoryNames: ReadonlySet<string>;
   stickerIds: ReadonlySet<string>;
+  /** 本机已经有黑塔币钱包：不覆盖（钱包只有一个，覆盖等于把本地的币抹掉）。 */
+  wallet?: boolean;
 }
 
 export interface RestorePlan {
   sessions: Session[];
   memories: MemoryRecord[];
   stickers: BackupSticker[];
+  coin?: BackupCoinWallet;
   skipped: { sessions: number; memories: number; stickers: number };
 }
 
@@ -294,7 +367,13 @@ export function planRestore(bundle: BackupBundle, existing: RestoreExisting): Re
     else if (!stickers.some((x) => x.id === k.id)) stickers.push(k);
   }
 
-  return { sessions, memories, stickers, skipped: { sessions: skipS, memories: skipM, stickers: skipK } };
+  return {
+    sessions,
+    memories,
+    stickers,
+    ...(bundle.coin && !existing.wallet ? { coin: { ...bundle.coin } } : {}),
+    skipped: { sessions: skipS, memories: skipM, stickers: skipK },
+  };
 }
 
 /** 人类可读的大小。 */

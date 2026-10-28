@@ -1,10 +1,12 @@
 /**
  * 落盘：IndexedDB。
  *
- * 三个 store，一个库：
+ * 一个库，几个 store：
  *   sessions —— 会话（键 id）
  *   memories —— 记忆库（键 name，就是那个 `### 废案_NN：标题.txt` 文件名）
  *   kv       —— 零散状态（做梦进度等）
+ *   stickers —— 表情库（键 id）
+ *   coin     —— 黑塔币钱包与行情缓存（键 key：wallet / quote）
  *
  * 不用 localStorage：只有几 MB，一条长会话就能撑爆，而且同步写会卡 UI。
  * 版本号只增不减；升级时在 onupgradeneeded 里按 oldVersion 补 store。
@@ -14,12 +16,14 @@ import type { Session } from "@herta/protocol";
 import { MOOD_TTL_MS, type MoodState } from "@herta/core";
 
 const DB_NAME = "herta";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 export const STORE_SESSIONS = "sessions";
 export const STORE_MEMORIES = "memories";
 export const STORE_KV = "kv";
 export const STORE_STICKERS = "stickers";
+/** 黑塔币：钱包 + 最后一次成功的行情响应。设计见 docs/设计-黑塔币-v1.md。 */
+export const STORE_COIN = "coin";
 
 /** 表情是谁的：她的库（她发给你）还是你的箱（你发给她）。 */
 export type StickerOwner = "herta" | "mine";
@@ -64,6 +68,10 @@ function open(): Promise<IDBDatabase> {
       // v3：表情库
       if (!db.objectStoreNames.contains(STORE_STICKERS)) {
         db.createObjectStore(STORE_STICKERS, { keyPath: "id" });
+      }
+      // v4：黑塔币（钱包 / 最后一次行情缓存，键固定 wallet / quote）
+      if (!db.objectStoreNames.contains(STORE_COIN)) {
+        db.createObjectStore(STORE_COIN, { keyPath: "key" });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -124,7 +132,7 @@ export async function hasLocalData(): Promise<boolean> {
 
 /** 清空全部本地数据。纯净版第一次启动时用——它要"什么都不带"。 */
 export async function clearAll(): Promise<void> {
-  for (const store of [STORE_SESSIONS, STORE_MEMORIES, STORE_KV, STORE_STICKERS]) {
+  for (const store of [STORE_SESSIONS, STORE_MEMORIES, STORE_KV, STORE_STICKERS, STORE_COIN]) {
     await tx(store, "readwrite", (s) => s.clear());
   }
 }
