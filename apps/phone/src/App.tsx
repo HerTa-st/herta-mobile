@@ -31,6 +31,7 @@ import { Onboarding } from "./components/Onboarding.tsx";
 import { ToolLogSheet } from "./components/ToolLogSheet.tsx";
 import { BackupSheet } from "./components/BackupSheet.tsx";
 import { StickerTray } from "./components/StickerTray.tsx";
+import { AttachTray } from "./components/AttachTray.tsx";
 import { longPressProps } from "./components/long-press.ts";
 import { Shot, ShotViewer, isTallImage } from "./components/Shot.tsx";
 import { Splash } from "./components/Splash.tsx";
@@ -38,9 +39,9 @@ import { UsageChip } from "./components/UsageChip.tsx";
 import { useChatTurn } from "./hooks/useChatTurn.ts";
 import { useProactive } from "./hooks/useProactive.ts";
 import { seedPureIfNeeded } from "./pure.ts";
-import { captionImage, compressImage, prepareImage } from "./vision.ts";
+import { captionImage, compressImage, dataUrlToBlob, prepareImage } from "./vision.ts";
 import { tagSticker } from "./sticker-tag.ts";
-import { dueReminders, markReminderSpoken } from "./capabilities.ts";
+import { cameraFailureText, dueReminders, isNative, markReminderSpoken, snapPhoto } from "./capabilities.ts";
 import { useMemory } from "./hooks/useMemory.ts";
 import { MemoryGraph } from "./MemoryGraph.tsx";
 import { collect } from "./stream.ts";
@@ -126,9 +127,13 @@ export function App() {
   const [stickers, setStickers] = useState<StickerRecord[]>([]);
   /** 表情面板：从输入框抽起来的一层 */
   const [showTray, setShowTray] = useState(false);
+  /** 回形针面板：拍照 / 选文件。和表情面板互斥，一次只抽一层。 */
+  const [showAttach, setShowAttach] = useState(false);
   /** 一句话的回执（「存进表情箱了」）。她看不到控制台，这种小事也得说一声。 */
   const [toast, setToast] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  /** 浏览器里没有相机插件：退回带 capture 的 file input（桌面浏览器会开文件选择）。 */
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const [viewing, setViewing] = useState<MemoryRecord | null>(null);
   const [showGraph, setShowGraph] = useState(false);
   const [shareInput, setShareInput] = useState("");
@@ -671,12 +676,97 @@ export function App() {
     setPendingImage(null);
     setPreviewTall(false);
     setShowTray(false);
+    setShowAttach(false);
     // 长图切出来的每一片都是独立附件：模型逐片看，气泡把它们接成一摞
     void send(
       text,
       img ? img.pieces.map((data) => ({ mediaType: img.mediaType, data, name: img.name })) : undefined
     );
   }, [draft, pendingImage, send]);
+
+  /**
+   * 图从哪儿来都走这一条：切片 →（模型不收图时）让视觉模型描述 → 落成待发状态。
+   * 相机拍的和从文件里选的是同一张图，后面的路不该有两套。
+   */
+  const preparePendingImage = useCallback(
+    async (blob: Blob, name: string) => {
+      // 省 token 档把长图压到 4 段：每段都按 1024 token 算，12 段太贵
+      const pieces = await prepareImage(blob, { maxPieces: budgetOf(settings).imagePieces });
+      let caption = "";
+      // 主模型自己看得见就不用再描述一遍（省一次调用，也省一份重复的上下文）；
+      // 只有「模型不吃图 + 配了视觉模型」才走老路。长图逐片描述，最多六片。
+      if (settings.visionModel && !VISION_MODEL.test(settings.model)) {
+        const seen = pieces.slice(0, 6);
+        const parts = await Promise.all(
+          seen.map((dataUrl) =>
+            captionImage(
+              transport,
+              { apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.visionModel },
+              dataUrl
+            ).catch(() => "")
+          )
+        );
+        caption = parts.filter(Boolean).join("\n");
+        if (pieces.length > seen.length) {
+          caption += "\n（后面还有 " + (pieces.length - seen.length) + " 段没细看）";
+        }
+      }
+      setPendingImage({ mediaType: "image/jpeg", pieces, name, caption });
+    },
+    [settings]
+  );
+
+  /** 收一张图：忙碌标记与报错都在这里，两个入口都不用各写一遍。 */
+  const ingestImage = useCallback(
+    async (blob: Blob, name: string) => {
+      setImageBusy(true);
+      try {
+        await preparePendingImage(blob, name);
+      } catch (err) {
+        reportError("这张图没看明白：" + (err instanceof Error ? err.message : String(err)));
+      } finally {
+        setImageBusy(false);
+      }
+    },
+    [preparePendingImage, reportError]
+  );
+
+  /**
+   * 拍照。
+   *
+   * 手机上走 Capacitor 相机（调系统相机 Intent，不需要 App 自己申请相机权限）；浏览器里没有那个插件，
+   * 退回带 capture 的 file input——dev 时点「拍照」至少能开文件选择，不会是个死按钮。
+   */
+  const takePhoto = useCallback(async () => {
+    setShowAttach(false);
+    if (!isNative()) {
+      cameraInputRef.current?.click();
+      return;
+    }
+    setImageBusy(true);
+    try {
+      let shot: { data: string; mediaType: string };
+      try {
+        shot = await snapPhoto();
+      } catch (err) {
+        // 取消不是错误：点开相机又退出，不该在聊天页留一行红字
+        const message = cameraFailureText(err);
+        if (message) reportError(message);
+        return;
+      }
+      // 解码单独兜：相机其实拍成功了，别把「读不出来」报成「相机没打开」
+      let blob: Blob;
+      try {
+        blob = dataUrlToBlob(shot.data);
+      } catch (err) {
+        reportError("拍到了，但这张图读不出来：" + (err instanceof Error ? err.message : String(err)));
+        return;
+      }
+      await ingestImage(blob, "相机照片");
+    } finally {
+      setImageBusy(false);
+    }
+  }, [ingestImage, reportError]);
 
   const blocks = useMemo(() => session?.blocks ?? [], [session]);
   /** 表情块只存引用：渲染时按 id 去库里找那张图。 */
@@ -938,7 +1028,8 @@ export function App() {
 
       {viewingShot && <ShotViewer pieces={viewingShot.pieces} name={viewingShot.name} onClose={() => setViewingShot(null)} />}
 
-      <main className="feed" ref={feedRef} onScroll={onFeedScroll}>
+      {/* 点聊天区就把附件面板收起来：它是冲着输入框来的，不该一直挂着 */}
+      <main className="feed" ref={feedRef} onScroll={onFeedScroll} onPointerDown={() => setShowAttach(false)}>
         {blocks.length === 0 && <p className="empty">她还没开口。说点什么。</p>}
 
         {blocks.map((b, i) => {
@@ -1004,52 +1095,50 @@ export function App() {
             </button>
           </div>
         )}
+        {/* 选文件：从相册 / 文件管理器挑一张图，和相机共用同一条看图管线 */}
         <input
           ref={imageInputRef}
           type="file"
           accept="image/*"
           style={{ display: "none" }}
           onChange={(e) => {
+            // FileList 是活引用：先取快照再清 value，否则清空时把文件也清了
             const file = e.target.files?.[0];
             e.target.value = "";
             if (!file) return;
-            setImageBusy(true);
-            void (async () => {
-              try {
-                // 省 token 档把长图压到 4 段：每段都按 1024 token 算，12 段太贵
-                const pieces = await prepareImage(file, { maxPieces: budgetOf(settings).imagePieces });
-                let caption = "";
-                // 主模型自己看得见就不用再描述一遍（省一次调用，也省一份重复的上下文）；
-                // 只有「模型不吃图 + 配了视觉模型」才走老路。长图逐片描述，最多六片。
-                if (settings.visionModel && !VISION_MODEL.test(settings.model)) {
-                  const seen = pieces.slice(0, 6);
-                  const parts = await Promise.all(
-                    seen.map((dataUrl) =>
-                      captionImage(
-                        transport,
-                        { apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.visionModel },
-                        dataUrl
-                      ).catch(() => "")
-                    )
-                  );
-                  caption = parts.filter(Boolean).join("\n");
-                  if (pieces.length > seen.length) {
-                    caption += "\n（后面还有 " + (pieces.length - seen.length) + " 段没细看）";
-                  }
-                }
-                setPendingImage({ mediaType: "image/jpeg", pieces, name: file.name, caption });
-              } catch (err) {
-                setError("这张图没看明白：" + (err instanceof Error ? err.message : String(err)));
-              } finally {
-                setImageBusy(false);
-              }
-            })();
+            void ingestImage(file, file.name);
+          }}
+        />
+        {/* 浏览器里的拍照退路：capture 输入框；桌面浏览器会落到文件选择，别当它坏了 */}
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (!file) return;
+            void ingestImage(file, file.name || "相机照片");
           }}
         />
         {!busy && blocks.length > 0 && (
           <button className="composerRetract" onClick={() => void retract()} title="撤回上一轮">
             ↶ 撤回上一轮
           </button>
+        )}
+
+        {showAttach && (
+          <AttachTray
+            onCamera={() => void takePhoto()}
+            onFile={() => {
+              setShowAttach(false);
+              imageInputRef.current?.click();
+            }}
+            onClose={() => setShowAttach(false)}
+            busy={imageBusy}
+          />
         )}
 
         {showTray && (
@@ -1069,6 +1158,8 @@ export function App() {
             onChange={(e) => setDraft(e.target.value)}
             placeholder="给黑塔发消息…"
             rows={1}
+            // 点正文就把附件面板收起来：那两个按钮已经不需要了
+            onFocus={() => setShowAttach(false)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -1078,8 +1169,12 @@ export function App() {
           />
           <button
             className={"composerAttach" + (showTray ? " on" : "")}
-            onClick={() => setShowTray((v) => !v)}
+            onClick={() => {
+              setShowAttach(false);
+              setShowTray((v) => !v);
+            }}
             aria-label="发表情"
+            aria-expanded={showTray}
             title="发表情"
           >
             <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
@@ -1096,11 +1191,15 @@ export function App() {
             </svg>
           </button>
           <button
-            className="composerAttach"
-            onClick={() => imageInputRef.current?.click()}
+            className={"composerAttach" + (showAttach ? " on" : "")}
+            onClick={() => {
+              setShowTray(false);
+              setShowAttach((v) => !v);
+            }}
             disabled={imageBusy}
-            aria-label="发一张图"
-            title="给她看一张图"
+            aria-label="拍照或选文件"
+            aria-expanded={showAttach}
+            title="拍照或选文件"
           >
             {imageBusy ? (
               <span className="attachBusy">…</span>

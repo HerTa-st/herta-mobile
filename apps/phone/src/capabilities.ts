@@ -303,8 +303,10 @@ export async function whereAmI(): Promise<Fix> {
 /**
  * 拍一张。
  *
- * 返回的是 data URL——她看不到图（工具结果只能是文字），所以调用方会先让
- * 视觉模型描述一遍。相机权限由插件自己申请。
+ * 两条路都用它：她自己的「打开相机」工具（拍完只拿到一段描述），
+ * 以及用户点回形针里的「拍照」发给她（data URL 直接进看图管线）。
+ * 插件走 ACTION_IMAGE_CAPTURE 调系统相机，所以 Android 不需要 App 自己申请 CAMERA 权限
+ * （插件清单里也没声明它）；以后若改成内嵌取景才要补。
  */
 export async function snapPhoto(): Promise<{ data: string; mediaType: string }> {
   needNative("相机");
@@ -317,6 +319,28 @@ export async function snapPhoto(): Promise<{ data: string; mediaType: string }> 
   });
   if (!photo.dataUrl) throw new Error("拍完了但没拿到图。");
   return { data: photo.dataUrl, mediaType: "image/" + (photo.format || "jpeg") };
+}
+
+/**
+ * 相机失败翻成人话。
+ *
+ * 取消不是错误——她自己误触和别人点开又退出都很常见，不该弹一行红字。
+ * 权限被拒和「没有相机」要分开说，因为用户能做的事不一样。
+ */
+export function cameraFailureText(err: unknown): string | null {
+  const message = err instanceof Error ? err.message : String(err ?? "");
+  if (/cancel/i.test(message)) return null;
+  // 当前这条分支实际走不到：@capacitor/camera v8 的清单里没有 CAMERA 权限，
+  // 它走 ACTION_IMAGE_CAPTURE 调系统相机，根本不会申请权限。留着是防以后换成 CameraX 内嵌取景。
+  if (/denied|permission/i.test(message)) {
+    return "相机权限没给——去系统设置里允许「相机」，再试一次。";
+  }
+  if (/no camera|doesn't have a camera|not available/i.test(message)) {
+    return "这台设备没有可用的相机。";
+  }
+  // 别把插件的英文原文直接上屏。原话留给控制台，人看的只有这一句。
+  console.warn("相机失败：", err);
+  return "相机没能打开，也没说清原因。再试一次；还不行就看看系统里相机是不是被别的应用占着。";
 }
 
 /* ------------------------------------------------------------ 打开 / 分享 */

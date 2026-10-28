@@ -810,7 +810,8 @@ body {
   overflow-y: auto;
 }
 .trayHead { display: flex; align-items: center; gap: 6px; padding: 2px 2px 8px; }
-.trayHead button {
+.trayHead button,
+.attachHead button {
   border: 0;
   background: none;
   color: var(--muted);
@@ -833,6 +834,53 @@ body {
 .trayCell img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .trayAdd { position: relative; display: grid; place-items: center; color: #9fadb9; font-size: 20px; }
 .trayAdd input { display: none; }
+
+/* ------------------------------------------------------------ 附件面板 */
+
+/* 回形针抽起来的一层：拍照 / 选文件并排。形状跟着表情面板走，
+   同一个输入框上别开两套视觉语言。 */
+.attachTray {
+  margin: 0 2px 4px;
+  padding: 8px 10px 10px;
+  border-radius: 18px;
+  background: var(--card);
+  box-shadow: 0 10px 28px rgba(88, 118, 130, 0.16);
+}
+.attachHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.attachGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.attachOpt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+.attachOpt:active { background: #f0f5f6; }
+.attachOpt:disabled { opacity: 0.5; }
+.attachOpt .ico {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #eef4f5;
+  color: #6f8b97;
+}
+.attachOpt b { display: block; font-size: 14px; font-weight: 600; line-height: 1.5; }
+.attachOpt em { display: block; font-style: normal; font-size: 11px; line-height: 1.5; color: var(--muted); }
 
 /* 表情块自己一个气泡：它没有台词，不该在话里留个空段落 */
 .bubble.stickerBubble { padding: 6px; }
