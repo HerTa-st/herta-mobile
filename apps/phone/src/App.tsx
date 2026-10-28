@@ -281,31 +281,45 @@ export function App() {
     sessionRef.current = session;
   }, [session]);
 
+  /** 她正在说话的时候不往会话里插东西——那一轮结束时会用自己那份覆盖掉。 */
+  const busyRef = useRef(false);
+  /** 防止两分钟器同时补（一次连开两次 App 很常见）。 */
+  const flushingRef = useRef(false);
+
   /**
-   * 到点的提醒补进对话。
+   * 到点的提醒落进对话。
    *
-   * 系统通知只是一条通知——它响的时候她并没有"说话"。用户点开 App 发现对话里空着，
-   * 就是因为这里没补。打开 App、切回前台各补一次；补过的记 spokenAt，不会重说。
+   * 系统通知只是一条通知——它响的时候她并没有"说话"。所以这里要**在响的那一刻**就把
+   * 那句话写进会话，而不是等你打开 App 才补：常驻服务让进程活着，JS 那一分钟一次的
+   * 定时器就能做到"响的时候话就在那儿"。
+   *
+   * 进程被杀掉时才退化成"回来补"——那是兜底，不是主路径。
+   * 补过的记 spokenAt，同一次到点只说一次。
    */
   const flushReminders = useCallback(async () => {
+    if (flushingRef.current || busyRef.current) return;
     const current = sessionRef.current;
     if (!current) return;
-    let due: Awaited<ReturnType<typeof dueReminders>> = [];
+    flushingRef.current = true;
     try {
-      due = await dueReminders();
+      const due = await dueReminders();
+      if (due.length === 0) return;
+      let next = sessionRef.current ?? current;
+      for (const { record, at: when } of due) {
+        // 用「该响的那一刻」当块的时间，而不是「补上的那一刻」：
+        // 补写只是延迟，她那句话仍然发生在八点整。
+        next = appendBlocks(next, [
+          { kind: "herta", surface: "speech", text: record.title + "\n" + record.text, at: when.toISOString() },
+        ]);
+      }
+      setSession(next);
+      await persist(next);
+      for (const { record, at } of due) await markReminderSpoken(record.id, at);
     } catch {
-      return;
+      // 读不到就等下一次——补写失败不该让整个界面报错
+    } finally {
+      flushingRef.current = false;
     }
-    if (due.length === 0) return;
-    let next = current;
-    for (const { record } of due) {
-      next = appendBlocks(next, [
-        { kind: "herta", surface: "speech", text: record.title + "\n" + record.text, at: new Date().toISOString() },
-      ]);
-    }
-    setSession(next);
-    await persist(next);
-    for (const { record, at } of due) await markReminderSpoken(record.id, at);
   }, [persist]);
 
   useEffect(() => {
@@ -314,9 +328,12 @@ export function App() {
       if (document.visibilityState === "visible") run();
     };
     document.addEventListener("visibilitychange", onVisible);
+    // 主路径：每分钟看一眼到点没有（后台里会被节流到一分钟一次，正好够）
+    const timer = window.setInterval(run, 60_000);
     const t = window.setTimeout(run, 1200);
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
+      window.clearInterval(timer);
       window.clearTimeout(t);
     };
   }, [flushReminders, session?.id]);
@@ -336,6 +353,11 @@ export function App() {
     onError: reportError,
     onNeedKey: () => setShowSettings(true),
   });
+
+  // 她说话的那几秒里不让提醒插进来（那一轮结束时会整体覆盖会话）
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
 
   // 她到点自己找你：常驻服务保活 + 每分钟看一眼 + 走一遍人格装配
   useProactive({

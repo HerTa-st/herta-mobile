@@ -93,14 +93,20 @@ public class HertaA11yPlugin extends Plugin {
         for (ResolveInfo ri : ris) {
             if (ri.activityInfo == null) continue;
             String pkg = ri.activityInfo.packageName;
-            if (pkg == null || pkg.equals(getContext().getPackageName())) continue;
+            if (pkg == null) continue;
             JSObject row = new JSObject();
             row.put("pkg", pkg);
-            try {
-                ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
-                row.put("label", String.valueOf(pm.getApplicationLabel(ai)));
-            } catch (Exception e) {
-                row.put("label", pkg);
+            if (pkg.equals(getContext().getPackageName())) {
+                // 本应用也列出来：用户明确要求她能读自己的界面（比如"我这句话你写的什么"）。
+                // 不默认放行，还是得在这里勾一次——范围得由用户划。
+                row.put("label", "Herta（她自己）");
+            } else {
+                try {
+                    ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
+                    row.put("label", String.valueOf(pm.getApplicationLabel(ai)));
+                } catch (Exception e) {
+                    row.put("label", pkg);
+                }
             }
             rows.add(row);
         }
