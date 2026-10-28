@@ -210,7 +210,7 @@ export function buildTools(ctx: ToolContext): ToolImpl[] {
     },
     async run(args) {
       const names = [...ctx.files.keys()];
-      if (names.length === 0) throw new Error("还没有文件——让他先在「设置」里选一个给你读。");
+      if (names.length === 0) throw new Error("还没有文件——让他先选一个给你读（回形针的「选文件」，或者设置里）。");
       const want = String(args.name ?? "").trim();
       if (!want) return "现在能读的：" + names.join("、");
       const hit = names.find((n) => n === want) ?? names.find((n) => n.includes(want));

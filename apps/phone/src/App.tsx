@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Block, HertaBlock, ImportBundle, Session, UserBlock } from "@herta/protocol";
 import {
   appendBlocks,
+  classifyPickedFile,
   createSession,
+  decodeTextFile,
   effectiveWeight,
   humanizeError,
   memoryTitle,
@@ -14,10 +16,12 @@ import {
   searchMemories,
   searchSessions,
   shareIdFromInput,
+  sanitizeFileName,
   shouldConsolidate,
   stripStageDirections,
   shouldForget,
   SHARE_API,
+  TEXT_FILE_MAX_BYTES,
   timePhrase,
   type MemoryRecord,
 } from "@herta/core";
@@ -41,7 +45,7 @@ import { useProactive } from "./hooks/useProactive.ts";
 import { seedPureIfNeeded } from "./pure.ts";
 import { captionImage, compressImage, dataUrlToBlob, prepareImage } from "./vision.ts";
 import { tagSticker } from "./sticker-tag.ts";
-import { cameraFailureText, dueReminders, isNative, markReminderSpoken, snapPhoto } from "./capabilities.ts";
+import { cameraFailureText, dueReminders, formatBytes, isNative, markReminderSpoken, snapPhoto } from "./capabilities.ts";
 import { useMemory } from "./hooks/useMemory.ts";
 import { MemoryGraph } from "./MemoryGraph.tsx";
 import { collect } from "./stream.ts";
@@ -58,6 +62,7 @@ import {
   type SessionMeta,
   type StickerRecord,
 } from "./storage.ts";
+import { loadReadableFiles, saveReadableFile } from "./readable-files.ts";
 import { budgetOf, loadSettings, saveSettings, type Settings } from "./settings.ts";
 import { pickTransport } from "./transport.ts";
 import { loadPromptCode } from "./prompts.ts";
@@ -131,7 +136,8 @@ export function App() {
   const [showAttach, setShowAttach] = useState(false);
   /** 一句话的回执（「存进表情箱了」）。她看不到控制台，这种小事也得说一声。 */
   const [toast, setToast] = useState<string | null>(null);
-  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  /** 回形针的「选文件」：现在什么都收，按类型分流（图片 / 文本 / 其它）。 */
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   /** 浏览器里没有相机插件：退回带 capture 的 file input（桌面浏览器会开文件选择）。 */
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const [viewing, setViewing] = useState<MemoryRecord | null>(null);
@@ -210,6 +216,18 @@ export function App() {
         }
         if (alive) await refreshMemories();
         if (alive) setStickers(await listStickers());
+
+        // 她能读的文件落盘在上一次运行里：重启后还在，聊天里那句「放进入口」才不是假话
+        try {
+          const readable = await loadReadableFiles();
+          if (alive) {
+            filesRef.current.clear();
+            for (const f of readable) filesRef.current.set(f.name, f.text);
+            setFileNames([...filesRef.current.keys()]);
+          }
+        } catch {
+          /* 文件库坏了不该拖垮启动 */
+        }
 
         const list = await listSessions();
         if (!alive) return;
@@ -768,6 +786,124 @@ export function App() {
     }
   }, [ingestImage, reportError]);
 
+  /**
+   * 把一个文本文件放进「她能读的文件」。
+   *
+   * 原来只有设置页那一个入口，现在回形针的「选文件」也走这里——两处共用 filesRef，
+   * 她那边只有一个 read_file 工具，不该有两套。
+   */
+  const addReadableFile = useCallback(
+    async (file: File) => {
+      // 文件名要进 system 旁白，先清洗（换行/「」〔〕能伪造一行系统提示）
+      const name = sanitizeFileName(file.name);
+      if (file.size > TEXT_FILE_MAX_BYTES) {
+        reportError(
+          "「" + name + "」有 " + formatBytes(file.size) + "，太大了——她能读的单个文件上限是 " +
+            Math.round(TEXT_FILE_MAX_BYTES / 1024) + "KB，截一段再选。"
+        );
+        return;
+      }
+      // 设置页那个入口也走这里，而 accept 在部分 ROM 上会被忽略——
+      // 别把 PDF 静默读成乱码，也别把图片报成「文件读不出来」（图片该走回形针看图）
+      const kind = classifyPickedFile(file);
+      if (kind !== "text") {
+        reportError(
+          kind === "image"
+            ? "「" + name + "」是图片——图片直接发给她看就行，这里只放文本文件。"
+            : "「" + name + "」不是文本文件——这里只能放 txt / md / json / csv / log / 代码这类。"
+        );
+        return;
+      }
+      try {
+        // 手动解码：GBK / UTF-16 的 txt 直接按 UTF-8 读会静默变乱码（见 core/files.ts）
+        const decoded = decodeTextFile(new Uint8Array(await file.arrayBuffer()));
+        filesRef.current.set(name, decoded.text);
+        setFileNames([...filesRef.current.keys()]);
+        // 落盘：重启之后她还读得到，聊天里那条提示才不会变成假话
+        let dropped: string[] = [];
+        try {
+          const saved = await saveReadableFile({ name, text: decoded.text, at: new Date().toISOString() });
+          dropped = saved.dropped;
+          filesRef.current.clear();
+          for (const f of saved.kept) filesRef.current.set(f.name, f.text);
+          setFileNames([...filesRef.current.keys()]);
+        } catch {
+          /* 落盘失败不影响这次能用 */
+        }
+        // 聊天里留一行痕迹：文件塞进去了却什么都不显示，用户会以为没成功。
+        // 用 ref 判当前状态：await 期间她可能已经开始说话，闭包里的 busy/session 会是旧的。
+        const current = sessionRef.current;
+        if (current && !busyRef.current) {
+          const at = new Date().toISOString();
+          const notes: Block[] = [
+            {
+              kind: "system",
+              label: "系统",
+              // 写成中立句：这条既要给你看，也会作为〔系统〕进她的转录，
+              // 用「你」会让她分不清是谁在说话
+              body: "（「" + name + "」已放进她能读的文件里；想让她看就说「看看 " + name + "」。）",
+              at,
+            },
+          ];
+          // 淘汰不只在 toast 里说：她那边也留一条，否则她的上下文还认为文件在
+          if (dropped.length > 0) {
+            notes.push({
+              kind: "system",
+              label: "系统",
+              body: "（整库超过 2MB，「" + dropped.join("」、「") + "」已从她能读的文件里移出。）",
+              at,
+            });
+          }
+          const next = appendBlocks(current, notes);
+          setSession(next);
+          // 文件本身已经加进去了；这条提示写不进去不算失败
+          try {
+            await persist(next);
+          } catch {
+            /* 忽略 */
+          }
+        }
+        const encodingNote = decoded.encoding === "utf-8" ? "" : "（按 " + decoded.encoding.toUpperCase() + " 解）";
+        // 淘汰必须说出来：文件静默消失、聊天里提示还在，就又是"她以为文件在"的老毛病
+        const evictNote =
+          dropped.length > 0 ? "；整库超过 2MB，已移出最早的：" + dropped.join("、") : "";
+        flashToast("「" + name + "」她能读了" + encodingNote + evictNote);
+      } catch (err) {
+        reportError("这个文件读不出来：" + (err instanceof Error ? err.message : String(err)));
+      }
+    },
+    [flashToast, persist, reportError]
+  );
+
+  /**
+   * 回形针选回来的文件按类型分流：图片进看图管线、文本给她读、其它明说读不了。
+   * 文件名与 MIME 都要看——文件管理器给的 MIME 有时是空的（见 core/files.ts）。
+   */
+  const pickFile = useCallback(
+    (file: File) => {
+      const name = sanitizeFileName(file.name);
+      const kind = classifyPickedFile(file);
+      if (kind === "image") {
+        void ingestImage(file, name);
+        return;
+      }
+      if (kind === "text") {
+        void addReadableFile(file);
+        return;
+      }
+      // HEIC 是图片，但 WebView 解不了——单独给一句，别让她以为是文件坏了。
+      // 扩展名和 MIME 都要认：相册导出的 HEIC 未必带 .heic 后缀
+      if (/\.(heic|heif)$/i.test(file.name) || /^image\/hei[cf]/i.test(file.type)) {
+        reportError("「" + name + "」是 HEIC 图，她这边解不了——先在相册里导出成 JPG 再选。");
+        return;
+      }
+      reportError(
+        "「" + name + "」这种文件她现在读不了：只收图片和文本文件（txt / md / json / csv / log / 代码等）。PDF、Word、压缩包还不行。"
+      );
+    },
+    [addReadableFile, ingestImage, reportError]
+  );
+
   const blocks = useMemo(() => session?.blocks ?? [], [session]);
   /** 表情块只存引用：渲染时按 id 去库里找那张图。 */
   const stickerById = useMemo(() => new Map(stickers.map((s) => [s.id, s])), [stickers]);
@@ -983,12 +1119,7 @@ export function App() {
           onOpenCapabilities={() => setShowCaps(true)}
           onOpenToolLog={() => setShowToolLog(true)}
           onOpenBackup={() => setShowBackup(true)}
-          onFile={(file) => {
-            void file.text().then((text) => {
-              filesRef.current.set(file.name, text);
-              setFileNames([...filesRef.current.keys()]);
-            });
-          }}
+          onFile={(file) => void addReadableFile(file)}
         />
       )}
 
@@ -1095,18 +1226,18 @@ export function App() {
             </button>
           </div>
         )}
-        {/* 选文件：从相册 / 文件管理器挑一张图，和相机共用同一条看图管线 */}
+        {/* 选文件：什么都收（不设 accept），由 pickFile 按类型分流。
+            图片进看图管线，文本进她能读的文件，二进制/文档明确拒绝。 */}
         <input
-          ref={imageInputRef}
+          ref={fileInputRef}
           type="file"
-          accept="image/*"
           style={{ display: "none" }}
           onChange={(e) => {
             // FileList 是活引用：先取快照再清 value，否则清空时把文件也清了
             const file = e.target.files?.[0];
             e.target.value = "";
             if (!file) return;
-            void ingestImage(file, file.name);
+            pickFile(file);
           }}
         />
         {/* 浏览器里的拍照退路：capture 输入框；桌面浏览器会落到文件选择，别当它坏了 */}
@@ -1134,7 +1265,7 @@ export function App() {
             onCamera={() => void takePhoto()}
             onFile={() => {
               setShowAttach(false);
-              imageInputRef.current?.click();
+              fileInputRef.current?.click();
             }}
             onClose={() => setShowAttach(false)}
             busy={imageBusy}

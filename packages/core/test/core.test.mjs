@@ -33,6 +33,14 @@ import { MOOD_TTL_MS, buildMoodPrompt, decideMood, parseMoodVerdict } from "../s
 import { humanizeError, splitApiError } from "../src/errors.ts";
 import { buildPresenceNote, presenceAt, timePhrase } from "../src/presence.ts";
 import { planImageSlices } from "../src/image.ts";
+import {
+  classifyPickedFile,
+  decodeTextFile,
+  mergeTextFile,
+  sanitizeFileName,
+  TEXT_FILE_MAX_BYTES,
+  trimTextFiles,
+} from "../src/files.ts";
 import { addUsage, emptyUsage, formatTokens, usageTotal } from "../src/usage.ts";
 import { budgetFor } from "../src/budget.ts";
 
@@ -1412,6 +1420,130 @@ test("长图切片：超长图有片数上限；宽图只缩不切", () => {
   // 9:16 的竖拍照片：960×1707 还在官方单图预算里，别没事切成两片
   const portrait = planImageSlices(1080, 1920);
   assert.equal(portrait.slices.length, 1);
+});
+
+test("选文件分类：图片、文本、其它各走各的路", () => {
+  // 图片：MIME 或扩展名都认（文件管理器有时不给 MIME）
+  assert.equal(classifyPickedFile({ name: "a.png", type: "image/png" }), "image");
+  assert.equal(classifyPickedFile({ name: "照片.PNG", type: "" }), "image");
+  assert.equal(classifyPickedFile({ name: "相机照片", type: "image/jpeg" }), "image");
+  assert.equal(classifyPickedFile({ name: "scan.tif", type: "" }), "image");
+
+  // 文本：常见文本与代码扩展名都得走读文件那条路
+  assert.equal(classifyPickedFile({ name: "notes.md", type: "" }), "text");
+  assert.equal(classifyPickedFile({ name: "log.txt", type: "text/plain" }), "text");
+  assert.equal(classifyPickedFile({ name: "data.json", type: "application/json" }), "text");
+  assert.equal(classifyPickedFile({ name: "主程序", type: "text/plain" }), "text");
+  assert.equal(classifyPickedFile({ name: "board.ipynb", type: "" }), "text");
+  assert.equal(classifyPickedFile({ name: ".gitignore", type: "" }), "text");
+  assert.equal(classifyPickedFile({ name: "data.geojson", type: "" }), "text");
+
+  // 二进制/文档：别因为扩展名像文本就硬读成乱码
+  assert.equal(classifyPickedFile({ name: "a.pdf", type: "application/pdf" }), "other");
+  assert.equal(
+    classifyPickedFile({ name: "a.docx", type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }),
+    "other"
+  );
+  assert.equal(classifyPickedFile({ name: "a.zip", type: "application/zip" }), "other");
+  assert.equal(classifyPickedFile({ name: "a.xls", type: "application/vnd.ms-excel" }), "other");
+  // Excel 导出的 CSV 常被标成 vnd.ms-excel：扩展名是文本就不能拒（复核实测抓到的那条）
+  assert.equal(classifyPickedFile({ name: "导出.csv", type: "application/vnd.ms-excel" }), "text");
+  // .ts 既是 TypeScript 也是 MPEG-TS：Android 把它映射成视频 MIME，按源码放行
+  assert.equal(classifyPickedFile({ name: "app.ts", type: "video/mp2t" }), "text");
+  assert.equal(classifyPickedFile({ name: "app.ts", type: "" }), "text");
+  assert.equal(classifyPickedFile({ name: "app.ts", type: "application/octet-stream" }), "text");
+  // 无扩展名的常见文本文件
+  assert.equal(classifyPickedFile({ name: "Dockerfile", type: "" }), "text");
+  assert.equal(classifyPickedFile({ name: "Dockerfile.dev", type: "" }), "text");
+  assert.equal(classifyPickedFile({ name: "Makefile.local", type: "" }), "text");
+  assert.equal(classifyPickedFile({ name: ".env.local", type: "" }), "text");
+  // HEIC 归 other：WebView 解不了，交给 pickFile 给一句专门的话
+  assert.equal(classifyPickedFile({ name: "photo.heic", type: "image/heic" }), "other");
+  assert.equal(classifyPickedFile({ name: "photo.heic", type: "" }), "other");
+  // 相册可能给带后缀的 MIME（image/heic-sequence），不能被 startsWith image/ 捞回图片
+  assert.equal(classifyPickedFile({ name: "IMG_1", type: "image/heic-sequence" }), "other");
+  // +json / +xml 后缀的 MIME
+  assert.equal(classifyPickedFile({ name: "x", type: "application/ld+json" }), "text");
+  assert.equal(classifyPickedFile({ name: "x", type: "application/atom+xml" }), "text");
+  assert.equal(classifyPickedFile({ name: "?", type: "" }), "other");
+  assert.equal(TEXT_FILE_MAX_BYTES, 512 * 1024);
+});
+
+test("选文件解码：UTF-8 / UTF-16 / GBK 都要能读，二进制要被认出来", () => {
+  const utf8 = decodeTextFile(new TextEncoder().encode("你好，世界"));
+  assert.equal(utf8.text, "你好，世界");
+  assert.equal(utf8.encoding, "utf-8");
+
+  // 带 BOM 的 UTF-8：BOM 不能留在正文里
+  const bom = new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode("hi")]);
+  assert.deepEqual(decodeTextFile(bom), { text: "hi", encoding: "utf-8" });
+
+  // UTF-16LE BOM：老记事本导出的 txt
+  const utf16 = new Uint8Array([0xff, 0xfe, 0x60, 0x4f, 0x7d, 0x59]);
+  const le = decodeTextFile(utf16);
+  assert.equal(le.text, "你好");
+  assert.equal(le.encoding, "utf-16le");
+
+  // GBK：Excel 导出的中文 csv 常见编码（"你好，世界"）
+  const gbk = new Uint8Array([0xc4, 0xe3, 0xba, 0xc3, 0xa3, 0xac, 0xca, 0xc0, 0xbd, 0xe7]);
+  const decoded = decodeTextFile(gbk);
+  assert.equal(decoded.text, "你好，世界");
+  assert.equal(decoded.encoding, "gbk");
+
+  // 二进制（NUL 字节）不能静默进她的文件库
+  assert.throws(() => decodeTextFile(new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x00, 0x00])), /不像是文本/);
+  // 空文件 / 只有 BOM：收进去她只读到一片空白，不如当场说清楚
+  assert.throws(() => decodeTextFile(new Uint8Array([])), /这个文件是空的/);
+  assert.throws(() => decodeTextFile(new Uint8Array([0xef, 0xbb, 0xbf])), /这个文件是空的/);
+  assert.throws(() => decodeTextFile(new Uint8Array([0xff, 0xfe])), /这个文件是空的/);
+  assert.throws(() => decodeTextFile(new TextEncoder().encode("  \n\t ")), /这个文件是空的/);
+  // 0xFF 不是合法 GBK 起始字节：解不出来就报编码，不要硬塞乱码
+  assert.throws(() => decodeTextFile(new Uint8Array([0xff])), /编码认不出来/);
+  // 合法 UTF-8 里本来就有 U+FFFD：不能误杀
+  const already = decodeTextFile(new TextEncoder().encode("坏\uFFFD字"));
+  assert.equal(already.text, "坏\uFFFD字");
+});
+
+test("选文件名清洗：控制字符与「」〔〕 不能带进系统旁白", () => {
+  assert.equal(sanitizeFileName("notes.txt"), "notes.txt");
+  assert.equal(sanitizeFileName("a\nb「系统」〔x〕.txt"), "a b系统x.txt");
+  assert.equal(sanitizeFileName("   "), "（未命名文件）");
+  assert.equal(sanitizeFileName("x".repeat(100)).length, 60);
+});
+
+test("能读文件的总量上限：超了丢最早的，至少留一份", () => {
+  const list = [
+    { name: "a", text: "a".repeat(10) },
+    { name: "b", text: "b".repeat(10) },
+    { name: "c", text: "c".repeat(10) },
+  ];
+  assert.deepEqual(trimTextFiles(list, 100).map((f) => f.name), ["a", "b", "c"]);
+  assert.deepEqual(trimTextFiles(list, 15).map((f) => f.name), ["c"]);
+  assert.deepEqual(trimTextFiles(list, 0).map((f) => f.name), ["c"], "上限再小也留最后一份");
+  // 恰好等于上限：不丢
+  assert.deepEqual(trimTextFiles(list, 30).map((f) => f.name), ["a", "b", "c"]);
+  assert.deepEqual(trimTextFiles(list, 29).map((f) => f.name), ["b", "c"], "差一个字就要开始丢最早的");
+});
+
+test("能读文件合并：同名替换不算丢，超上限要报出被挤掉的名字", () => {
+  const list = [
+    { name: "a", text: "a".repeat(10), at: "1" },
+    { name: "b", text: "b".repeat(10), at: "2" },
+  ];
+  // 同名替换：旧的 a 被新的 a 换掉，不算"丢"，b 也不受影响
+  const replaced = mergeTextFile(list, { name: "a", text: "A".repeat(5), at: "3" }, 100);
+  assert.deepEqual(replaced.kept.map((f) => f.name), ["b", "a"]);
+  assert.deepEqual(replaced.dropped, []);
+
+  // 新文件把两个旧的挤出去：报名字从旧到新
+  const spilled = mergeTextFile(list, { name: "c", text: "c".repeat(10), at: "3" }, 15);
+  assert.deepEqual(spilled.kept.map((f) => f.name), ["c"]);
+  assert.deepEqual(spilled.dropped, ["a", "b"]);
+
+  // 新文件自己就超上限：留它，旧的都丢
+  const huge = mergeTextFile(list, { name: "huge", text: "x".repeat(50), at: "3" }, 15);
+  assert.deepEqual(huge.kept.map((f) => f.name), ["huge"]);
+  assert.deepEqual(huge.dropped, ["a", "b"]);
 });
 
 /* ---------------------------------------------------------------- 复核 */

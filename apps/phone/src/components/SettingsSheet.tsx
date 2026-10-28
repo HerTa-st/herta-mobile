@@ -1,4 +1,4 @@
-import { CHEAP_LIMITS } from "@herta/core";
+import { CHEAP_LIMITS, TEXT_FILE_EXTENSIONS } from "@herta/core";
 import type { Settings } from "../settings.ts";
 import type { StickerRecord } from "../storage.ts";
 
@@ -142,7 +142,7 @@ export function SettingsSheet({
         给她读的文件
         <input
           type="file"
-          accept=".txt,.md,.json,.csv,.log,text/*"
+          accept={TEXT_FILE_EXTENSIONS.map((ext) => "." + ext).join(",") + ",text/*"}
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) onFile(file);
@@ -150,7 +150,9 @@ export function SettingsSheet({
         />
       </label>
       <p className="memNote">
-        {fileNames.length > 0 ? "她能读：" + fileNames.join("、") : "还没给她文件。只能读你在这里选的，不能自己翻手机。"}
+        {fileNames.length > 0
+          ? "她能读：" + fileNames.join("、")
+          : "还没给她文件。回形针的「选文件」也可以加；她只能读你选的，不能自己翻手机。"}
       </p>
       <label className="check">
         <input type="checkbox" checked={settings.albumEnabled} onChange={(e) => onChange({ albumEnabled: e.target.checked })} />
