@@ -16,6 +16,7 @@ export * from "./presence.ts";
 export * from "./errors.ts";
 export * from "./image.ts";
 export * from "./files.ts";
+export * from "./documents.ts";
 export * from "./usage.ts";
 export * from "./budget.ts";
 export * from "./dream.ts";
