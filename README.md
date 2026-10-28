@@ -5,23 +5,27 @@ Herta 的手机端。**双模**：离线时她是自己（人格 / 叙述 / 记�
 外加一件事：**从 DeepSeek 官方把你说过的话搬进来**——没有官方导出接口，所以采集端在 PC 上（油猴脚本），手机只负责接收、归一、归档、消化。
 
 - **接手先读**：[`../Herta-手机端-交接.md`](../Herta-手机端-交接.md)（现状、环境、踩坑、已验证/未验证、欠债）
-- 设计决策与验收标准：[docs/设计-v1.md](docs/设计-v1.md)
-- 代码分五包：`protocol`（三端共用的类型与消息）/ `core`（人格、叙述、记忆、工具循环）/ `apps/phone`（UI）/ `packages/gateway`（连 PC，未开工）/ `tools/userscript`（抓历史，已被分享链接取代）
+- 设计决策与验收标准：[docs/设计-v1.md](docs/设计-v1.md)；黑塔币：[docs/设计-黑塔币-v1.md](docs/设计-黑塔币-v1.md)
+- 代码分五包：`protocol`（三端共用的类型与消息）/ `core`（人格、叙述、记忆、工具循环）/ `coin`（黑塔币纯逻辑）/ `apps/phone`（UI）/ `packages/gateway`（连 PC，未开工）/ `tools/userscript`（抓历史，已被分享链接取代）
+- 另有 `fc/coin-api`：阿里云 FC 的黑塔币行情接口（与网页同源），不属于 app 打包产物
 
 ### 目录
 
 ```
 packages/protocol   Block / Session / ChatMessage / ToolSpec / ChatDelta
-packages/core       纯逻辑，Node 里能跑测试（106 项）
+packages/core       纯逻辑，Node 里能跑测试（128 项）
   persona 人格装配    narrative 想/说拆分   supervisor 复核
   dream 做梦          distill 消化长对话    memory 记忆库契约
   weights 权重衰减    consolidate 整理      voice 语气笔记
   presence 行踪       mood 心情             search 全文检索
   import / share 导入 tools 工具循环        session 会话演化
   image 长图切片（按官方单图预算算坐标）   usage 用量累加与缩写   budget 省 token 档的预算
+packages/coin       黑塔币纯逻辑：签到曲线 / 钱包盈亏 / 接口类型与解析（Node 里可测）
+fc/coin-api         阿里云 FC：GET /api/daily，算法与网页同源 + 测试向量 + 本地 mock
 apps/phone
   App.tsx           壳与回合编排
-  components/       Drawer · SettingsSheet · GraphView · MemoryViewer · Shot
+  components/       Drawer · SettingsSheet · GraphView · MemoryViewer · Shot · CoinView
+  coin/             黑塔币：storage / useCoin / chart / notify / config
   MemoryGraph.tsx   实时物理星图（canvas）
   transport.ts      原生/浏览器通道        devtools.ts  六件工具
   storage.ts        会话落盘               memory-idb.ts 记忆落盘
@@ -32,11 +36,11 @@ tools/              打 APK、删种子、删素材字段、油猴脚本
 
 ```bash
 npm install
-npm test          # core 的纯 Node 测试（吃不依赖浏览器的真素材）
+npm test          # core + coin + FC 的纯 Node 测试（吃不依赖浏览器的真素材；FC 测试要跑无头 Edge 生成向量的话先 npm run test:vectors）
 npm run dev:phone # 浏览器里跑 UI
 ```
 
-## 现状（v0.27.0，2026-10-28）
+## 现状（v0.29.0，2026-10-29）
 
 | 能力 | 状态 |
 |---|---|
@@ -80,6 +84,7 @@ npm run dev:phone # 浏览器里跑 UI
 | 表情包 | ✅ 她在合适的时候自己挑一张发出来（库空的就不给她这个工具） |
 | 翻相册 | ✅ 原生 MediaStore：先列目录，再按需读单张；默认关闭，要你在设置里打开 |
 | 云端语音 | ✅ 气泡上的「▶ 念」：OpenAI 兼容 /audio/speech 或 MiniMax /t2a_v2 |
+| 黑塔币 | ✅ v1：抽屉 →「黑塔币 HTC」看行情（分钟 K / 签到 / 持仓）；接口与网页同源，FC 没部署时页面会说明。v1 不接她、不做交易 |
 
 ### 她的工具
 
@@ -98,6 +103,38 @@ npm run dev:phone # 浏览器里跑 UI
 **最多四轮**——不封顶的话，一个想不清楚的模型能在这循环里烧掉你一天的额度。
 
 她每次用工具都会在聊天里留一条灰字，形如「（上网查了：…）」——那既是给你看的，也是下一轮的上下文。
+
+### 黑塔币（HTC/USDT）
+
+聊天之外的一个小模块：抽屉 →「黑塔币 HTC」。每天 9:30 开盘（工作日 09:30–11:30 / 13:00–15:00），
+页面有价格条、240 格分钟 K（成交量副图 + MA + 均价 + 十字光标）、持仓卡、签到卡；交易入口是占位。
+v1 不接她、不做交易、不联网对账——单机钱包：首次进入送 1000 HTC，成本价 = 首次激活场次的开盘价。
+
+- 设计：[docs/设计-黑塔币-v1.md](docs/设计-黑塔币-v1.md)；实现契约：[docs/coin-实现契约.md](docs/coin-实现契约.md)
+- 纯逻辑 `packages/coin`（连签曲线 / 市值盈亏 / 接口解析，Node 里可测）
+- 行情接口 `fc/coin-api/`（阿里云 FC，Node.js 20）：算法与网页版同源，测试向量在 `fc/coin-api/test/vectors.json`
+- 手机端：`apps/phone/src/coin/`（storage / useCoin / chart / notify）+ `components/CoinView.tsx`
+
+开发时不用等 FC 部署：
+
+```bash
+npm run coin:mock        # 本地 8787 假接口（COIN_MOCK_NOW=2026-10-29T10:15:30+08:00 可钉住时间）
+npm run dev:phone        # 浏览器里开 UI，黑塔币页在 DEV 模式下自动连 mock
+```
+
+打真机包时把接口地址带上（FC 部署好之后）：
+
+```powershell
+pwsh -File tools\build-apk.ps1 -CoinApiBase https://你的域名
+pwsh -File tools\build-apk.ps1 -CoinMock      # 开发期：指到电脑局域网上的 mock
+```
+
+没给 `-CoinApiBase` 的包，黑塔币页会显示「未配置接口」；设置页里也能手填地址（不用重打 APK）。
+签到：工作日 9:30 后、必须联网（以接口返回的 serverTime 为准）；连签 10 / 20 / 25 / 30 / 35 / 40 / 45 / 50 封顶，
+断签重置；奖励按签到当时实时价入账。开盘提醒是工作日 09:30 的本地通知（周一~周五各一条，点通知直接进黑塔币页）。
+备份包会把黑塔币钱包一起带走；恢复时本机已有钱包则不覆盖。
+
+接下来（设计文档里的版本路线）：v1.1 给她加 `coin_quote` 只读工具 + 交易入口；v1.2 随 PC 同步；v2 群联机。
 
 ### 记忆的代谢
 

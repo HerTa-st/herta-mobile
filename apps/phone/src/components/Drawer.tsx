@@ -1,5 +1,6 @@
 import type { DreamState, MemoryHit, MemoryRecord, SessionHit } from "@herta/core";
 import { effectiveWeight, memoryTitle } from "@herta/core";
+import { formatPct } from "@herta/coin";
 import type { SessionMeta } from "../storage.ts";
 
 /**
@@ -25,6 +26,8 @@ export interface DrawerActions {
   readImportFile(text: string, name: string): void;
   runImport(): void;
   importFromLink(): void;
+  /** 打开黑塔币行情页（聊天之外的小模块，v1 只在抽屉里有入口）。 */
+  openCoin(): void;
 }
 
 export interface DrawerProps {
@@ -47,6 +50,8 @@ export interface DrawerProps {
   shareInput: string;
   nowLine: string;
   canDistill: boolean;
+  /** 黑塔币最近一次行情的涨跌幅（有缓存才显示，没打开过就是 null）。 */
+  coinPct: number | null;
   actions: DrawerActions;
 }
 
@@ -57,6 +62,18 @@ export function Drawer(props: DrawerProps) {
     <div className="drawer">
       <button className="new" onClick={actions.newSession}>
         ＋ 新的对话
+      </button>
+      <button className="coinEntry" onClick={actions.openCoin}>
+        <span className="coinEntryName">黑塔币 HTC</span>
+        {props.coinPct != null && (
+          <span
+            className={
+              "coinEntryPct" + (props.coinPct > 0.0001 ? " up" : props.coinPct < -0.0001 ? " down" : "")
+            }
+          >
+            {formatPct(props.coinPct)}
+          </span>
+        )}
       </button>
       <p className="nowLine">{props.nowLine}</p>
 

@@ -1024,4 +1024,377 @@ body {
   font-weight: 600;
 }
 
+/* ===== 黑塔币 ===== */
+/* 抽屉入口：「新的对话」下面一行，和 .new 同一套尺寸但次要一级——
+   不抢新对话的主按钮位。涨跌色与图表、价格条共用同一组浅色版红绿。 */
+
+.drawer .coinEntry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: var(--card);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  border-radius: 12px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  box-shadow: var(--shadow-soft);
+  margin-bottom: 8px;
+}
+.drawer .coinEntry:active { background: #f4f9fa; }
+.coinEntryName { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.coinEntryPct {
+  margin-left: auto;
+  flex: none;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.coinEntryPct.up { color: #d96a7a; }
+.coinEntryPct.down { color: #4f9d8a; }
+
+/* 全屏页：整页一屏，头部固定、内容自己滚。
+   z-index 压在聊天、看图、星图之上；设置面板（60）是另一条线，不用管。 */
+.coinView {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 60% at 20% 0%, #eaf6f4 0%, rgba(234, 246, 244, 0) 62%),
+    linear-gradient(180deg, #f7fbfa 0%, #eef7f6 100%);
+}
+
+.coinHead {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: calc(env(safe-area-inset-top) + 8px) calc(env(safe-area-inset-right) + 14px) 10px
+    calc(env(safe-area-inset-left) + 14px);
+  background: rgba(248, 251, 250, 0.94);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+.coinBack {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--card);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+}
+.coinBack:active { background: #f0f5f6; }
+.coinTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.coinBadge {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+  white-space: nowrap;
+}
+.coinBadge.on { color: #4f8f7a; border-color: #cfe4dc; background: #f1f9f6; }
+.coinBadge.warn { color: #b5873f; border-color: #ecdfc4; background: #fdf8ec; }
+.coinBadge.off { color: var(--muted); }
+.coinOffline {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid #f0dcc8;
+  border-radius: 999px;
+  background: #fbeee2;
+  color: #a2703c;
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.coinScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px calc(env(safe-area-inset-right) + 14px) calc(env(safe-area-inset-bottom) + 22px)
+    calc(env(safe-area-inset-left) + 14px);
+}
+
+/* 价格条 */
+.coinPriceBar {
+  flex: none;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 13px 16px 10px;
+  box-shadow: var(--shadow-soft);
+}
+.coinPriceTop { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.coinLast {
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.coinChange { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.coinUnit { margin-left: auto; font-size: 11px; color: var(--muted); }
+.coinLast.up, .coinChange.up { color: #d96a7a; }
+.coinLast.down, .coinChange.down { color: #4f9d8a; }
+.coinLast.flat, .coinChange.flat { color: var(--ink-soft); }
+
+.coinStats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px 8px; margin: 10px 0 0; }
+.coinStats div { min-width: 0; }
+.coinStats dt { font-size: 10.5px; color: var(--muted); line-height: 1.5; }
+.coinStats dd {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.coinSrc { margin: 8px 0 0; font-size: 10.5px; color: var(--muted); }
+
+/* 离线/缓存条 */
+.coinOfflineBar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border: 1px solid #f0e2cd;
+  border-radius: 12px;
+  background: #fbf3e8;
+  color: #a2703c;
+  font-size: 12px;
+}
+.coinOfflineBar button {
+  margin-left: auto;
+  flex: none;
+  border: 0;
+  background: none;
+  padding: 0 2px;
+  font: inherit;
+  font-size: 12px;
+  color: #8a6a3f;
+  text-decoration: underline;
+}
+.coinOfflineBar button:disabled { opacity: 0.5; }
+
+/* 卡片 */
+.coinCard {
+  flex: none;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 12px 14px;
+  box-shadow: var(--shadow-soft);
+}
+.coinCardTitle {
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.coinCardNote { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.6; }
+
+/* K 线 */
+.coinChartCard { padding: 10px 10px 8px; }
+.coinChartWrap { position: relative; width: 100%; height: clamp(172px, 30vh, 250px); }
+.coinCanvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.coinChartEmpty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  pointer-events: none;
+}
+.coinOhlc {
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  max-width: calc(100% - 12px);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1px 8px;
+  /* 右侧留出 ✕ 的位置：横屏时 OHLC 一行排得下，别让关闭钮压住「量」 */
+  padding: 5px 28px 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: var(--shadow-soft);
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: var(--muted);
+  pointer-events: none;
+}
+.coinOhlcTime { color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.coinOhlcItem { white-space: nowrap; }
+.coinOhlcItem b { margin-left: 2px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.coinOhlcItem b.up { color: #d96a7a; }
+.coinOhlcItem b.down { color: #4f9d8a; }
+.coinOhlcClose {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--muted);
+  font: inherit;
+  font-size: 10px;
+  line-height: 1;
+  pointer-events: auto;
+}
+.coinLegend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 6px 2px 0;
+  font-size: 10px;
+  color: var(--muted);
+}
+.coinLegendItem { display: inline-flex; align-items: center; gap: 3px; }
+.coinLegendItem::before { content: ""; width: 8px; height: 2px; border-radius: 1px; background: var(--muted); }
+.coinLegendItem.ma5::before { background: #d9a66a; }
+.coinLegendItem.ma10::before { background: #6fa8ad; }
+.coinLegendItem.ma20::before { background: #a58ac9; }
+.coinLegendItem.vwap::before { background: #6fa8ad; }
+.coinLegendItem.prev::before { height: 0; background: none; border-top: 1px dashed #b6c4cb; }
+.coinLegendHint { margin-left: auto; font-size: 10px; color: #a9b6bf; }
+
+/* 持仓 */
+.coinPosGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; margin: 0; }
+.coinPosGrid div { min-width: 0; }
+.coinPosGrid dt { font-size: 10.5px; color: var(--muted); line-height: 1.6; }
+.coinPosGrid dd {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.coinPosGrid dd.up { color: #d96a7a; }
+.coinPosGrid dd.down { color: #4f9d8a; }
+.coinPosPct { display: block; font-style: normal; font-size: 10.5px; font-weight: 400; color: var(--muted); }
+
+/* 签到 */
+.coinSignMsg { margin: 0 0 8px; font-size: 13px; color: var(--ink); line-height: 1.6; }
+.coinSignNext { margin: 8px 0 0; font-size: 11px; color: var(--muted); }
+.coinSignOffline { margin: 8px 0 0; font-size: 11.5px; color: #a2703c; }
+.coinSignNote { margin: 8px 0 0; font-size: 11.5px; color: var(--ink-soft); line-height: 1.6; overflow-wrap: anywhere; }
+
+/* 按钮 */
+.coinBtn {
+  display: block;
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  text-align: center;
+}
+.coinBtn:active { background: #f4f9fa; }
+.coinBtn:disabled { opacity: 0.5; }
+.coinBtnPrimary { border-color: #b9d2d5; background: #eef7f7; color: #3f6f76; font-weight: 600; }
+.coinBtnPrimary:disabled { opacity: 0.45; }
+.coinBtnTrade { border-style: dashed; background: #fafcfc; color: var(--muted); }
+.coinTradeCard { padding: 10px; }
+
+/* 开盘提醒 */
+.coinReminderRow {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.coinReminderBtn {
+  margin-left: auto;
+  flex: none;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 11.5px;
+}
+.coinReminderOn { margin: 0; padding: 0 4px; font-size: 11.5px; color: var(--muted); }
+.coinReminderNote { margin: 0; padding: 0 4px; font-size: 11px; color: #a2703c; line-height: 1.6; }
+
+/* 空态 / 载入 */
+.coinLoading { margin: 44px auto 0; text-align: center; font-size: 13px; color: var(--muted); }
+.coinEmpty { display: grid; justify-items: center; gap: 8px; margin: 48px auto 0; max-width: 300px; text-align: center; }
+.coinEmptyTitle { margin: 0; font-size: 15px; font-weight: 600; color: var(--ink); }
+.coinEmptyNote { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap; }
+.coinEmpty .coinBtn { width: auto; margin-top: 4px; padding: 9px 32px; }
+
+/* 横屏矮屏：图表压到 180，头部收紧，其余靠纵向滚动，不横向溢出。
+   左右安全区已经由 coinHead/coinScroll 的 env() 让开（横屏刘海在左边）。 */
+@media (max-height: 520px) {
+  .coinChartWrap { height: 180px; }
+  .coinHead { padding-top: calc(env(safe-area-inset-top) + 6px); padding-bottom: 6px; }
+  .coinScroll { padding-top: 8px; gap: 8px; }
+}
+
+/* 宽一点的机器（≈420 以上）价格数字抬一档，和聊天正文的断点一致 */
+@media (min-width: 420px) {
+  .coinLast { font-size: 32px; }
+  .coinStats dd { font-size: 13px; }
+  .coinPosGrid dd { font-size: 15px; }
+}
+
 

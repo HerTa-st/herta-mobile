@@ -15,3 +15,5 @@ build*.log
 dist-apk/
 # pdfjs 的 CMaps：构建前从 node_modules 拷进 publicDir，依赖产物不进 git
 assets/pdfjs/
+# 黑塔币 FC 测试向量生成器的临时产物（phantom-market 拷贝 / Edge profile / 日志）
+fc/coin-api/test/.tmp/

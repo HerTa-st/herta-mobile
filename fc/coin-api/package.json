@@ -1,0 +1,16 @@
+{
+  "name": "herta-coin-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "黑塔币 v1 行情接口 · 阿里云函数计算 FC 3.0（GET /api/daily）",
+  "type": "commonjs",
+  "main": "index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node test/fc.test.mjs",
+    "gen-vectors": "node test/gen-vectors.mjs",
+    "dev": "node dev-server.mjs"
+  }
+}

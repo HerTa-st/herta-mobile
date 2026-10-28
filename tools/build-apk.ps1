@@ -11,12 +11,32 @@ param(
   [switch]$SkipWeb,
   # normal=正常版；pure=带那 628 条对话；blank=白纸版（什么都不带）
   [ValidateSet('normal', 'pure', 'blank')]
-  [string]$Variant = 'normal'
+  [string]$Variant = 'normal',
+  # 黑塔币行情接口基址（阿里云 FC）。发布包必须给；不给的话黑塔币页只会显示「未配置接口」。
+  [string]$CoinApiBase = '',
+  # 开发期打真机包时，把接口指到电脑上的 mock（http://<电脑局域网 IP>:8787）
+  [switch]$CoinMock
 )
 
 $ErrorActionPreference = 'Stop'
 $root = Resolve-Path "$PSScriptRoot\.."
 $app = Join-Path $root 'apps\phone'
+
+# 黑塔币接口：构建时注入到 VITE_COIN_API_BASE。mock 只用于开发调试，不能进发布包。
+if ($CoinMock) {
+  $lan = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.PrefixOrigin -ne 'WellKnown' } |
+    Select-Object -First 1 -ExpandProperty IPAddress)
+  if (-not $lan) { $lan = '127.0.0.1' }
+  $CoinApiBase = "http://${lan}:8787"
+  Write-Host ("[!] 黑塔币接口用 mock：" + $CoinApiBase + "（发布前请去掉 -CoinMock）")
+}
+if ($CoinApiBase) {
+  $env:VITE_COIN_API_BASE = $CoinApiBase.TrimEnd('/')
+  Write-Host ("[!] 黑塔币接口：" + $env:VITE_COIN_API_BASE)
+} else {
+  Write-Host '[!] 没给 -CoinApiBase：打出来的包里黑塔币页会显示「未配置接口」。'
+}
 
 # -GradleHome 默认指向仓库内的 .gradle-dist（换机器时放这儿）；这台机器上那份没有解压到
 # 那里，gradle wrapper 早就把 9.2.1 下到 G: 了，于是往那边找一次。都没找到再说清楚要什么，

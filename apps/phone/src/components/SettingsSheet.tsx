@@ -208,6 +208,14 @@ export function SettingsSheet({
         </>
       )}
       <label>
+        黑塔币接口地址（留空 = 打包时注入；改这里不用重打 APK）
+        <input
+          value={settings.coinApiBase}
+          onChange={(e) => onChange({ coinApiBase: e.target.value.trim() })}
+          placeholder="https://你的域名，例如 https://htc.example.com"
+        />
+      </label>
+      <label>
         她的表情包（{stickers.length} 张）
         <input
           type="file"
