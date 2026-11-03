@@ -1,0 +1,276 @@
+/* 方向 D · 选定稿（A 的壳 + A 的播报/开屏 + C 的夜；B 相关段落已停用） */
+
+.d-root .a-app { position: relative; }
+
+/* 顶栏的日夜键 */
+.a-themeBtn {
+  width: 26px; height: 26px; flex: none;
+  border: 1px solid var(--a-line);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--a-muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  display: grid; place-items: center;
+  cursor: pointer;
+}
+.a-themeBtn:hover { color: var(--a-ink); background: rgba(255, 255, 255, 0.9); }
+
+/* 左轨收起 */
+.d-railCheck { position: absolute; opacity: 0; pointer-events: none; }
+.d-railHandle {
+  position: absolute;
+  z-index: 45;
+  top: 50%;
+  left: 58px;
+  width: 10px;
+  height: 36px;
+  transform: translateY(-50%);
+  border: 1px solid var(--a-line);
+  border-left: 0;
+  border-radius: 0 6px 6px 0;
+  background: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+  transition: left 0.18s ease;
+}
+.d-railHandle:after {
+  content: "‹";
+  position: absolute;
+  inset: 0;
+  display: grid; place-items: center;
+  font-size: 10px; color: var(--a-muted);
+}
+.d-railCheck:checked ~ .a-rail {
+  width: 12px;
+  padding-left: 0;
+  padding-right: 0;
+  overflow: hidden;
+}
+.d-railCheck:checked ~ .a-rail > * { opacity: 0; pointer-events: none; }
+.d-railCheck:checked ~ .d-railHandle { left: 11px; }
+.d-railCheck:checked ~ .d-railHandle:after { content: "›"; }
+
+/* 设置里附加的外观条 */
+.d-appearance {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--a-line);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.52);
+  font-size: 10px;
+  color: var(--a-muted);
+}
+.d-appearance > span { font-family: var(--mono); font-size: 8px; letter-spacing: 0.12em; color: var(--a-faint); }
+.d-appearance button {
+  border: 1px solid var(--a-line);
+  background: rgba(255, 255, 255, 0.68);
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 9px;
+  cursor: pointer;
+}
+.d-appearance button:hover { background: #fff; }
+.d-appearance button:last-child { margin-left: auto; color: var(--a-accent); }
+
+/* D 的设计系统页 */
+.d-rule { display: flex; gap: 8px; padding: 7px 0; border-top: 1px solid rgba(17, 20, 23, 0.06); font-size: 10.5px; line-height: 1.6; }
+.d-rule b { flex: none; width: 34px; font-family: var(--mono); font-size: 8.5px; color: var(--a-accent); font-weight: 500; }
+.d-rule span { color: var(--a-ink2); }
+.d-demoRow { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* 播报：A 的顶栏 + B 的报纸 */
+.d-root.d-readerMode { background: #f6f3ec; }
+.d-readerApp { background: #f6f3ec !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+.d-readerMode .a-top {
+  background: rgba(246, 243, 236, 0.92);
+  border-bottom-color: rgba(22, 19, 15, 0.14);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+.d-readerBody { padding: 0 !important; }
+.d-reader {
+  position: relative;
+  height: auto;
+  min-height: 100%;
+  background: var(--b-paper);
+  color: var(--b-ink);
+  font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", Inter, sans-serif;
+}
+.d-readerInner { overflow: visible !important; padding: 12px 17px 26px !important; }
+.d-reader .b-body { overflow: visible; }
+.d-reader .b-chapter { margin-top: 0; }
+
+/* 开屏：B 的书封 */
+.d-root.d-coverMode { background: #f6f3ec; }
+.d-cover { position: relative; height: 100%; }
+.d-coverSkip {
+  position: absolute;
+  z-index: 80;
+  top: 15px;
+  right: 15px;
+  border: 1px solid rgba(22, 19, 15, 0.2);
+  background: rgba(246, 243, 236, 0.8);
+  color: #3d372e;
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.d-cover .a-themeBtn {
+  position: absolute;
+  z-index: 80;
+  top: 15px;
+  right: 74px;
+  border-color: rgba(22, 19, 15, 0.2);
+  background: rgba(246, 243, 236, 0.8);
+  color: #3d372e;
+}
+
+/* ── 夜间：只换 token，不换布局 ─────────────────────── */
+.d-root.is-dark {
+  --a-ink: #e6f7fc;
+  --a-ink2: #b6d0df;
+  --a-muted: #8fadc2;
+  --a-faint: #6a8aa0;
+  --a-line: rgba(110, 231, 255, 0.14);
+  --a-line2: rgba(110, 231, 255, 0.22);
+  --a-card: rgba(10, 26, 38, 0.72);
+  --a-card2: rgba(14, 34, 48, 0.86);
+  --a-accent: #6ee7ff;
+  --a-blue: #7dffc4;
+  --a-warm: #ffb86b;
+  --a-up: #ff6b7d;
+  --a-down: #57e3b2;
+  --a-shadow: 0 12px 32px rgba(0, 0, 0, 0.24);
+  --a-shadow-soft: 0 6px 18px rgba(0, 0, 0, 0.28);
+  background:
+    radial-gradient(circle at 18% 12%, rgba(26, 108, 120, 0.32), transparent 38%),
+    radial-gradient(circle at 84% 4%, rgba(28, 74, 120, 0.34), transparent 40%),
+    radial-gradient(circle at 50% 100%, rgba(12, 54, 72, 0.36), transparent 46%),
+    linear-gradient(165deg, #07131c 0%, #061018 46%, #040b12 100%);
+}
+.d-root.is-dark .a-app { background: rgba(6, 16, 24, 0.9); }
+.d-root.is-dark .a-rail { background: rgba(6, 16, 24, 0.58); border-right-color: var(--a-line); }
+.d-root.is-dark .a-top { background: rgba(6, 16, 24, 0.62); border-bottom-color: var(--a-line); }
+.d-root.is-dark .a-railBtn.on {
+  background: rgba(110, 231, 255, 0.08);
+  border-color: rgba(110, 231, 255, 0.24);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.d-root.is-dark .a-railBtn:hover { background: rgba(110, 231, 255, 0.05); color: var(--a-ink); }
+.d-root.is-dark .a-mark,
+.d-root.is-dark .a-new,
+.d-root.is-dark .a-themeBtn,
+.d-root.is-dark .a-avatarBtn,
+.d-root.is-dark .a-presence,
+.d-root.is-dark .a-userAvatar,
+.d-root.is-dark .a-toolDot,
+.d-root.is-dark .a-capIcon,
+.d-root.is-dark .a-importField,
+.d-root.is-dark .a-dsBlock,
+.d-root.is-dark .a-shortcuts button,
+.d-root.is-dark .a-modTile,
+.d-root.is-dark .a-historyRow button,
+.d-root.is-dark .a-segRow button.on,
+.d-root.is-dark .a-sessRow.on,
+.d-root.is-dark .a-search,
+.d-root.is-dark .a-composer,
+.d-root.is-dark .a-stickerCard,
+.d-root.is-dark .a-profileCard {
+  background: rgba(10, 26, 38, 0.72);
+  border-color: rgba(110, 231, 255, 0.12);
+}
+.d-root.is-dark .a-composer { background: rgba(8, 21, 31, 0.82); }
+.d-root.is-dark .a-send { background: rgba(110, 231, 255, 0.85); color: #041016; }
+.d-root.is-dark .a-composeWrap {
+  border-top-color: rgba(110, 231, 255, 0.08);
+  background: linear-gradient(180deg, rgba(6, 16, 24, 0.2), rgba(6, 16, 24, 0.94) 34%);
+}
+.d-root.is-dark .a-context { background: rgba(6, 16, 24, 0.32); border-bottom-color: rgba(110, 231, 255, 0.06); }
+.d-root.is-dark .a-bubbleUser { background: rgba(110, 231, 255, 0.1); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04); }
+.d-root.is-dark .a-card { border-color: rgba(110, 231, 255, 0.14); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04); }
+.d-root.is-dark .a-thought {
+  color: #a9d7e4;
+  background: rgba(110, 231, 255, 0.06);
+  border-left-color: rgba(110, 231, 255, 0.52);
+}
+.d-root.is-dark .a-comment { background: rgba(110, 231, 255, 0.06); color: #a9d7e4; }
+.d-root.is-dark .a-bcMast { background: rgba(10, 26, 38, 0.72); border-color: rgba(110, 231, 255, 0.12); }
+.d-root.is-dark .a-bcMast:after { color: rgba(255, 255, 255, 0.05); }
+.d-root.is-dark .a-switch { background: rgba(110, 231, 255, 0.14); }
+.d-root.is-dark .a-switch.on { background: var(--a-accent); }
+.d-root.is-dark .a-switch i { background: #e6f7fc; }
+.d-root.is-dark .a-btn { background: rgba(10, 26, 38, 0.72); border-color: rgba(110, 231, 255, 0.18); }
+.d-root.is-dark .a-btnInk { background: rgba(110, 231, 255, 0.86); border-color: rgba(110, 231, 255, 0.86); color: #041016; }
+.d-root.is-dark .a-btnInk:hover { background: var(--a-accent); }
+.d-root.is-dark .a-setRow.tap:hover,
+.d-root.is-dark .a-sessRow:hover,
+.d-root.is-dark .a-modTile:hover,
+.d-root.is-dark .a-historyRow button:hover { background: rgba(110, 231, 255, 0.05); }
+.d-root.is-dark .a-dsHead { background: rgba(10, 26, 38, 0.72); }
+.d-root.is-dark .a-themeBtn { color: var(--a-accent); }
+.d-root.is-dark .a-toolFilters button.on { background: rgba(110, 231, 255, 0.08); border-color: rgba(110, 231, 255, 0.18); }
+.d-root.is-dark .d-appearance { background: rgba(10, 26, 38, 0.72); border-color: rgba(110, 231, 255, 0.14); }
+.d-root.is-dark .d-appearance button { background: rgba(110, 231, 255, 0.06); border-color: rgba(110, 231, 255, 0.16); }
+.d-root.is-dark .d-rule { border-top-color: rgba(110, 231, 255, 0.08); }
+
+/* 夜间：B 的播报/书封也一起变 */
+.d-root.is-dark.d-readerMode,
+.d-root.is-dark.d-coverMode { background: #08141e; }
+.d-root.is-dark .d-readerApp { background: #08141e !important; }
+.d-root.is-dark .d-readerMode .a-top { background: rgba(6, 16, 24, 0.88); border-bottom-color: rgba(110, 231, 255, 0.14); }
+.d-root.is-dark .d-reader,
+.d-root.is-dark .d-cover {
+  --b-paper: #08141e;
+  --b-paper2: #0b1822;
+  --b-ink: #e6f7fc;
+  --b-ink2: #b6d0df;
+  --b-muted: #8fadc2;
+  --b-faint: #6a8aa0;
+  --b-rule: rgba(110, 231, 255, 0.16);
+  --b-ruleSoft: rgba(110, 231, 255, 0.09);
+  --b-accent: #ff9f8a;
+  --b-teal: #6ee7ff;
+  --b-gold: #ffd28a;
+}
+.d-root.is-dark .d-reader { background: #08141e; }
+.d-root.is-dark .d-cover { background: #08141e; }
+.d-root.is-dark .b-root:before { opacity: 0.12; }
+.d-root.is-dark .b-pullquote { background: rgba(110, 231, 255, 0.06); color: #ffd0c4; }
+.d-root.is-dark .b-brief:hover { background: rgba(110, 231, 255, 0.05); }
+.d-root.is-dark .b-sessRow:hover,
+.d-root.is-dark .b-volItem:hover,
+.d-root.is-dark .b-ledgerRow:hover,
+.d-root.is-dark .b-indexItem:hover { background: rgba(110, 231, 255, 0.05); }
+.d-root.is-dark .d-coverSkip,
+.d-root.is-dark .d-cover .a-themeBtn {
+  background: rgba(8, 20, 30, 0.85);
+  border-color: rgba(110, 231, 255, 0.2);
+  color: var(--b-muted);
+}
+.d-root.is-dark .b-coverOpen { background: var(--b-ink); color: #08141e; }
+.d-root.is-dark .b-coverFrame { border-color: var(--b-ink); }
+.d-root.is-dark .b-coverFrame:before { border-color: var(--b-rule); }
+
+/* 夜间：列表线、内部分隔线 */
+.d-root.is-dark .a-setRow,
+.d-root.is-dark .a-memRow,
+.d-root.is-dark .a-toolRow,
+.d-root.is-dark .a-fileRow,
+.d-root.is-dark .a-manifestRow,
+.d-root.is-dark .a-leader,
+.d-root.is-dark .a-bcItem,
+.d-root.is-dark .a-capRow,
+.d-root.is-dark .a-importSteps div,
+.d-root.is-dark .a-typeRows div,
+.d-root.is-dark .a-importSteps div,
+.d-root.is-dark .a-netStats { border-color: rgba(110, 231, 255, 0.09); }
+.d-root.is-dark .a-weight i { background: rgba(110, 231, 255, 0.12); }
+.d-root.is-dark .a-radiusRow div { background: rgba(10, 26, 38, 0.72); border-color: rgba(110, 231, 255, 0.12); }
+.d-root.is-dark .a-tokChip,
+.d-root.is-dark .a-search kbd { border-color: rgba(110, 231, 255, 0.14); }
+.d-root.is-dark .a-btnGhost:hover { background: rgba(110, 231, 255, 0.08); }

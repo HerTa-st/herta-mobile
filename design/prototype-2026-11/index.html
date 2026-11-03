@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0c1218" />
+    <title>Herta 手机端 · UI 方案 2026.11</title>
+    <link rel="stylesheet" href="./base.css" />
+    <link rel="stylesheet" href="./a.css" />
+    <link rel="stylesheet" href="./b.css" />
+    <link rel="stylesheet" href="./c.css" />
+    <link rel="stylesheet" href="./d.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="masthead">
+        <div>
+          <div class="brandline"><b>HERTA MOBILE</b><i></i><span>UI STUDY · 2026.11 · 方案稿</span></div>
+          <h1>她的手机端，<em>三种装法 + 一个选定稿</em></h1>
+          <p class="dek">
+            同一个「她」、同一套模块。A / B / C 是三种结构完全不同的壳，D 是拍板稿：A 的日常 + C 的夜，播报和开屏保持 A。
+            视觉都从桌面端取：<b>墨色文字、海面青、半透明玻璃、等宽读数</b>。用底部箭头换版本，用「模块」跳任意一页。
+          </p>
+          <div class="tabs" id="tabs" role="tablist" aria-label="设计方向"></div>
+        </div>
+        <div class="meta">
+          3 + 1 DIRECTIONS<br />
+          12 MODULES<br />
+          390 × 844 · ANDROID<br />
+          <b>只读原型 · 不落库</b>
+        </div>
+      </header>
+
+      <main class="stage">
+        <aside class="notes" id="notes" aria-live="polite"></aside>
+
+        <div class="center">
+          <div class="deviceSlot" id="deviceSlot">
+            <div class="device" id="device">
+              <div class="punch"></div>
+              <div class="screen" id="screen"></div>
+            </div>
+          </div>
+          <div class="caption">
+            <i></i>
+            <span id="captionVariant">A · 站内工作台</span>
+            <span>·</span>
+            <span id="captionScreen">对话</span>
+            <span>·</span>
+            <span>示例数据</span>
+          </div>
+        </div>
+
+        <aside class="mods">
+          <div class="label"><span>模块索引</span><b>12</b></div>
+          <div id="modsList"></div>
+          <div class="foot">
+            <kbd>←</kbd> <kbd>→</kbd> 换方向 · <kbd>M</kbd> 模块<br />
+            底部切换条只属于原型，不属于设计本身。
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <div class="moduleMenu" id="moduleMenu" role="dialog" aria-label="模块索引"></div>
+
+    <div class="switcher" role="group" aria-label="原型方向切换">
+      <button type="button" id="prevBtn" aria-label="上一个方向">←</button>
+      <div class="swLabel"><b id="swKey">A</b><span id="swName">站内工作台</span> <em id="swScreen">/ 对话</em></div>
+      <button type="button" id="nextBtn" aria-label="下一个方向">→</button>
+      <button type="button" class="swMods" id="swMods" aria-expanded="false">模块 ▾</button>
+    </div>
+
+    <div class="protoToast" id="toast" role="status"></div>
+
+    <noscript>这个原型需要 JavaScript；请用浏览器打开。</noscript>
+
+    <script src="./data.js"></script>
+    <script src="./charts.js"></script>
+    <script src="./variant-a.js"></script>
+    <script src="./variant-b.js"></script>
+    <script src="./variant-c.js"></script>
+    <script src="./variant-d.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
