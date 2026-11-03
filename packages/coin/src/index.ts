@@ -9,3 +9,4 @@ export * from "./types.ts";
 export * from "./api.ts";
 export * from "./signin.ts";
 export * from "./wallet.ts";
+export * from "./market.ts";

@@ -30,6 +30,18 @@ export interface HertaBlock {
   attachments?: { mediaType: string; data: string; name?: string }[];
   /** 这一轮花掉的 token（判心情 / 工具轮 / 复核 / 重说全算进来）。气泡下面那枚徽章用它。 */
   usage?: TokenUsage;
+  /**
+   * 播报提示：气泡里带一个「查看播报」按钮。
+   * 只给界面用。序列化时**不是**她的一句话，而是一行系统旁白——
+   * 写成「我 说」的话，下一轮她会把自己的提示当成开拓者的消息去回。
+   */
+  action?: {
+    kind: "broadcast";
+    /** 当期的 id（本地日期 YYYY-MM-DD）。 */
+    issueId: string;
+    /** 期号，按钮/文案里用得上。 */
+    no: number;
+  };
 }
 
 export interface SystemBlock {
