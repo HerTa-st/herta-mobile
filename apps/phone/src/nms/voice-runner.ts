@@ -85,6 +85,7 @@ export async function runVoiceGenerate(options: {
       previousProfile: previous?.profile ?? null,
       previousParams: params,
       schema,
+      userName: settings.userName,
     });
     const raw = await collect(
       transport.stream({

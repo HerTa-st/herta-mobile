@@ -46,11 +46,27 @@ export function Onboarding({
         <div className="onboardMark" aria-hidden="true">H</div>
         <img className="onboardAvatar" src="/herta.png" alt="" />
         <h1>她在这里。</h1>
-        <p className="onboardLede">四件事，两分钟。都能跳过，之后再从设置里补。</p>
+        <p className="onboardLede">五件事，两分钟。都能跳过，之后再从设置里补。</p>
 
         <div className="onboardCard">
           <section className="onboardStep">
             <span className="onboardNo">01</span>
+            <div className="onboardStepBody">
+              <h3>她怎么叫你</h3>
+              <input
+                type="text"
+                value={settings.userName}
+                maxLength={16}
+                onChange={(e) => onChange({ userName: e.target.value.slice(0, 16) })}
+                placeholder="开拓者（不填就用这个）"
+                autoComplete="off"
+              />
+              <p>她会拿这个名字叫你；只存在这台手机上，想改就重看一遍引导。</p>
+            </div>
+          </section>
+
+          <section className="onboardStep">
+            <span className="onboardNo">02</span>
             <div className="onboardStepBody">
               <h3>她的 Key</h3>
               <input
@@ -64,7 +80,7 @@ export function Onboarding({
           </section>
 
           <section className="onboardStep">
-            <span className="onboardNo">02</span>
+            <span className="onboardNo">03</span>
             <div className="onboardStepBody">
               <h3>她能做什么</h3>
               <button type="button" className="onboardRow" onClick={onOpenCapabilities}>
@@ -75,7 +91,7 @@ export function Onboarding({
           </section>
 
           <section className="onboardStep">
-            <span className="onboardNo">03</span>
+            <span className="onboardNo">04</span>
             <div className="onboardStepBody">
               <h3>到点能喊你</h3>
               <button type="button" className="onboardRow" onClick={() => void askNotify()} disabled={asking}>
@@ -86,7 +102,7 @@ export function Onboarding({
           </section>
 
           <section className="onboardStep">
-            <span className="onboardNo">04</span>
+            <span className="onboardNo">05</span>
             <div className="onboardStepBody">
               <h3>别让她被系统杀掉</h3>
               <p>国产系统会清后台。系统设置 → 电池 → 选「不受限制」，她才能在你不打开 App 的时候也醒着。</p>

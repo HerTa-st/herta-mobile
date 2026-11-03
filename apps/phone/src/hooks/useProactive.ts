@@ -118,6 +118,7 @@ export function useProactive(opts: {
           mood: p.mood,
           blocks: p.session.blocks,
           deep: p.settings.proactiveDeepMemory,
+          userName: p.settings.userName,
         });
         if (speech) {
           await pushPingNotification(speech);

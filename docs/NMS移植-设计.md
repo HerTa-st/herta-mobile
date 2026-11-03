@@ -179,7 +179,7 @@ apps/phone/src/nms/
 **一句话**：她读最近几篇记忆，重写「我说话的方式」，同时最多挪一格自己的性子；有自动语气就用它，没有才回落冻结的旧语气。
 
 - **状态**：NMS meta 的 `voice_state`（JSON）：profile / params / version / updatedAt / reason / history（最多 5 个快照）。不新建表，不动 schema 版本。
-- **参数**：四个旋钮（speech 说话长短 / patience 耐心 / initiative 主动程度 / address 称呼方式），schema 在 `packages/nms/src/voice.ts`。生成时数字每次最多差一个 step、枚举只能挪到相邻候选，越界夹回；参数只进提示词，不直接驱动行为。
+- **参数**：四个旋钮（speech 说话长短 / patience 耐心 / initiative 主动程度 / address 称呼方式），schema 在 `packages/nms/src/voice.ts`。address 的候选是「名字 / 开拓者 / 不称呼」，其中「名字」取引导页填的用户名（没填按开拓者兜底）。生成时数字每次最多差一个 step、枚举只能挪到相邻候选，越界夹回；参数只进提示词，不直接驱动行为。
 - **生成**：`buildVoicePrompt` = 最近 6 条 ep/sem 正文 + 上一版 + 当前参数；模型只输出 `{"profile","params"}`；`parseVoiceReply` 校验失败整次拒绝、保留旧版。
 - **触发**：深睡返回 ok 且这次 `pendingConsumed > 0 || semanticNodesCreated > 0` 时自动跑一次（fire-and-forget）；面板「重写」可手动跑；省 token 模式不跑。一次约 1–2k 输入 token，不计入 nmsNightCap。
 - **注入**：`useChatTurn` 把 profile 传给 `buildStaticPrefix` 的 voiceText，参数摘要（「我现在的性子：说话长短 75/100；…」）作为 voiceParams 跟在同一段；自动语气缺席时回落 `voiceTextOf(dreamState)`。

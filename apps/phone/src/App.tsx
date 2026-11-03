@@ -145,7 +145,7 @@ export function App() {
   const nmsVoice = useMemo(() => {
     if (!voiceState) return null;
     const schema = normalizeVoiceSchema();
-    return { profile: voiceState.profile, paramsLine: renderVoiceParamsLine(schema, voiceState.params) };
+    return { profile: voiceState.profile, paramsLine: renderVoiceParamsLine(schema, voiceState.params, settings.userName) };
   }, [voiceState]);
   const nmsActivation = useMemo(() => createActivationStore(), []);
   const nmsRecallSeq = useRef(0);

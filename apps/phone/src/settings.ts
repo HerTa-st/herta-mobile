@@ -79,6 +79,13 @@ export interface Settings {
   ttsVoice: string;
   ttsGroupId: string;
   /**
+   * 她怎么叫你。
+   *
+   * 引导页填一次；空着就按老的叫法（开拓者）。只在引导页改——
+   * 想改就重看一遍引导（设置 · 界面 · 开屏与引导）。
+   */
+  userName: string;
+  /**
    * 左轨收起。
    *
    * true = 左轨压成 12px 的把手（正文多出 46px）；false = 常驻 58px 工作台。
@@ -145,6 +152,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ttsGroupId: "",
   coinApiBase: "",
   coinIdentity: "",
+  userName: "",
   railCollapsed: false,
   theme: "system",
 };
