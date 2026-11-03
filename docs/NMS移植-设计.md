@@ -21,7 +21,7 @@
 
 **不做**
 
-- 不搬 NMS 宿主壳（plugin/tools/agent-scope）、不搬 NMS 的 28 条种子、不搬自动语气/四参数（语气冻结）。
+- 不搬 NMS 宿主壳（plugin/tools/agent-scope）、不搬 NMS 的 28 条种子。
 - 不做 PC↔手机记忆同步（现有 gateway 未开工）。
 - 不做多 persona/多 workspace；固定单 Herta、单记忆分区。
 
@@ -32,7 +32,7 @@
 | 1 | 替换手机端记忆内核，旧废案不再作为第二套写方。 |
 | 2 | 迁移映射：无 sessionId 的 4 篇种子 → note；自造废案 → ep；字段/边/权重/时间保留。 |
 | 3 | UI 全量重做：列表/设置手机原生；网络视图搬桌面 NMS（canvas 3D/LOD/激活适配）。 |
-| 4 | 语气冻结：保留旧 DreamState.voice 供 persona 注入，不再重写；不移植 NMS 自动语气。 |
+| 4 | 语气：移植 NMS 自动语气（「我说话的方式」+ 四个性子参数，一晚一格），存 NMS meta 的 voice_state；旧 DreamState.voice 只作没有自动语气时的回落。见 §13。 |
 | 5 | 存储：Capacitor SQLite 原生插件（@capacitor-community/sqlite 8.1.1）。 |
 | 6 | store 层异步：NMS 43 个方法 async 化，124 处调用加 await；turn-stopping 写入排队。 |
 | 7 | 睡眠：浅睡本地常跑；深睡在有 key + 网络 + 前台/保活时跑，手动按钮可用。 |
@@ -82,7 +82,7 @@ apps/phone/src/nms/
 - meta：k/v（deep_sleep_cursor、merge_decisions、migration 标记、frozen_voice）。
 - pending_turns：id/session_id/persona/workspace/user_text/assistant_text/turn/created_at/consumed_at，唯一 (session_id,turn)。
 
-不建：personas / persona_routes / persona_base_versions / persona_schema_versions / voice_profiles / voice_snapshots（Q12 只搬内核，Q4 语气冻结）。
+不建 personas / persona_routes / persona_base_versions / persona_schema_versions 表（单人格，基底直接用随包的 HertaBio）。自动语气不另建表：状态存在 meta 的 voice_state（JSON，含最多 5 个快照），见 §13。
 
 - 索引：nodes(tier)、nodes(persona,workspace)、nodes(archived,forgotten)、edges(a/b)、pending 未消费、pending 唯一。
 - 迁移：新库 schema_version=1（移动端独立于 DSH 的 v4）；后续用 meta 迁移。
@@ -173,3 +173,15 @@ apps/phone/src/nms/
 - 手机端零测试；需要给 packages/nms 建测试，UI 至少手测。
 - 旧备份 sanitize 丢 recalls/lastRecallAt/deepenNote，迁移前先修备份解析。
 - 深睡依赖 WebView 存活（HertaKeeperService）；系统杀进程/服务关闭时不保证，需在设置页如实说明。
+
+## 13. 自动语气（2026-11-04 补）
+
+**一句话**：她读最近几篇记忆，重写「我说话的方式」，同时最多挪一格自己的性子；有自动语气就用它，没有才回落冻结的旧语气。
+
+- **状态**：NMS meta 的 `voice_state`（JSON）：profile / params / version / updatedAt / reason / history（最多 5 个快照）。不新建表，不动 schema 版本。
+- **参数**：四个旋钮（speech 说话长短 / patience 耐心 / initiative 主动程度 / address 称呼方式），schema 在 `packages/nms/src/voice.ts`。生成时数字每次最多差一个 step、枚举只能挪到相邻候选，越界夹回；参数只进提示词，不直接驱动行为。
+- **生成**：`buildVoicePrompt` = 最近 6 条 ep/sem 正文 + 上一版 + 当前参数；模型只输出 `{"profile","params"}`；`parseVoiceReply` 校验失败整次拒绝、保留旧版。
+- **触发**：深睡返回 ok 且这次 `pendingConsumed > 0 || semanticNodesCreated > 0` 时自动跑一次（fire-and-forget）；面板「重写」可手动跑；省 token 模式不跑。一次约 1–2k 输入 token，不计入 nmsNightCap。
+- **注入**：`useChatTurn` 把 profile 传给 `buildStaticPrefix` 的 voiceText，参数摘要（「我现在的性子：说话长短 75/100；…」）作为 voiceParams 跟在同一段；自动语气缺席时回落 `voiceTextOf(dreamState)`。
+- **面板**：记忆页 · 设置 ·「人格与语气」：当前正文、生成时间/版本、四参数（± / 枚举，连点 600ms 合一次落盘）、重写、最近 5 版回滚。
+- **边界**：不改 DEEP_STAGES、不占深睡调用配额；生成失败只记日志；单人格、单分区。

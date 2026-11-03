@@ -3,6 +3,20 @@ import assert from "node:assert/strict";
 import { tokenize, similarity, effectiveWeight, rankCandidates } from "../src/model.ts";
 import { LEGACY_MIGRATED_KEY, LEGACY_VOICE_KEY, migrateLegacyMemories, readFrozenVoice } from "../src/migrate.ts";
 import { createPendingWriter } from "../src/pending.ts";
+import {
+  applyVoiceGeneration,
+  applyVoiceParams,
+  cleanVoiceProfile,
+  clampVoiceParams,
+  defaultVoiceParams,
+  normalizeVoiceSchema,
+  parseVoiceReply,
+  readVoiceState,
+  renderVoiceParamsLine,
+  rollbackVoiceState,
+  VOICE_SNAPSHOT_LIMIT,
+  writeVoiceState,
+} from "../src/voice.ts";
 
 const NOW = Date.parse("2026-11-02T00:00:00.000Z");
 
@@ -170,4 +184,73 @@ test("pending：队列串行写入、同轮幂等、空文本不写", async () =
   assert.equal(rows.length, 1);
   assert.equal(rows[0].userText, "你好");
   assert.equal(rows[0].turn, 1);
+});
+
+/* ------------------------------------------------------------ 自动语气 */
+
+test("自动语气：参数一晚一格、越界夹回、枚举只挪相邻", () => {
+  const schema = normalizeVoiceSchema();
+  const base = defaultVoiceParams(schema);
+  assert.equal(base.speech, 70);
+  const out = clampVoiceParams(schema, base, { speech: 100, address: "none" });
+  assert.equal(out.params.speech, 75, "数字最多差一个步长");
+  assert.equal(out.params.address, "trailblazer", "不称呼离开拓者两格，不能一步到");
+  assert.ok(out.rejected.some((r) => r.includes("address")));
+  const snap = clampVoiceParams(schema, base, { speech: 72 });
+  assert.equal(snap.params.speech, 70, "72 落到 5 的格子上还是 70");
+  const moved = clampVoiceParams(schema, base, { address: "laomeng" });
+  assert.equal(moved.params.address, "laomeng");
+  const unknown = clampVoiceParams(schema, base, { nope: 1, speech: 65 });
+  assert.equal("nope" in unknown.params, false);
+});
+
+test("自动语气：解析模型输出；坏 JSON / 空 profile 保留旧版", () => {
+  const schema = normalizeVoiceSchema();
+  const base = defaultVoiceParams(schema);
+  const ok = parseVoiceReply('{"profile":"我说话很直，不爱解释。","params":{"speech":72,"address":"laomeng"}}', schema, base);
+  assert.ok(ok);
+  assert.equal(ok.params.speech, 70);
+  assert.equal(ok.params.address, "laomeng");
+  assert.equal(parseVoiceReply("不是 JSON", schema, base), null);
+  assert.equal(parseVoiceReply('{"profile":""}', schema, base), null);
+  const raw = ["# 我说话的方式", "- 短句。", "- 不解释。"].join("\n");
+  assert.equal(cleanVoiceProfile(raw), "短句。\n不解释。");
+  assert.ok(cleanVoiceProfile("长".repeat(900)).length <= 420);
+});
+
+test("自动语气：生成 / 手动改 / 回滚，历史裁到 5 条", async () => {
+  const store = new FakeStore();
+  const schema = normalizeVoiceSchema();
+  const base = defaultVoiceParams(schema);
+  let state = applyVoiceGeneration(null, { profile: "短。", params: base, reason: "auto", now: NOW });
+  await writeVoiceState(store, state);
+  const loaded = await readVoiceState(store);
+  assert.ok(loaded);
+  assert.equal(loaded.profile, "短。");
+  state = applyVoiceGeneration(loaded, { profile: "更短。", params: base, reason: "auto", now: NOW + 1000 });
+  await writeVoiceState(store, state);
+  state = applyVoiceParams(state, { ...base, speech: 75 }, { now: NOW + 2000 });
+  await writeVoiceState(store, state);
+  const third = await readVoiceState(store);
+  assert.equal(third.version, 3);
+  assert.equal(third.history.length, 2);
+  const rolled = rollbackVoiceState(third, 1, NOW + 3000);
+  assert.ok(rolled);
+  assert.equal(rolled.profile, "短。");
+  assert.equal(rolled.version, 4);
+  assert.equal(rollbackVoiceState(third, 99), null);
+  let many = rolled;
+  for (let i = 0; i < 8; i += 1) {
+    many = applyVoiceGeneration(many, { profile: "第" + i + "版。", params: base, reason: "auto", now: NOW + 4000 + i * 1000 });
+  }
+  assert.equal(many.history.length, VOICE_SNAPSHOT_LIMIT);
+});
+
+test("自动语气：一行性子摘要带标签", () => {
+  const schema = normalizeVoiceSchema();
+  const line = renderVoiceParamsLine(schema, defaultVoiceParams(schema));
+  assert.ok(line.includes("说话长短 70/100"));
+  assert.ok(line.includes("耐心 60/100"));
+  assert.ok(line.includes("主动程度 40/100"));
+  assert.ok(line.includes("称呼方式：开拓者"));
 });

@@ -98,8 +98,10 @@ export function useChatTurn(opts: {
   onTurnEnd?(payload: { sessionId: string; turn: number; userText: string; assistantText: string; reason: "final" | "refused" | "aborted" | "error" }): void;
   /** 本轮 NMS 召回命中的节点，给网络视图点亮。 */
   onNmsRecall?(events: Array<{ id: number; activation: number }>): void;
+  /** 自动语气（NMS）；没有就回落冻结的旧语气。 */
+  nmsVoice?: { profile: string; paramsLine: string } | null;
 }) {
-  const { settings, session, setSession, persist, memories, dreamState, files, stickers, onKeepSticker, onError, onNeedKey, onTurnEnd, onNmsRecall } = opts;
+  const { settings, session, setSession, persist, memories, dreamState, files, stickers, onKeepSticker, onError, onNeedKey, onTurnEnd, onNmsRecall, nmsVoice } = opts;
   const [busy, setBusy] = useState(false);
   /** 她在"想一下"的那几秒（或者说，在装作想一下）。 */
   const [typing, setTyping] = useState(false);
@@ -294,7 +296,9 @@ export function useChatTurn(opts: {
       const prefix = buildStaticPrefix({
         assets: promptAssets,
         seeds,
-        voiceText: voiceTextOf(dreamState),
+        // 有自动语气就用它；还没生成过才回落冻结的旧语气。
+        voiceText: nmsVoice?.profile || voiceTextOf(dreamState),
+        voiceParams: nmsVoice?.paramsLine ?? null,
         presence: presenceNote,
         extraNotes: styleNote ? ["〔旁注：" + styleNote + "〕"] : [],
       });
@@ -554,7 +558,7 @@ export function useChatTurn(opts: {
       abort.current = null;
       setBusy(false);
     }
-  }, [busy, files, memories, onError, onKeepSticker, onNeedKey, onNmsRecall, onTurnEnd, persist, session, settings, stickers]);
+  }, [busy, dreamState, files, memories, nmsVoice, onError, onKeepSticker, onNeedKey, onNmsRecall, onTurnEnd, persist, session, settings, stickers]);
 
   // 中途被打断（打断/切会话）别把"正在输入"留在界面上
   useEffect(() => () => setTyping(false), []);

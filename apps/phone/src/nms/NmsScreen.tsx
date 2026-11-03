@@ -4,8 +4,9 @@
  * 网络视图直接复用 nms/network/NetworkView（桌面移植）；列表与设置用手机原生组件。
  * 数据全部来自本地 NmsStore.snapshot()，不依赖 /nms/api。
  */
-import { useMemo, useState } from "react";
-import type { NmsSnapshot } from "@herta/nms";
+import { useEffect, useMemo, useState } from "react";
+import { normalizeVoiceSchema } from "@herta/nms";
+import type { NmsSnapshot, VoiceParams, VoiceState } from "@herta/nms";
 import type { Settings } from "../settings.ts";
 import type { NmsActivationStore } from "./network/activation.ts";
 import { NetworkView } from "./network/network-view.tsx";
@@ -19,18 +20,43 @@ export interface NmsScreenProps {
   snapshot: NmsSnapshot | null;
   activationStore: NmsActivationStore;
   settings: Settings;
+  voice: VoiceState | null;
   onSettingsChange(patch: Partial<Settings>): void;
   onRefresh(): void;
+  onRewriteVoice(): Promise<boolean>;
+  onChangeVoiceParams(params: VoiceParams): void;
+  onRollbackVoice(version: number): void;
   onClose(): void;
 }
 
 type Tab = "network" | "list" | "settings";
 
-export function NmsScreen({ snapshot, activationStore, settings, onSettingsChange, onRefresh, onClose }: NmsScreenProps) {
+function shortTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+export function NmsScreen({
+  snapshot,
+  activationStore,
+  settings,
+  voice,
+  onSettingsChange,
+  onRefresh,
+  onRewriteVoice,
+  onChangeVoiceParams,
+  onRollbackVoice,
+  onClose,
+}: NmsScreenProps) {
   const [tab, setTab] = useState<Tab>("network");
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState<"deep" | "light" | "">("");
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  /** 连点 ± 时先改本地，600ms 后再落一版（避免每一下都造一个快照）。 */
+  const [draftParams, setDraftParams] = useState<VoiceParams | null>(null);
   const [note, setNote] = useState("");
+  const voiceSchema = useMemo(() => normalizeVoiceSchema(), []);
 
   const nodes = snapshot?.nodes ?? [];
   const filtered = useMemo(() => {
@@ -38,6 +64,31 @@ export function NmsScreen({ snapshot, activationStore, settings, onSettingsChang
     const list = q.length === 0 ? nodes : nodes.filter((node) => (node.title + " " + node.gist).toLowerCase().includes(q));
     return [...list].sort((a, b) => b.effectiveWeight - a.effectiveWeight);
   }, [nodes, query]);
+
+  async function rewriteVoiceNow() {
+    if (voiceBusy) return;
+    setVoiceBusy(true);
+    setNote("重写语气中：她重读最近几篇记忆…");
+    try {
+      const ok = await onRewriteVoice();
+      setNote(ok ? "语气重写好了" : "语气没写成：看上面那条提示");
+      onRefresh();
+    } finally {
+      setVoiceBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    setDraftParams(null);
+  }, [voice?.version]);
+
+  function changeParam(key: string, value: number | string) {
+    const baseParams = draftParams ?? voice?.params;
+    if (!voice || !baseParams) return;
+    const next = { ...baseParams, [key]: value };
+    setDraftParams(next);
+    onChangeVoiceParams(next);
+  }
 
   async function runDeep() {
     setBusy("deep");
@@ -186,6 +237,7 @@ export function NmsScreen({ snapshot, activationStore, settings, onSettingsChang
         ) : null}
 
         {tab === "settings" ? (
+          <>
           <div className="nmsSettingGroup">
             <label className="nmsCheck">
               <input
@@ -220,9 +272,93 @@ export function NmsScreen({ snapshot, activationStore, settings, onSettingsChang
               <div>节点 {stats?.nodes.total ?? 0} · 连接 {stats?.edges.total ?? 0}</div>
               <div>情景 {tierCounts.ep} / 语义 {tierCounts.sem} / 语气 {tierCounts.note}</div>
               <div>待加工轮次 {stats?.pending.unconsumed ?? 0}</div>
-              <div>语气：冻结（旧 DreamState.voice 只读）</div>
+              <div>{voice ? "语气：自动 v" + voice.version : "语气：冻结（还没生成过）"}</div>
             </div>
           </div>
+
+          <div className="nmsSettingGroup nmsVoiceGroup">
+            <div className="nmsVoiceHead">
+              <b>人格与语气</b>
+              <span>{voice ? "v" + voice.version + " · " + shortTime(voice.updatedAt) : "还没生成"}</span>
+            </div>
+            <p className="nmsVoiceText">
+              {voice
+                ? voice.profile
+                : "还没生成过。现在用的是 NMS 移植时冻结的旧语气；深睡有新记忆后会自己重写，也可以现在点一次。"}
+            </p>
+            {voice ? (
+              <div className="nmsParams">
+                {Object.entries(voiceSchema.nodes).map(([key, node]) => (
+                  <div className="nmsParamRow" key={key}>
+                    <span className="nmsParamLabel">{node.label}</span>
+                    {node.type === "number" ? (
+                      <>
+                        <button
+                          type="button"
+                          className="nmsParamBtn"
+                          aria-label={node.label + "减一档"}
+                          onClick={() => changeParam(key, Number((draftParams ?? voice.params)[key]) - node.step)}
+                        >
+                          −
+                        </button>
+                        <b className="nmsParamValue">{String((draftParams ?? voice.params)[key])}</b>
+                        <button
+                          type="button"
+                          className="nmsParamBtn"
+                          aria-label={node.label + "加一档"}
+                          onClick={() => changeParam(key, Number((draftParams ?? voice.params)[key]) + node.step)}
+                        >
+                          ＋
+                        </button>
+                        <em className="nmsParamRange">/ {node.max}</em>
+                      </>
+                    ) : (
+                      <select
+                        className="nmsParamSelect"
+                        value={String((draftParams ?? voice.params)[key])}
+                        aria-label={node.label}
+                        onChange={(e) => changeParam(key, e.target.value)}
+                      >
+                        {node.values.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            <div className="nmsActions">
+              <button
+                type="button"
+                disabled={voiceBusy || nodes.length === 0}
+                onClick={() => void rewriteVoiceNow()}
+              >
+                {voiceBusy ? "重写中…" : "重写语气（约 1–2k token）"}
+              </button>
+            </div>
+            {nodes.length === 0 ? <p className="nmsHint">还没有记忆可读；先聊几轮、睡一觉，再来重写。</p> : null}
+            {voice && voice.history.length > 0 ? (
+              <details className="nmsVoiceHistory">
+                <summary>最近 {voice.history.length} 版 · 可以回滚</summary>
+                {voice.history.map((snapshotVoice) => (
+                  <div className="nmsVoiceSnap" key={snapshotVoice.version}>
+                    <span>
+                      v{snapshotVoice.version} · {shortTime(snapshotVoice.updatedAt)}
+                    </span>
+                    <p>{snapshotVoice.profile}</p>
+                    <button type="button" onClick={() => onRollbackVoice(snapshotVoice.version)}>
+                      回到这版
+                    </button>
+                  </div>
+                ))}
+              </details>
+            ) : null}
+            <p className="nmsHint">深睡跑完、这次真有新记忆时才自动重写；省 token 模式下不跑。</p>
+          </div>
+          </>
         ) : null}
       </div>
     </div>
