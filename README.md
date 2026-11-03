@@ -20,17 +20,19 @@ packages/core       纯逻辑，Node 里能跑测试（128 项）
   presence 行踪       mood 心情             search 全文检索
   import / share 导入 tools 工具循环        session 会话演化
   image 长图切片（按官方单图预算算坐标）   usage 用量累加与缩写   budget 省 token 档的预算
+packages/nms        NMS 记忆内核：ep/sem/note 三层、加权图、90 天衰减、浅睡/深睡六阶段、SQLite 异步 store
 packages/coin       黑塔币纯逻辑：签到曲线 / 钱包盈亏 / 接口类型与解析（Node 里可测）
 fc/coin-api         阿里云 FC：GET /api/daily，算法与网页同源 + 测试向量 + 本地 mock
 apps/phone
   App.tsx           壳与回合编排
-  components/       Drawer · SettingsSheet · GraphView · MemoryViewer · Shot · CoinView
+  nms/              NMS 控制面 / 列表 + 网络 + 设置页 / 桌面网络视图移植 / pending / 深睡执行器
+  components/       Drawer · SettingsSheet · MemoryViewer · Shot · CoinView（旧记忆入口为只读适配）
   coin/             黑塔币：storage / useCoin / chart / notify / config
   MemoryGraph.tsx   实时物理星图（canvas）
   transport.ts      原生/浏览器通道        devtools.ts  六件工具
   storage.ts        会话落盘               memory-idb.ts 记忆落盘
 runtime/            桌面版原文（196 个提示词函数），别动
-assets/             自传、话术、4 条 veto 原声、4 篇种子
+assets/             自传、话术、4 条 veto 原声、Noto Sans SC 字体（不含预装记忆）
 tools/              打 APK、删种子、删素材字段、油猴脚本
 ```
 
@@ -53,7 +55,7 @@ npm run dev:phone # 浏览器里跑 UI
 | 撤回上一轮 | ✅ |
 | 打断 | ✅ 留下已说出口的半句，不报错 |
 | 类型检查 | ✅ `npm run typecheck`（打包脚本第一步就跑） |
-| 记忆库 | ✅ 4 篇种子进 IndexedDB（只搬一次，删光不会再复活），每轮挑 3 篇进系统提示词 |
+| 记忆库 | ✅ 空库启动，不预装；对话/做梦长出来的 NMS 记忆每轮挑 3 篇进系统提示词 |
 | 语气自画像 | ✅ 包里**不再带固定语气指南**；她的语气由自己写的笔记决定，每攒 3 篇记忆重写一次 |
 | 动作 | ✅ 「说」里带一到两处动作（转椅、推杯子、瞥屏幕…），用括号标注；念白前自动剥掉，不念旁白 |
 | 启动 | ✅ 图标换成她（自适应图标，5 档密度）；开屏是 dsh-herta 主题那套 ASCII 半调开场（她由几千个字符逐帧明暗而成，白底，播完淡出）。系统闪屏压成同色纯白，不再多出一页 |
@@ -107,8 +109,9 @@ npm run dev:phone # 浏览器里跑 UI
 ### 黑塔币（HTC/USDT）
 
 聊天之外的一个小模块：抽屉 →「黑塔币 HTC」。每天 9:30 开盘（工作日 09:30–11:30 / 13:00–15:00），
-页面有价格条、240 格分钟 K（成交量副图 + MA + 均价 + 十字光标）、持仓卡、签到卡；交易入口是占位。
+页面有价格条、随已揭示行情铺满的动态轴分钟 K（成交量副图 + MA + 均价 + 十字光标）、持仓卡、签到卡；
 v1 不接她、不做交易、不联网对账——单机钱包：首次进入送 1000 HTC，成本价 = 首次激活场次的开盘价。
+v0.30 起多了共享市场：页面顶部填昵称/QQ 号进同一个市场（买卖按净买入推价、排行榜、服务端签到），留空仍是单机模式。
 
 - 设计：[docs/设计-黑塔币-v1.md](docs/设计-黑塔币-v1.md)；实现契约：[docs/coin-实现契约.md](docs/coin-实现契约.md)
 - 纯逻辑 `packages/coin`（连签曲线 / 市值盈亏 / 接口解析，Node 里可测）
@@ -219,6 +222,6 @@ gradle 默认的 `G:\gradle-home`（构建会死在 `.lck` 打开的权限上）
 
 ## 素材
 
-`assets/` 是从桌面版 Herta **原样搬来**的素材：自传、话术、4 条 veto .opus 原声、4 篇种子记忆、以及 `prompts-code.zh.mjs`（从 `app.asar` 按 AST 抽出的 196 个提示词/校验函数原文）。
+`assets/` 是从桌面版 Herta **原样搬来**的素材：自传、话术、4 条 veto .opus 原声、以及 `prompts-code.zh.mjs`（从 `app.asar` 按 AST 抽出的 196 个提示词/校验函数原文）；另有固定 UI 字体 `assets/fonts/NotoSansSC-VF.ttf`（SIL OFL，避免跟随手机系统主题字体）。**不含预装记忆**：`assets/memory` 为空；新装第一次打开记忆库为空，升级安装保留手机上已有的记忆。
 
 **算法重写，素材不改**——她是谁由这些字节决定，不由代码决定。素材的授权边界见 dsh-herta 仓库的 `NOTICE.md` / `THIRD-PARTY.md`，本仓库沿用。

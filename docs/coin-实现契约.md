@@ -248,11 +248,13 @@ export interface CoinChartOptions {
   theme?: CoinChartTheme;
 }
 export function drawCoinChart(ctx: CanvasRenderingContext2D, opts: CoinChartOptions): void;
-export function barIndexOf(x: number, width: number, height: number, barsLength: number): number | null; // 240 格固定轴命中
+export function barIndexOf(x: number, width: number, height: number, barsLength: number): number | null; // 动态轴命中（按已揭示根数铺满）
 export function barTimeLabel(index: number): string;  // 0=09:30 … 119=11:29 120=13:00 … 239=14:59
 ```
 
-画法：**固定 240 格时间轴**（不是按 bars.length 拉伸），午休分隔线在 119/120 之间，价格轴 + 成交量副图（20% 高），
+画法：**动态时间轴**（2026-10-30 修订，对齐网页版 `phantom-market/app.js` 的 `draw()`）——按已揭示根数 n 等宽铺满绘图区
+（step = plotWidth / n，绝不预留未来格子），时间刻度只覆盖已揭示区间（4~6 个、随屏宽自适应、用真实 bar.t），
+午休分隔线只在已揭示进入下午后出现，当前 partial K 画淡；价格轴 + 成交量副图（20% 高），
 MA5/10/20 + 均价线，昨收虚线，最新价标签，十字光标（hover 时竖线 + 时间标签）。长按/拖动由 CoinView 转 hover。
 
 ### `apps/phone/src/components/CoinView.tsx`
@@ -268,7 +270,7 @@ export interface CoinViewProps {
 页面结构（全屏覆盖，左上返回）：
 1. 顶栏：返回、标题「黑塔币 · HTC/USDT」、状态徽标（交易中/盘前/午休/已收盘/休市）+ 离线标记。
 2. 价格条：现价、涨跌幅、今开/最高/最低/成交量；灰字「行情与网页同源 · 30s 刷新」。
-3. 分钟 K 图（canvas，`drawCoinChart`）：240 格轴、成交量副图、长按/拖动十字光标、单根 OHLC 浮层。
+3. 分钟 K 图（canvas，`drawCoinChart`）：动态轴（只铺已揭示区间，随行情向右生长）、成交量副图、长按/拖动十字光标、单根 OHLC 浮层。
 4. 持仓卡：持有数量、当前市值、今日盈亏（较昨收，红/绿）、成本价。
 5. 签到卡：可签按钮「签到 +N HTC」；不可签显示 `signin.message`；已签显示「今日已签到 · 连续 N 天 · 明天 +XX」；离线禁用并提示「签到需要联网」。
 6. 交易占位：按钮「交易功能开发中」，disabled。
