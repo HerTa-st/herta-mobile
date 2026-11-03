@@ -13,3 +13,4 @@ export * from "./pending.ts";
 export * from "./sqlite-store.ts";
 export * from "./light-sleep.ts";
 export * from "./deep-sleep.ts";
+export * from "./voice.ts";

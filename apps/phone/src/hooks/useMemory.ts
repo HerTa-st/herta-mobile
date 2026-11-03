@@ -1,11 +1,12 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import type { DreamState, MemoryRecord } from "@herta/core";
 import type { Session } from "@herta/protocol";
-import type { NmsSnapshot } from "@herta/nms";
+import type { NmsSnapshot, VoiceParams, VoiceState } from "@herta/nms";
 import { IdbMemoryStore } from "../memory-idb.ts";
 import { archiveNmsNode, initializeNms, readNmsSnapshot, runManualLightSleep } from "../nms/controller.ts";
 import { runMobileDeepSleep } from "../nms/deep-sleep-runner.ts";
+import { readVoice, rollbackVoice, runVoiceGenerate, saveVoiceParams } from "../nms/voice-runner.ts";
 import { snapshotToMemoryRecords } from "../nms/adapter.ts";
 import type { Settings } from "../settings.ts";
 
@@ -23,6 +24,7 @@ export function useMemory(settings: Settings, opts: { onError(message: string): 
   const [memories, setMemories] = useState<MemoryRecord[]>([]);
   const [dreamState, setDreamState] = useState<DreamState | null>(null);
   const [nmsSnapshot, setNmsSnapshot] = useState<NmsSnapshot | null>(null);
+  const [voiceState, setVoiceState] = useState<VoiceState | null>(null);
   const [dreaming, setDreaming] = useState(false);
   const [distilling, setDistilling] = useState(false);
   const [distillNote, setDistillNote] = useState<string | null>(null);
@@ -52,6 +54,7 @@ export function useMemory(settings: Settings, opts: { onError(message: string): 
       viewRef.current = view;
       setNmsSnapshot(snapshot);
       setMemories(view.records);
+      setVoiceState(await readVoice());
     } catch (error) {
       setError("NMS 记忆初始化失败：" + (error instanceof Error ? error.message : String(error)));
       // 迁移失败：保留旧库只读视图，不回写、不假装成功。
@@ -73,8 +76,54 @@ export function useMemory(settings: Settings, opts: { onError(message: string): 
     }
   }, [refresh]);
 
-  /** 语气冻结：NMS 移植期不再重写「我说话的方式」。 */
+  /** 旧做梦流程留下的接口：NMS 版语气改成手动/深睡后自动重写，这里仍返回 null 不写旧库。 */
   const reviseVoiceImpl = useCallback(async (_records: MemoryRecord[], _previous: string | null) => null, []);
+
+  const reasonOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+  /** 手动重写一次语气（面板上的「重写」）。 */
+  const rewriteVoice = useCallback(async () => {
+    const result = await runVoiceGenerate({ settings, reason: "manual" });
+    if (result.ok) {
+      setVoiceState(result.state);
+      setDistillNote("语气重写好了：v" + String(result.state?.version ?? 1));
+      return true;
+    }
+    const why = result.error === "cheap_mode" ? "省 token 模式下不跑" : result.error;
+    setError("重写语气没成：" + why);
+    return false;
+  }, [settings]);
+
+  /** 手动改性子参数：连点几下合成一版（600ms 防抖），旧版进历史，能回滚。 */
+  const voiceSaveTimer = useRef<number | null>(null);
+  const changeVoiceParams = useCallback((params: VoiceParams) => {
+    if (voiceSaveTimer.current !== null) window.clearTimeout(voiceSaveTimer.current);
+    voiceSaveTimer.current = window.setTimeout(() => {
+      voiceSaveTimer.current = null;
+      void saveVoiceParams(params, { reason: "manual" })
+        .then((next) => {
+          if (next) setVoiceState(next);
+        })
+        .catch((error) => setError("改语气参数失败：" + reasonOf(error)));
+    }, 600);
+  }, []);
+
+  useEffect(() => () => {
+    if (voiceSaveTimer.current !== null) window.clearTimeout(voiceSaveTimer.current);
+  }, []);
+
+  /** 整块回滚到某个历史版本。 */
+  const revertVoice = useCallback(async (version: number) => {
+    try {
+      const next = await rollbackVoice(version);
+      if (next) {
+        setVoiceState(next);
+        setDistillNote("语气回滚到 v" + version);
+      }
+    } catch (error) {
+      setError("回滚语气失败：" + reasonOf(error));
+    }
+  }, []);
 
   const dreamNow = useCallback(async (_target: Session, _force = false) => {
     if (dreamingRef.current) return;
@@ -142,6 +191,10 @@ export function useMemory(settings: Settings, opts: { onError(message: string): 
     memories,
     dreamState,
     nmsSnapshot,
+    voiceState,
+    rewriteVoice,
+    changeVoiceParams,
+    revertVoice,
     dreaming,
     distilling,
     distillNote,

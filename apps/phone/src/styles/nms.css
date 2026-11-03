@@ -99,3 +99,51 @@
 :root[data-theme="dark"] .nmsNodeWeight i { background: rgba(110, 231, 255, 0.12); }
 :root[data-theme="dark"] .nmsTier.sem { color: #7dffc4; }
 :root[data-theme="dark"] .nmsTier.note { color: #ffb86b; }
+
+/* 人格与语气：自动语气的正文、四参数、历史回滚 */
+.nmsVoiceGroup { display: flex; flex-direction: column; gap: 8px; }
+.nmsVoiceHead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.nmsVoiceHead b { font-size: 13px; font-weight: 650; color: var(--ink); }
+.nmsVoiceHead span { font-family: ui-monospace, Consolas, monospace; font-size: 8px; color: var(--muted); }
+.nmsVoiceText { margin: 0; font-size: 11px; line-height: 1.65; color: var(--ink-soft); white-space: pre-wrap; }
+.nmsParams { display: flex; flex-direction: column; gap: 6px; padding-top: 2px; }
+.nmsParamRow { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--ink-soft); }
+.nmsParamLabel { flex: 1; min-width: 0; }
+.nmsParamBtn {
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+}
+.nmsParamBtn:active { background: var(--field); }
+.nmsParamValue { min-width: 24px; text-align: center; font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--ink); }
+.nmsParamRange { font-style: normal; font-family: ui-monospace, Consolas, monospace; font-size: 8px; color: var(--muted); }
+.nmsParamSelect {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field);
+  color: var(--ink);
+  font: inherit;
+  font-size: 10px;
+  padding: 4px 8px;
+}
+.nmsVoiceHistory { border-top: 1px solid var(--line); padding-top: 6px; }
+.nmsVoiceHistory summary { font-size: 9px; color: var(--accent); cursor: pointer; }
+.nmsVoiceSnap { display: flex; flex-direction: column; gap: 3px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.nmsVoiceSnap span { font-family: ui-monospace, Consolas, monospace; font-size: 8px; color: var(--muted); }
+.nmsVoiceSnap p { margin: 0; font-size: 10px; line-height: 1.55; color: var(--ink-soft); white-space: pre-wrap; }
+.nmsVoiceSnap button {
+  align-self: flex-start;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 9px;
+  color: var(--ink);
+}

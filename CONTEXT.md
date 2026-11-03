@@ -25,8 +25,16 @@ NMS 的六阶段 LLM 加工（pending → hygiene → merge → semanticize → 
 _Avoid_: 做梦、dream pass、离线整理
 
 **冻结语气**：
-NMS 移植期间不再重写「我说话的方式」；旧 DreamState.voice 留在旧 IndexedDB/meta frozen_voice 里，供 persona 注入只读使用。
-_Avoid_: 语气笔记（那是旧机制）、自动语气（那是 DSH NMS 新功能，本次不搬）
+NMS 移植时冻结的旧 DreamState.voice，留在旧 IndexedDB/meta frozen_voice 里只读。自动语气还没有生成过时，persona 回落读它。
+_Avoid_: 语气笔记（那是旧机制）、自动语气（那是另一件）
+
+**自动语气**：
+她自己读最近几篇记忆写出来的「我说话的方式」，加四个随睡眠慢挪的性子参数（说话长短 / 耐心 / 主动程度 / 称呼方式）。状态存 NMS meta 的 voice_state，最多留 5 个回滚快照；深睡后真有新记忆才重写。
+_Avoid_: 语气设定、人格提示词、四参数表
+
+**性子参数**：
+自动语气里的四个旋钮。生成时一晚最多挪一格（数字一个 step、枚举一个相邻候选）；只进提示词，不直接驱动行为。
+_Avoid_: 性格、喜好、偏好设置
 
 **旧库只读迁移**：
 旧 IndexedDB 的 MemoryRecord 一次性映射为 NMS 节点/边；旧库保留只读一版用于回滚/取证，迁移完成后不再写。

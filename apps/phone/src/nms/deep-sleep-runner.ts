@@ -9,6 +9,7 @@ import type { DeepSleepStats, NmsStore } from "@herta/nms";
 import { collect } from "../stream.ts";
 import type { Settings } from "../settings.ts";
 import { getNmsStore } from "./controller.ts";
+import { maybeAutoGenerateVoice } from "./voice-runner.ts";
 
 export interface DeepSleepRunResult {
   ok: boolean;
@@ -72,6 +73,16 @@ export async function runMobileDeepSleep(options: {
       await store.setMeta(usedKey, String(used + Math.max(0, stats.callsUsed ?? 0)));
     } catch {
       /* 记账失败不阻塞 */
+    }
+    // 深睡把新情景写下来之后，顺手让她重读一遍、重写自己的语气（不阻塞返回）。
+    if (stats.ok) {
+      void maybeAutoGenerateVoice({ settings, store, stats, now })
+        .then((voice) => {
+          if (!voice.ok && voice.error !== "no_new_memory" && voice.error !== "cheap_mode") {
+            console.log("[nms] 自动语气没写成：" + voice.error);
+          }
+        })
+        .catch(() => undefined);
     }
     return { ok: stats.ok === true, error: stats.error ?? "", stats };
   } catch (error) {

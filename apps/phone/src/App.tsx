@@ -56,7 +56,7 @@ import { useMemory } from "./hooks/useMemory.ts";
 import { flushNmsTurns, recordNmsTurn } from "./nms/turn-recorder.ts";
 import { acquireKeepAlive } from "./nms/keepalive-lease.ts";
 import { deleteNmsTurn } from "./nms/controller.ts";
-import { countUserTurns } from "@herta/nms";
+import { countUserTurns, normalizeVoiceSchema, renderVoiceParamsLine } from "@herta/nms";
 import { collect } from "./stream.ts";
 import { buildTools } from "./devtools.ts";
 import { IdbMemoryStore } from "./memory-idb.ts";
@@ -126,6 +126,7 @@ export function App() {
     memories,
     dreamState,
     nmsSnapshot,
+    voiceState,
     dreaming,
     distilling,
     distillNote,
@@ -136,7 +137,16 @@ export function App() {
     dreamNow,
     distillNow,
     maintainMemories,
+    rewriteVoice,
+    changeVoiceParams,
+    revertVoice,
   } = useMemory(settings, { onError: (m) => reportError(m) });
+  /** 自动语气：有它就用它，没有就回落冻结的旧语气（useChatTurn 里判断）。 */
+  const nmsVoice = useMemo(() => {
+    if (!voiceState) return null;
+    const schema = normalizeVoiceSchema();
+    return { profile: voiceState.profile, paramsLine: renderVoiceParamsLine(schema, voiceState.params) };
+  }, [voiceState]);
   const nmsActivation = useMemo(() => createActivationStore(), []);
   const nmsRecallSeq = useRef(0);
   const memorySleepEnabled = settings.autoDream || settings.nmsDeepSleepEnabled;
@@ -498,6 +508,7 @@ export function App() {
       nmsRecallSeq.current += 1;
       nmsActivation.ingest({ seq: nmsRecallSeq.current, at: new Date().toISOString(), nodes: events });
     },
+    nmsVoice,
   });
 
   // 她说话的那几秒里不让提醒插进来（那一轮结束时会整体覆盖会话）
@@ -1545,8 +1556,12 @@ export function App() {
           snapshot={nmsSnapshot}
           activationStore={nmsActivation}
           settings={settings}
+          voice={voiceState}
           onSettingsChange={(patch) => setSettings({ ...settings, ...patch })}
           onRefresh={() => void refreshMemories()}
+          onRewriteVoice={rewriteVoice}
+          onChangeVoiceParams={(params) => void changeVoiceParams(params)}
+          onRollbackVoice={(version) => void revertVoice(version)}
           onClose={() => setShowGraph(false)}
         />
       )}

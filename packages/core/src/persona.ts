@@ -75,6 +75,8 @@ export interface StaticPrefixInput {
    * 她一开始就是"自传 + 记忆"撑着，写得出来什么样子是她的事。
    */
   voiceText?: string | null;
+  /** 自动语气的「我现在的性子」一行；没有自动语气时不传。 */
+  voiceParams?: string | null;
 }
 
 export function buildStaticPrefix({
@@ -82,13 +84,18 @@ export function buildStaticPrefix({
   seeds = [],
   extraNotes = [],
   voiceText = null,
+  voiceParams = null,
   presence = null,
 }: StaticPrefixInput): string {
   const parts: string[] = [assets.hertaBio];
   for (const seed of seeds) if (seed && seed.trim()) parts.push(seed);
   if (presence && presence.trim()) parts.push(presence.trim());
   // 位置在设定之后、处境之前：先"我在哪"，再"我怎么说话"，最后"现在这个终端是什么样"。
-  if (voiceText && voiceText.trim()) parts.push(VOICE_HEADING + "\n\n" + voiceText.trim());
+  if (voiceText && voiceText.trim()) {
+    const block = [VOICE_HEADING, "", voiceText.trim()];
+    if (voiceParams && voiceParams.trim()) block.push("", voiceParams.trim());
+    parts.push(block.join("\n"));
+  }
   for (const note of extraNotes) if (note && note.trim()) parts.push(note);
   parts.push(MOBILE_NOTE, FORMAT_CONTRACT);
   return parts.filter((p) => p && p.trim()).join("\n\n");
