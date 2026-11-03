@@ -166,3 +166,62 @@ export function buildPresenceNote(presence: Presence, phrase: string): string {
     "不需要每次都交代自己在干嘛，但被问到时，说出来的是这个地方、这件事。",
   ].join("\n");
 }
+/* ---------------------------------------------------------------- 按行踪开口 */
+
+/** 她按自己的行踪先开口：一天最多两次，两次之间至少两小时，安静时段不吵。 */
+export const PRESENCE_PING_MAX_PER_DAY = 2;
+export const PRESENCE_PING_MIN_GAP_MS = 2 * 3600_000;
+/** 碰到新的一段行踪也不是每次都开口：六成左右，免得准点得像打卡。 */
+export const PRESENCE_PING_CHANCE = 0.62;
+
+/** 一段行踪的标识：换时段或换地方都算新的一段。 */
+export function presenceKey(date: Date = new Date()): string {
+  const p = presenceAt(date);
+  return p.phase + "|" + p.place;
+}
+
+export interface PresencePingInput {
+  now: Date;
+  /** 上一次消费掉的行踪（phase|place）；null = 今天还没消费过。 */
+  seenKey: string | null;
+  /** 今天已经主动了几次。 */
+  countToday: number;
+  /** 上一次主动的时间（ms）；null = 今天还没有。 */
+  lastPingAt: number | null;
+  /** 0–1；默认随机，测试里给定。 */
+  random?: number;
+  /** 安静时段，默认 22–8（与 app 的 proactive 一致，测试可改）。 */
+  quietFrom?: number;
+  quietTo?: number;
+}
+
+export interface PresencePingDecision {
+  fire: boolean;
+  /** 这一段要不要标记为「已经消费」——错过的那种（配额满 / 太近 / 掷骰子没过）要，安静时段和同一段不用。 */
+  markSeen: boolean;
+  reason: "quiet" | "same-slot" | "daily-cap" | "too-soon" | "coin-flip" | "new-slot";
+}
+
+/**
+ * 纯判断：这一分钟该不该因为她换了行踪而开口。
+ *
+ * 顺序有讲究——先挡安静时段和同一段（不消费），再看配额和间隔（消费掉，别留哑弹），
+ * 最后才掷骰子。这样「今天已经说了两次」不会让下一段行踪反复重试。
+ */
+export function decidePresencePing(input: PresencePingInput): PresencePingDecision {
+  const key = presenceKey(input.now);
+  const quietFrom = input.quietFrom ?? 22;
+  const quietTo = input.quietTo ?? 8;
+  const h = input.now.getHours();
+  if (h >= quietFrom || h < quietTo) return { fire: false, markSeen: false, reason: "quiet" };
+  if (input.seenKey === key) return { fire: false, markSeen: false, reason: "same-slot" };
+  if (input.countToday >= PRESENCE_PING_MAX_PER_DAY) {
+    return { fire: false, markSeen: true, reason: "daily-cap" };
+  }
+  if (input.lastPingAt !== null && input.now.getTime() - input.lastPingAt < PRESENCE_PING_MIN_GAP_MS) {
+    return { fire: false, markSeen: true, reason: "too-soon" };
+  }
+  const random = input.random ?? Math.random();
+  if (random > PRESENCE_PING_CHANCE) return { fire: false, markSeen: true, reason: "coin-flip" };
+  return { fire: true, markSeen: true, reason: "new-slot" };
+}

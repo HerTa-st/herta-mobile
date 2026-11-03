@@ -1,12 +1,13 @@
 /**
- * 她自己找你：到点了，没人叫她，她发一句话过来。
+ * 她自己找你：没人叫她，她发一句话过来。
  *
- * 两件事分开：
- *   1. 什么时候 —— 记在本机（kv 的 nextPing），一轮聊完顺手排下一条；
- *   2. 说什么   —— 走一遍完整人格装配（行踪 + 语气笔记 + 最近的对话），
- *                  但只带最近八块：一次几 k token，一天最多三次。
+ * 什么时候开口，两条路：
+ *   1. 她的行踪换了一段（换地方 / 换时段）——她自己过日子，顺口跟你说一句；
+ *   2. 她自己排的时间到了（plan_ping 工具）——她说过「晚点再找你」。
+ * 两条共用一份配额：一天最多两次，两次之间至少两小时，二十二点到八点不吵。
  *
- * 两条硬边界：二十二点到早上八点不吵；省 token 档下根本不发。
+ * 说什么：走一遍完整人格装配（行踪 + 语气笔记 + 最近的对话），只带最近八块；
+ * 模型没网/报错时回落到一句按行踪拼的本地台词，别让这一条直接没了。
  */
 
 import type { Block, Session } from "@herta/protocol";
@@ -68,6 +69,50 @@ export async function writeNextPing(at: Date): Promise<void> {
   await setKV(NEXT_KEY, at.getTime());
 }
 
+export async function clearNextPing(): Promise<void> {
+  await setKV(NEXT_KEY, null);
+}
+
+/* ---------------------------------------------------------------- 行踪配额 */
+
+const SEEN_KEY = "presenceSeen";
+const BUDGET_KEY = "pingBudget";
+const LAST_PING_KEY = "lastPingAt";
+
+/** 最近一次消费掉的行踪（phase|place）；同一段不重复开口。 */
+export async function readPresenceSeen(): Promise<string | null> {
+  const v = await getKV<string>(SEEN_KEY);
+  return typeof v === "string" ? v : null;
+}
+export async function writePresenceSeen(key: string): Promise<void> {
+  await setKV(SEEN_KEY, key);
+}
+
+/** 今天已经主动了几次；跨天自动归零。 */
+export async function readPingCount(now = new Date()): Promise<number> {
+  const got = await getKV<{ day: string; count: number }>(BUDGET_KEY);
+  const today = now.getFullYear() + "-" + (now.getMonth() + 1) + "-" + now.getDate();
+  if (!got || got.day !== today) return 0;
+  return Number.isFinite(got.count) ? got.count : 0;
+}
+export async function bumpPingCount(now = new Date()): Promise<void> {
+  const today = now.getFullYear() + "-" + (now.getMonth() + 1) + "-" + now.getDate();
+  await setKV(BUDGET_KEY, { day: today, count: (await readPingCount(now)) + 1 });
+}
+
+export async function readLastPingAt(): Promise<number | null> {
+  const v = await getKV<number>(LAST_PING_KEY);
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+export async function writeLastPingAt(at: Date): Promise<void> {
+  await setKV(LAST_PING_KEY, at.getTime());
+}
+
+/** 没有模型时的台词：按她此刻的行踪拼一句，别装成刚想的。 */
+export function fallbackPingLine(p = presenceAt()): string {
+  return "我在" + p.place + "，" + p.doing + "。想起你了，说一句。";
+}
+
 export interface PingDeps {
   transport: ChatTransport;
   apiKey: string;
@@ -96,33 +141,41 @@ export async function writePing(deps: PingDeps): Promise<string> {
   const live = deps.memories.filter((m) => !m.forgotten);
   const seeds = (deps.deep ? live.slice(-3) : live.slice(-1)).map((m) => m.body);
 
+  const presence = presenceAt();
   const prefix = buildStaticPrefix({
     assets: promptAssets,
     seeds,
     voiceText,
-    presence: buildPresenceNote(presenceAt(), timePhrase()),
+    presence: buildPresenceNote(presence, timePhrase()),
     extraNotes: [
       "〔旁注：现在不是他叫你。是你自己想起了他，想发一条消息过去。" +
-        "短，一两句；不要问「在吗」，直接说你想到的那件事。〕",
+        "短，一两句；不要问「在吗」，直接说你想到的那件事。" +
+        "你手上这一档事刚换到「" + presence.place + "」——真要说自己在干嘛，就从这个新地方、新事情说起，别照抄旁注。〕",
     ],
   });
 
   const transcript = serializeRecord(recent, { maxBlocks: 0 });
-  const raw = await collect(
-    deps.transport.stream({
-      apiKey: deps.apiKey,
-      baseUrl: deps.baseUrl,
-      model: deps.model,
-      messages: [
-        { role: "system", content: prefix },
-        { role: "user", content: transcript + "\n\n（现在没有新消息。你想说什么就说。）" },
-      ],
-      maxTokens: 300,
-    })
-  );
-  const speech = parseNarrative(raw).speech || raw.trim();
-  // 只留第一句、去掉标签残留：通知栏放不下三段
-  return speech.replace(/\s+/g, " ").trim().slice(0, 120);
+  try {
+    const raw = await collect(
+      deps.transport.stream({
+        apiKey: deps.apiKey,
+        baseUrl: deps.baseUrl,
+        model: deps.model,
+        messages: [
+          { role: "system", content: prefix },
+          { role: "user", content: transcript + "\n\n（现在没有新消息。你想说什么就说。）" },
+        ],
+        maxTokens: 300,
+      })
+    );
+    const speech = parseNarrative(raw).speech || raw.trim();
+    // 只留第一句、去掉标签残留：通知栏放不下三段
+    const line = speech.replace(/\s+/g, " ").trim().slice(0, 120);
+    return line || fallbackPingLine(presence);
+  } catch {
+    // 没网 / 报错：这一条还是发出去，只是不带模型写的字
+    return fallbackPingLine(presence);
+  }
 }
 
 /** 把这句话推成一条系统通知（她在后台时，你只能这样收到）。 */
