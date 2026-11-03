@@ -42,6 +42,8 @@ export interface DrawerProps {
   sessHits: SessionHit[];
   memories: MemoryRecord[];
   dreamState: DreamState | null;
+  /** 自动语气（NMS）；有它就不显示旧的冻结语气。 */
+  voice?: { profile: string; version: number } | null;
   maintaining: string | null;
   dreaming: boolean;
   distilling: boolean;
@@ -173,13 +175,18 @@ export function Drawer(props: DrawerProps) {
           {props.memories.length === 0 && <li className="none">记忆库是空的</li>}
         </ul>
 
-        {props.dreamState?.voice ? (
+        {props.voice ? (
           <details className="voice">
-            <summary>她写字的样子（{props.dreamState.voice.basis} 篇记忆之后）</summary>
+            <summary>她写字的样子（v{props.voice.version}，她自己写的）</summary>
+            <p>{props.voice.profile}</p>
+          </details>
+        ) : props.dreamState?.voice ? (
+          <details className="voice">
+            <summary>她写字的样子（旧版，冻结的）</summary>
             <p>{props.dreamState.voice.text}</p>
           </details>
         ) : (
-          <p className="memNote">她还没写过自己说话的样子——攒够三篇记忆就会写第一版。</p>
+          <p className="memNote">她还没写过自己说话的样子——聊几轮、睡一觉，她就会写第一版。</p>
         )}
       </div>
 

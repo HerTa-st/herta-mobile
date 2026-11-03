@@ -69,8 +69,8 @@ export interface CoinChartOptions {
 const SLOT_COUNT = 240;
 /** 上午根数：t < 120 是上午，t >= 120 是下午；午休线落在两者之间。 */
 const MORNING_SLOTS = 120;
-const FONT = '10px "Herta Sans", "Noto Sans SC", "Noto Sans CJK SC", sans-serif';
-const FONT_TINY = '9px "Herta Sans", "Noto Sans SC", "Noto Sans CJK SC", sans-serif';
+const FONT = '10px system-ui, -apple-system, "Noto Sans CJK SC", sans-serif';
+const FONT_TINY = '9px system-ui, -apple-system, "Noto Sans CJK SC", sans-serif';
 
 /** 底部时间刻度的数量：手机 4~5 个、宽屏 6 个（再多数就挤在一起了）。 */
 function timeLabelCount(width: number): number {

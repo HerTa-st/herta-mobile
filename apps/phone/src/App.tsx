@@ -1467,6 +1467,7 @@ export function App() {
           sessHits={sessHits}
           memories={memories}
           dreamState={dreamState}
+          voice={voiceState ? { profile: voiceState.profile, version: voiceState.version } : null}
           maintaining={maintaining}
           dreaming={dreaming}
           distilling={distilling}
