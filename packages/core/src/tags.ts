@@ -86,8 +86,19 @@ export function serializeRecord(record: readonly Block[], { maxBlocks = 24 }: Se
         out.push("〔系统〕（她发来一张表情：" + b.name + "）");
       }
     } else if (b.kind === "herta") {
-      const tag = b.surface === "thought" ? "想" : "说";
-      out.push("（我 " + tag + "）\n" + (b.text ?? "") + "\n（/我 " + tag + "）");
+      // 播报提示：她递过去的一份东西，不是她说的话。原样当「我 说」翻的话，
+      // 下一轮（尤其 proactive 那句「没人在叫你」）她会把自己的提示当成
+      // 开拓者发来的消息去回——2026-11-02 真机上被拍到。转成一行系统旁白。
+      if (b.action?.kind === "broadcast") {
+        out.push(
+          "〔系统〕（她把《星际和平播报》第 " +
+            b.action.no +
+            " 期递过去了。那是她自己递的播报，不是开拓者说的话；他还没开口。）"
+        );
+      } else {
+        const tag = b.surface === "thought" ? "想" : "说";
+        out.push("（我 " + tag + "）\n" + (b.text ?? "") + "\n（/我 " + tag + "）");
+      }
     } else {
       // 旧版写成 `〔系统〕系统：正文`，标签重复了一遍，而且「差分协处理器」会被
       // 一律印成「系统」。这里直接用块自己的 label。

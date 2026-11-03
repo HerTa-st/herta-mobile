@@ -1,11 +1,12 @@
 /*
- * 黑塔币 v1 · 本地 mock 行情服务（开发 / 浏览器冒烟用）
+ * 黑塔币 v2 · 本地 mock 行情 + 共享市场服务（开发 / 浏览器冒烟用）
  *
  * 用法：
  *   node fc/coin-api/dev-server.mjs
  *   COIN_MOCK_NOW=2026-10-29T10:15:30+08:00 node fc/coin-api/dev-server.mjs   # 钉住 mock 时间
  *
- * - 监听 127.0.0.1:8787（可用 PORT 覆盖），GET /api/daily 走和线上同一份 handler；
+ * - 监听 127.0.0.1:8787（可用 PORT 覆盖），与线上同一份 handler；
+ * - 共享市场状态存进程内存（重启归零），不需要 OSS；
  * - CORS：Access-Control-Allow-Origin: *，OPTIONS 预检直接 204；
  * - 不设 COIN_MOCK_NOW 时用真实时间（和线上一样）。
  *
@@ -35,11 +36,28 @@ if (MOCK_NOW) {
   mockLabel = '钉住 ' + MOCK_NOW;
 }
 
-const handler = createHandler({ now: nowFn });
+/* 进程内存版共享状态（dev 用） */
+function createMemoryStore() {
+  let state = null;
+  return {
+    async read() {
+      return state ? JSON.parse(JSON.stringify(state)) : null;
+    },
+    async write(next) {
+      state = JSON.parse(JSON.stringify(next));
+    },
+    async withLock(fn) {
+      return fn();
+    }
+  };
+}
+
+const store = createMemoryStore();
+const handler = createHandler({ now: nowFn, storeFactory: () => store });
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Accept',
   'Access-Control-Max-Age': '86400'
 };
@@ -55,6 +73,11 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    /* 读请求体（POST /api/trade） */
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const bodyText = Buffer.concat(chunks).toString('utf8');
+
     /* 组装成 FC 3.0 同形 event，交给同一份 handler */
     const event = {
       version: 'v1',
@@ -62,6 +85,7 @@ const server = createServer(async (req, res) => {
       rawQueryString: url.searchParams.toString(),
       headers: req.headers,
       queryParameters: Object.fromEntries(url.searchParams),
+      queryStringParameters: Object.fromEntries(url.searchParams),
       requestContext: {
         domainName: HOST,
         http: {
@@ -71,7 +95,7 @@ const server = createServer(async (req, res) => {
           sourceIp: req.socket && req.socket.remoteAddress
         }
       },
-      body: '',
+      body: bodyText,
       isBase64Encoded: false
     };
 
@@ -94,8 +118,10 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log('[coin-mock] 黑塔币 mock 行情服务已启动');
-  console.log('[coin-mock]   GET http://' + HOST + ':' + PORT + '/api/daily');
+  console.log('[coin-mock] 黑塔币 mock 服务已启动（v2 共享市场，状态在内存）');
+  console.log('[coin-mock]   GET  http://' + HOST + ':' + PORT + '/api/daily');
+  console.log('[coin-mock]   GET  http://' + HOST + ':' + PORT + '/api/state?user=梦源');
+  console.log('[coin-mock]   POST http://' + HOST + ':' + PORT + '/api/trade');
   console.log('[coin-mock]   时间：' + mockLabel);
   console.log('[coin-mock]   CORS：*（OPTIONS 204）');
 });

@@ -214,3 +214,64 @@ app 的接口基址走**构建配置**（发布包绝不内置 mock）：
   免费额度内。若未来加签名/鉴权/服务端账本（v2），需要重新设计。
 - **接口地址变更**：FC 默认域名可能随函数重建变化，发版后 app 里写死的 `VITE_COIN_API_BASE`
   会失效；正式发布建议自定义域名（备案 + HTTPS 证书）。
+
+## 七、v2 共享市场部署（增量，2026-10-29）
+
+新增文件：`market-v2.js`（共享市场逻辑）、`oss-state.js`（OSS 状态 + 锁）；`index.js` 新增 `/api/state`、`/api/trade`、`/api/leaderboard`。
+
+### 1. 给函数配置执行角色（读写 OSS）
+
+RAM 先建一个自定义策略 `coin-state-rw`（最小权限）：
+
+```json
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["oss:GetObject", "oss:PutObject", "oss:DeleteObject"],
+      "Resource": ["acs:oss:*:*:<bucket>/state/*"]
+    }
+  ]
+}
+```
+
+然后在 FC 控制台 → 函数 `coin-api` → 配置 → 权限 / 执行角色 → 创建或选择角色，把该策略绑到角色上。
+（不想折腾最小权限的话，直接给 `AliyunOSSFullAccess` 也能跑。）
+
+### 2. HTTP 触发器加上 POST
+
+编辑现有 HTTP 触发器，请求方法勾选 **GET + POST**（只留 GET 的话 `/api/trade` 会被网关 403）。
+
+### 3. 上传新代码
+
+上传 `herta-mobile/coin-api-deploy.zip`（根目录含 `index.js`、`coin-core.js`、`news-pool.js`、`market-v2.js`、`oss-state.js`、`package.json`），函数入口仍是 `index.handler`。
+
+### 4. 环境变量（都有默认值，可不填）
+
+```
+OSS_BUCKET=<bucket>
+OSS_ENDPOINT=oss-cn-hongkong.aliyuncs.com
+STATE_KEY=state/coin.json
+LOCK_KEY=state/coin.lock
+```
+
+### 5. 验证
+
+```bash
+curl "https://<fc域名>/api/state?user=%E6%A2%A6%E6%BA%90"
+curl -X POST "https://<fc域名>/api/trade" -H "Content-Type: application/json" -d '{"user":"梦源","side":"buy","amount":100}'
+curl "https://<fc域名>/api/leaderboard"
+```
+
+状态存在 OSS `state/coin.json`；想重置市场/清空用户，直接在 OSS 控制台删掉这个对象即可。
+
+> 规则常量在 `market-v2.js` 的 `RULES`：初始 1000 HTC / 100000 USDT、手续费 0.3%、5 秒 1 单、每天买卖各 5 次、单笔 ≤10000 HTC。
+
+### 6. v2.1 追加接口（2026-10-29）
+
+- `POST /api/signin` `{"user":"昵称"}`：服务端签到（09:30 后、工作日；连签 10/20/25/…/50；服务端时间判断，改手机时间无效）
+- `POST /api/claim` `{"user":"昵称","amount":本地HTC整数}`：把单机钱包一次性并入共享账户（每人仅一次，上限 100000）
+- 用户数据里新增 `merged / streak / lastSignDay`；`GET /api/state` 的 `user.signin` 返回连签与下次奖励
+
+上传 `herta-mobile/coin-api-deploy.zip` 后重新「部署代码」即可。

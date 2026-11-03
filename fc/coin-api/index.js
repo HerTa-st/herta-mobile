@@ -1,17 +1,35 @@
 /*
- * 黑塔币 v1 · 阿里云函数计算 FC 3.0 HTTP 触发器入口
+ * 黑塔币 v2 · 阿里云函数计算 FC 3.0 HTTP 触发器入口（行情 + 共享市场）
  *
- * 路由：GET /api/daily  ->  { version, serverTime, market }（契约 §2.2）
- * 其它：非 GET -> 405；非 /api/daily -> 404；异常 -> 500（JSON 里带一句人话）。
- * 响应头：Content-Type: application/json; charset=utf-8、Cache-Control: no-store、
- *         Access-Control-Allow-Origin: *。
+ * 路由：
+ *   GET  /api/daily?user=昵称      行情（兼容 v1；user 可选）
+ *   GET  /api/state?user=昵称      共享市场状态（价格 / 我的持仓 / 排行榜）
+ *   POST /api/trade                 {"user":"昵称","side":"buy|sell","amount":1000}
+ *   GET  /api/leaderboard          排行榜
+ *   其它：405 / 404；异常统一 JSON
  *
- * 部署：Node.js 20，handler 填 index.handler，HTTP 触发器路径 /api/daily（GET）。
- * 时间：固定按 UTC+8 计算，不依赖服务器时区；serverTime 形如 2026-10-29T10:15:30+08:00。
+ * 响应头：Content-Type: application/json; charset=utf-8、Cache-Control: no-store、CORS *
+ * 存储：OSS 单对象 state/coin.json + 互斥锁（见 oss-state.js）
+ * 授权：函数执行角色（OSS 读写）→ context.credentials（STS）；兼容环境变量 OSS_AK / OSS_SK
+ *
+ * 部署：Node.js 20，handler 填 index.handler，HTTP 触发器（GET/POST，无需认证）。
  */
 'use strict';
 
 const { buildDailyResponse } = require('./coin-core');
+const {
+  createState,
+  buildStatePayload,
+  executeTrade,
+  normalizeName,
+  effectivePrice,
+  buildLeaderboard,
+  signIn,
+  claimLocalWallet,
+  signinInfo,
+  publicUser
+} = require('./market-v2');
+const { OssStateStore, credentialsFromContext } = require('./oss-state');
 
 const API_PATH = '/api/daily';
 
@@ -19,7 +37,7 @@ const RESPONSE_HEADERS = {
   'Content-Type': 'application/json; charset=utf-8',
   'Cache-Control': 'no-store',
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Accept'
 };
 
@@ -32,8 +50,7 @@ function jsonResponse(statusCode, payload) {
   };
 }
 
-/* 兼容 FC 3.0（v1: rawPath/requestContext）与 FC 2.0（httpMethod/path）两种 event 形态；
- * 有些触发方式会把 event 序列化成 JSON 字符串/Buffer 传进来，也一并兜住。 */
+/* 兼容 FC 3.0（rawPath/requestContext）与 FC 2.0（httpMethod/path）两种 event 形态 */
 function normalizeEvent(event) {
   if (!event) return {};
   if (typeof event === 'string') {
@@ -56,19 +73,73 @@ function normalizePath(rawPath) {
   return path;
 }
 
+function parseQuery(event, rawPath) {
+  if (event.queryStringParameters && typeof event.queryStringParameters === 'object') {
+    return event.queryStringParameters;
+  }
+  // FC 3.0 的 HTTP 触发器把 query 放在 queryParameters
+  if (event.queryParameters && typeof event.queryParameters === 'object') {
+    return event.queryParameters;
+  }
+  let raw = '';
+  if (typeof event.rawQueryString === 'string') {
+    raw = event.rawQueryString;
+  } else if (typeof rawPath === 'string' && rawPath.indexOf('?') >= 0) {
+    raw = rawPath.slice(rawPath.indexOf('?') + 1);
+  }
+  const out = {};
+  if (raw) {
+    raw.split('&').forEach(function (pair) {
+      if (!pair) return;
+      const idx = pair.indexOf('=');
+      const k = idx >= 0 ? pair.slice(0, idx) : pair;
+      const v = idx >= 0 ? pair.slice(idx + 1) : '';
+      try { out[decodeURIComponent(k)] = decodeURIComponent(v); } catch (e) { out[k] = v; }
+    });
+  }
+  return out;
+}
+
 function requestInfo(event) {
   const ctxHttp = (event.requestContext && (event.requestContext.http || event.requestContext)) || {};
   const method = event.httpMethod || ctxHttp.method || event.method || '';
   const path = event.path || event.rawPath || ctxHttp.path || '';
-  return { method: String(method).toUpperCase(), path: normalizePath(path) };
+  const query = parseQuery(event, event.rawPath || event.path || '');
+  return { method: String(method).toUpperCase(), path: normalizePath(path), query: query };
+}
+
+function parseBody(event) {
+  let body = event.body;
+  if (body == null || body === '') return {};
+  if (typeof body === 'object') return body;
+  if (event.isBase64Encoded) {
+    try { body = Buffer.from(body, 'base64').toString('utf8'); } catch (e) { return {}; }
+  }
+  try {
+    return JSON.parse(body);
+  } catch (e) {
+    const err = new Error('请求体不是合法 JSON');
+    err.status = 400;
+    err.code = 'invalid_json';
+    throw err;
+  }
+}
+
+function defaultStoreFactory(context) {
+  return new OssStateStore({
+    credentialProvider: function () { return credentialsFromContext(context); }
+  });
 }
 
 /**
- * 生成 handler；options.now 仅供本地 dev-server 钉住时间用，线上不传（默认 Date.now）。
- * 纯函数核心在 coin-core.buildDailyResponse(nowMs)，handler 只做 HTTP 外壳。
+ * @param {object} options
+ *   options.now          测试用时钟
+ *   options.storeFactory 测试用存储工厂（(context) => store）
  */
 function createHandler(options) {
-  const nowFn = (options && typeof options.now === 'function') ? options.now : Date.now;
+  options = options || {};
+  const nowFn = typeof options.now === 'function' ? options.now : Date.now;
+  const storeFactory = options.storeFactory || defaultStoreFactory;
 
   return async function handler(event, context) {
     let info = { method: '', path: '' };
@@ -76,29 +147,154 @@ function createHandler(options) {
       const ev = normalizeEvent(event);
       info = requestInfo(ev);
 
-      if (info.path !== API_PATH) {
-        return jsonResponse(404, {
-          error: 'not_found',
-          message: '没有这个接口；行情接口是 GET /api/daily'
-        });
+      if (info.method === 'OPTIONS') {
+        return { statusCode: 204, headers: RESPONSE_HEADERS, body: '' };
       }
-      if (info.method !== 'GET') {
-        return jsonResponse(405, {
-          error: 'method_not_allowed',
-          message: '只支持 GET 请求'
+
+      /* ---------- 行情（v1 兼容） ---------- */
+      if (info.path === API_PATH) {
+        if (info.method !== 'GET') {
+          return jsonResponse(405, { error: 'method_not_allowed', message: '只支持 GET 请求' });
+        }
+        const nowMs = nowFn();
+        return jsonResponse(200, buildDailyResponse(nowMs));
+      }
+
+      /* ---------- 共享市场状态 ---------- */
+      if (info.path === '/api/state') {
+        if (info.method !== 'GET') {
+          return jsonResponse(405, { error: 'method_not_allowed', message: '只支持 GET 请求' });
+        }
+        const nowMs = nowFn();
+        const name = normalizeName(info.query.user);
+        const daily = buildDailyResponse(nowMs);
+        const store = storeFactory(context);
+
+        // 快路径：状态已存在且不需要建号 / 换场，就不动锁
+        const existing = await store.read();
+        if (existing) {
+          const built = buildStatePayload(daily, existing, name, nowMs);
+          if (!built.dirty) return jsonResponse(200, built.payload);
+        }
+
+        const payload = await store.withLock(async function () {
+          let state = await store.read();
+          if (!state) state = createState(daily.market.sessionDate);
+          const built = buildStatePayload(daily, state, name, nowMs);
+          await store.write(state);
+          return built.payload;
+        });
+        return jsonResponse(200, payload);
+      }
+
+      /* ---------- 交易 ---------- */
+      if (info.path === '/api/trade') {
+        if (info.method !== 'POST') {
+          return jsonResponse(405, { error: 'method_not_allowed', message: '只支持 POST 请求' });
+        }
+        const body = parseBody(ev);
+        const nowMs = nowFn();
+        const name = normalizeName(body.user);
+        const daily = buildDailyResponse(nowMs);
+        const store = storeFactory(context);
+
+        const result = await store.withLock(async function () {
+          let state = await store.read();
+          if (!state) state = createState(daily.market.sessionDate);
+          const r = executeTrade(daily, state, name, body.side, body.amount, nowMs);
+          await store.write(state);
+          return r;
+        });
+
+        return jsonResponse(200, Object.assign({ ok: true, serverTime: daily.serverTime }, result));
+      }
+
+      /* ---------- 服务端签到 ---------- */
+      if (info.path === '/api/signin') {
+        if (info.method !== 'POST') {
+          return jsonResponse(405, { error: 'method_not_allowed', message: '只支持 POST 请求' });
+        }
+        const body = parseBody(ev);
+        const nowMs = nowFn();
+        const name = normalizeName(body.user);
+        const daily = buildDailyResponse(nowMs);
+        const store = storeFactory(context);
+
+        const result = await store.withLock(async function () {
+          let state = await store.read();
+          if (!state) state = createState(daily.market.sessionDate);
+          const r = signIn(daily, state, name);
+          await store.write(state);
+          const price = effectivePrice(daily, state).price;
+          return {
+            ok: true,
+            reward: r.reward,
+            streak: r.streak,
+            user: publicUser(r.user, price),
+            signin: signinInfo(daily, r.user),
+            serverTime: daily.serverTime
+          };
+        });
+        return jsonResponse(200, result);
+      }
+
+      /* ---------- 合并在单机钱包 ---------- */
+      if (info.path === '/api/claim') {
+        if (info.method !== 'POST') {
+          return jsonResponse(405, { error: 'method_not_allowed', message: '只支持 POST 请求' });
+        }
+        const body = parseBody(ev);
+        const nowMs = nowFn();
+        const name = normalizeName(body.user);
+        const daily = buildDailyResponse(nowMs);
+        const store = storeFactory(context);
+
+        const result = await store.withLock(async function () {
+          let state = await store.read();
+          if (!state) state = createState(daily.market.sessionDate);
+          const r = claimLocalWallet(daily, state, name, body.amount);
+          await store.write(state);
+          const price = effectivePrice(daily, state).price;
+          return {
+            ok: true,
+            mergedHtc: r.mergedHtc,
+            user: publicUser(r.user, price),
+            serverTime: daily.serverTime
+          };
+        });
+        return jsonResponse(200, result);
+      }
+
+      /* ---------- 排行榜 ---------- */
+      if (info.path === '/api/leaderboard') {
+        if (info.method !== 'GET') {
+          return jsonResponse(405, { error: 'method_not_allowed', message: '只支持 GET 请求' });
+        }
+        const nowMs = nowFn();
+        const daily = buildDailyResponse(nowMs);
+        const store = storeFactory(context);
+        const state = await store.read();
+        const price = state ? effectivePrice(daily, state).price : daily.market.close;
+        const board = state ? buildLeaderboard(state, price, 20) : [];
+        return jsonResponse(200, {
+          version: 2,
+          serverTime: daily.serverTime,
+          price: Math.round(price * 100) / 100,
+          leaderboard: board
         });
       }
 
-      const nowMs = nowFn();
-      return jsonResponse(200, buildDailyResponse(nowMs));
-    } catch (err) {
-      const detail = (err && err.message) ? err.message : String(err);
-      console.error('[coin-api] 500 path=' + info.path + ' method=' + info.method +
-        ' requestId=' + ((context && context.requestId) || '-') + ' err=' + detail);
-      return jsonResponse(500, {
-        error: 'internal_error',
-        message: '行情计算失败，请稍后再试（' + detail + '）'
+      return jsonResponse(404, {
+        error: 'not_found',
+        message: '没有这个接口；行情 /api/daily、状态 /api/state、交易 /api/trade、排行 /api/leaderboard'
       });
+    } catch (err) {
+      const status = (err && err.status && err.status >= 400 && err.status < 600) ? err.status : 500;
+      const code = (err && err.code) || 'internal_error';
+      const message = (err && err.message) || '服务端异常';
+      console.error('[coin-api] ' + status + ' path=' + info.path + ' method=' + info.method +
+        ' requestId=' + ((context && context.requestId) || '-') + ' err=' + message);
+      return jsonResponse(status, { error: code, message: message });
     }
   };
 }

@@ -1374,6 +1374,22 @@ test("序列化：想的块回「想」，说的块回「说」，不混轨", ()
   assert.ok(text.includes("〔系统〕图片已读"));
 });
 
+test("序列化：播报提示翻成系统旁白，不写成她的话（她会自己接茬）", () => {
+  const text = serializeRecord([
+    {
+      kind: "herta",
+      surface: "speech",
+      text: "今天的星际和平播报到了。",
+      at: "2026-11-02T00:00:00Z",
+      action: { kind: "broadcast", issueId: "2026-11-02", no: 3 },
+    },
+  ]);
+  assert.ok(!text.includes("（我 说）"), "播报提示不能写成她说的话");
+  assert.ok(text.includes("〔系统〕"));
+  assert.ok(text.includes("第 3 期"));
+  assert.ok(text.includes("不是开拓者说的话"));
+});
+
 test("序列化：带图的那句要留一行「附了一张图」，只发图时不能是空白", () => {
   const att = [{ mediaType: "image/jpeg", data: "data:image/jpeg;base64,AA", name: "a.jpg" }];
   const withText = serializeRecord([{ kind: "user", text: "能看到图吗", at: "2026-10-26T00:00:00Z", attachments: att }]);
@@ -1902,4 +1918,48 @@ test("上下文截断：截断点落在表情这块上，不从她的话中间�
   const kept = trimForContext(blocks, 2);
   assert.ok(isUserTurn(kept[0]), "截断后不是从一轮的开头开始");
   assert.equal(kept.length, 2);
+});
+
+test("备份：播报期随包走；同一期不重复写", () => {
+  const issue = {
+    id: "2026-11-02",
+    no: 1,
+    date: "2026-11-02",
+    createdAt: "2026-11-02T00:30:00.000Z",
+    status: "ready",
+    items: [
+      {
+        id: "n-1",
+        source: "网易",
+        domain: "163.com",
+        title: "标题",
+        summary: "摘要",
+        url: "https://example.com/a",
+        tag: "人工智能",
+        comment: "评",
+      },
+    ],
+  };
+  const { bundle } = buildBackupBundle({ sessions: [], memories: [], broadcast: [issue] });
+  const parsed = parseBackupBundle(JSON.stringify(bundle));
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.bundle.broadcast?.length, 1);
+  assert.equal(parsed.stats.broadcast, 1);
+
+  const skip = planRestore(parsed.bundle, {
+    sessionIds: new Set(),
+    memoryNames: new Set(),
+    stickerIds: new Set(),
+    broadcastIds: new Set(["2026-11-02"]),
+  });
+  assert.equal(skip.broadcast.length, 0);
+  assert.equal(skip.skipped.broadcast, 1);
+
+  const fresh = planRestore(parsed.bundle, {
+    sessionIds: new Set(),
+    memoryNames: new Set(),
+    stickerIds: new Set(),
+  });
+  assert.equal(fresh.broadcast.length, 1);
+  assert.equal(fresh.broadcast[0].items[0].comment, "评");
 });
