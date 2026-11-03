@@ -26,6 +26,10 @@ export interface Settings {
   cheapMode: boolean;
   /** 你离开一阵子之后，她自己做梦。关掉就只有手动按钮能做。 */
   autoDream: boolean;
+  /** NMS 深睡：有 key + 网络 + 前台/保活时，App 空闲才跑。 */
+  nmsDeepSleepEnabled: boolean;
+  /** NMS 每晚 LLM 调用上限（0 关、默认 8、最高 40）。 */
+  nmsNightCap: number;
   /**
    * 她会看时机回话：有时不接（尤其是收尾那句）、有时慢半拍。
    * 关掉就回到"每句立刻回"——调提示词的时候有用。
@@ -75,12 +79,27 @@ export interface Settings {
   ttsVoice: string;
   ttsGroupId: string;
   /**
+   * 外观。
+   *
+   * system = 跟随系统；light = 白天的玻璃工作台；dark = C 的夜间（深空底 / 青色信号）。
+   * 只换 token，不换布局；开屏的 ASCII 白底保持不动。
+   */
+  theme: "system" | "light" | "dark";
+  /**
    * 黑塔币行情接口基址（可选覆盖）。
    *
    * 空 = 用构建时注入的 VITE_COIN_API_BASE（开发模式自动落到本地 mock）；
    * 填了就以这里为准——FC 还没部署时，装机后改这一栏就能接上，不用重打 APK。
    */
   coinApiBase: string;
+  /**
+   * 共享市场昵称 / QQ 号。
+   *
+   * 空 = 单机模式（本地钱包 + 本地签到 + 行情）；
+   * 填了 = 进共享市场（服务端账本、买卖、服务端签到、排行榜）。
+   * 在「黑塔币」页顶部填，不放在设置里。
+   */
+  coinIdentity: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -93,6 +112,8 @@ export const DEFAULT_SETTINGS: Settings = {
   moodEnabled: true,
   cheapMode: false,
   autoDream: true,
+  nmsDeepSleepEnabled: true,
+  nmsNightCap: 8,
   replyPacing: true,
   visionModel: "",
   albumEnabled: false,
@@ -116,6 +137,8 @@ export const DEFAULT_SETTINGS: Settings = {
   ttsVoice: "alloy",
   ttsGroupId: "",
   coinApiBase: "",
+  coinIdentity: "",
+  theme: "system",
 };
 
 const KEY = "herta.settings.v1";

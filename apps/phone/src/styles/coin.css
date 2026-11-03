@@ -1,0 +1,153 @@
+/* 黑塔币 · prototype A 卡面（只改壳与排版，不动行情逻辑） */
+.coinView {
+  background:
+    radial-gradient(120% 60% at 20% 0%, rgba(234, 246, 244, 0.9) 0%, transparent 62%),
+    linear-gradient(180deg, #f7fbfa 0%, #eef7f6 100%);
+  color: var(--ink);
+  font-family: var(--app-font);
+}
+.coinHead {
+  height: 54px;
+  padding: 0 12px 0 8px;
+  gap: 7px;
+  background: rgba(255, 255, 255, 0.55);
+  border-bottom: 1px solid var(--line);
+  backdrop-filter: blur(16px) saturate(140%);
+}
+.coinBack {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: none;
+  color: var(--ink-soft);
+  font-size: 16px;
+}
+.coinTitle { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
+.coinBadge {
+  font-size: 9px;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+.coinScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 12px calc(env(safe-area-inset-bottom) + 22px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.coinPriceBar,
+.coinChartCard,
+.coinCard {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  padding: 12px;
+  flex: none;
+}
+.coinPriceBar { padding: 13px; }
+.coinPriceTop { display: flex; align-items: baseline; gap: 8px; margin: 0; }
+.coinLast { font-family: ui-monospace, Consolas, monospace; font-size: 30px; font-weight: 560; letter-spacing: -0.05em; line-height: 1.1; }
+.coinChange { font-family: ui-monospace, Consolas, monospace; font-size: 10px; font-weight: 500; }
+.coinUnit { margin-left: auto; font-family: ui-monospace, Consolas, monospace; font-size: 8px; color: var(--muted); }
+.coinStats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px 8px; margin: 10px 0 0; }
+.coinStats dt { font-size: 9px; color: var(--muted); }
+.coinStats dd { margin: 0; font-family: ui-monospace, Consolas, monospace; font-size: 10px; color: var(--ink); }
+.coinSrc { margin: 7px 0 0; font-size: 8.5px; color: var(--muted); }
+.coinOfflineBar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid rgba(181, 135, 63, 0.26);
+  border-radius: 11px;
+  background: rgba(181, 135, 63, 0.07);
+  color: #a2703c;
+  font-size: 10px;
+}
+.coinOfflineBar button { margin-left: auto; border: 0; background: none; color: inherit; text-decoration: underline; font: inherit; font-size: 10px; }
+
+.coinChartCard { padding: 10px 10px 8px; }
+.coinChartWrap { position: relative; height: 150px; }
+.coinCanvas { width: 100%; height: 100%; }
+.coinOhlc { display: flex; gap: 8px; align-items: baseline; font-family: ui-monospace, Consolas, monospace; font-size: 8px; color: var(--muted); padding: 0 2px 4px; }
+.coinOhlcItem b { margin-left: 2px; font-weight: 500; }
+.coinOhlcTime { font-weight: 600; color: var(--ink-soft); }
+.coinOhlcClose { margin-left: auto; border: 0; background: none; color: var(--muted); padding: 0 2px; }
+.coinChartEmpty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 11px; }
+.coinLegend { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 8px; color: var(--muted); padding: 4px 2px 0; }
+.coinLegendItem::before { content: ""; display: inline-block; width: 6px; height: 2px; margin-right: 3px; vertical-align: 2px; background: currentColor; }
+.coinLegendItem.ma5 { color: #d9a66a; }
+.coinLegendItem.ma10, .coinLegendItem.vwap { color: var(--accent); }
+.coinLegendItem.ma20 { color: #a58ac9; }
+.coinLegendItem.prev { color: #b6c4cb; }
+.coinLegendHint { margin-left: auto; color: var(--muted); }
+
+.coinCardTitle { margin: 0 0 7px; font-size: 13px; font-weight: 650; letter-spacing: -0.01em; color: var(--ink); }
+.coinCardNote { margin: 7px 0 0; font-size: 9.5px; line-height: 1.6; color: var(--muted); }
+.coinCardNote + .coinBtn, .coinCard .coinBtn { margin-top: 8px; }
+.coinPosGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 10px; margin: 0; }
+.coinPosGrid dt { font-size: 8.5px; color: var(--muted); }
+.coinPosGrid dd { margin: 0; font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--ink); }
+.coinPosGrid dd.up { color: #d96a7a; }
+.coinPosGrid dd.down { color: #4f9d8a; }
+.coinPosPct { font-style: normal; font-size: 8px; margin-left: 3px; }
+.coinSignMsg { margin: 0 0 8px; font-size: 10.5px; color: var(--ink-soft); }
+.coinSignNext, .coinSignOffline { margin: 7px 0 0; font-size: 9px; color: var(--muted); }
+.coinSignNote { margin: 6px 0 0; font-size: 9px; color: var(--muted); }
+.coinBtn {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.55);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 10px;
+  color: var(--ink);
+}
+.coinBtnPrimary { background: rgba(17, 20, 23, 0.86); border-color: rgba(17, 20, 23, 0.86); color: #fff; }
+.coinBtnBuy { background: rgba(217, 106, 122, 0.09); border-color: rgba(217, 106, 122, 0.28); color: #b64a5c; }
+.coinBtnSell { background: rgba(79, 157, 138, 0.09); border-color: rgba(79, 157, 138, 0.28); color: #2f7d68; }
+.coinBtn:disabled { opacity: 0.45; }
+.coinIdentityForm { display: flex; gap: 6px; }
+.coinIdentityInput { flex: 1; min-width: 0; min-height: 34px; border: 1px solid var(--line); border-radius: 9px; padding: 7px 9px; background: var(--field); color: var(--ink); font: inherit; font-size: 11px; }
+.coinIdentityForm .coinBtn { flex: none; min-height: 34px; }
+.coinIdentityRow { display: flex; align-items: center; gap: 7px; }
+.coinIdentityName { font-weight: 600; font-size: 12px; }
+.coinIdentityTag { font-size: 8.5px; color: var(--accent); border: 1px solid rgba(47, 125, 146, 0.24); background: rgba(47, 125, 146, 0.06); border-radius: 999px; padding: 1px 5px; }
+.coinLinkBtn { margin-left: auto; border: 0; background: none; color: var(--muted); font: inherit; font-size: 9px; text-decoration: underline; }
+.coinTradeRow { display: flex; align-items: center; gap: 7px; margin: 7px 0 3px; }
+.coinTradeInput { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 9px; padding: 7px 9px; background: var(--field); color: var(--ink); font: inherit; font-size: 11px; }
+.coinTradeUnit { font-size: 9px; color: var(--muted); }
+.coinTradePreview { margin: 2px 0 7px; font-size: 9px; color: var(--muted); }
+.coinTradeBtns { display: flex; gap: 6px; }
+.coinTradeBtns .coinBtn { flex: 1; }
+.coinLeaderList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.coinLeaderList li { display: flex; align-items: center; gap: 7px; padding: 5px 0; border-top: 1px solid var(--line); font-size: 10px; }
+.coinLeaderRank { width: 14px; font-family: ui-monospace, Consolas, monospace; font-size: 8px; color: var(--muted); }
+.coinLeaderName { flex: 1; }
+.coinLeaderValue { font-family: ui-monospace, Consolas, monospace; font-size: 9px; color: var(--ink-soft); }
+.coinLeaderList li.isMe { color: var(--accent); }
+.coinEmpty { padding: 26px 12px; text-align: center; }
+.coinEmptyTitle { margin: 0 0 5px; font-size: 14px; font-weight: 650; color: var(--ink); }
+.coinEmptyNote { margin: 0 0 10px; font-size: 10px; line-height: 1.6; color: var(--muted); }
+.coinLoading { margin: 28px auto; color: var(--muted); font-size: 11px; }
+.coinReminderRow { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 11px; background: var(--card); font-size: 10px; }
+.coinReminderBtn { margin-left: auto; border: 0; background: none; color: var(--accent); font: inherit; font-size: 10px; }
+.coinReminderOn, .coinReminderNote { margin: 0; text-align: center; font-size: 8.5px; color: var(--muted); }
+
+:root[data-theme="dark"] .coinView {
+  background:
+    radial-gradient(120% 60% at 20% 0%, rgba(26, 108, 120, 0.26) 0%, transparent 62%),
+    linear-gradient(180deg, #061018 0%, #08141e 100%);
+}
+:root[data-theme="dark"] .coinHead { background: rgba(6, 16, 24, 0.72); }
+:root[data-theme="dark"] .coinBtn { background: rgba(10, 26, 38, 0.72); }
+:root[data-theme="dark"] .coinBtnPrimary { background: rgba(110, 231, 255, 0.86); border-color: rgba(110, 231, 255, 0.86); color: #041016; }
+:root[data-theme="dark"] .coinBtnBuy { background: rgba(255, 107, 125, 0.1); border-color: rgba(255, 107, 125, 0.3); color: #ff8f9c; }
+:root[data-theme="dark"] .coinBtnSell { background: rgba(87, 227, 178, 0.1); border-color: rgba(87, 227, 178, 0.3); color: #57e3b2; }
+:root[data-theme="dark"] .coinPosGrid dd.up { color: #ff6b7d; }
+:root[data-theme="dark"] .coinPosGrid dd.down { color: #57e3b2; }

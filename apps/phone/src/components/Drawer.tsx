@@ -1,4 +1,5 @@
 import type { DreamState, MemoryHit, MemoryRecord, SessionHit } from "@herta/core";
+import "../styles/sessions.css";
 import { effectiveWeight, memoryTitle } from "@herta/core";
 import { formatPct } from "@herta/coin";
 import type { SessionMeta } from "../storage.ts";
@@ -28,6 +29,8 @@ export interface DrawerActions {
   importFromLink(): void;
   /** 打开黑塔币行情页（聊天之外的小模块，v1 只在抽屉里有入口）。 */
   openCoin(): void;
+  /** 打开星际和平播报（独立全屏页）。 */
+  openBroadcast(): void;
 }
 
 export interface DrawerProps {
@@ -52,6 +55,10 @@ export interface DrawerProps {
   canDistill: boolean;
   /** 黑塔币最近一次行情的涨跌幅（有缓存才显示，没打开过就是 null）。 */
   coinPct: number | null;
+  /** 今天这期的期号；还没有就是 null。 */
+  broadcastNo: number | null;
+  /** 今天这期还没读：入口右侧亮一个点。 */
+  broadcastUnread: boolean;
   actions: DrawerActions;
 }
 
@@ -74,6 +81,11 @@ export function Drawer(props: DrawerProps) {
             {formatPct(props.coinPct)}
           </span>
         )}
+      </button>
+      <button className="broadcastEntry" onClick={actions.openBroadcast}>
+        <span className="broadcastEntryName">星际和平播报</span>
+        {props.broadcastNo != null && <span className="broadcastEntryNo">第 {props.broadcastNo} 期</span>}
+        {props.broadcastUnread && <span className="broadcastEntryDot" aria-label="有新一期" />}
       </button>
       <p className="nowLine">{props.nowLine}</p>
 
@@ -128,7 +140,7 @@ export function Drawer(props: DrawerProps) {
           <span>记忆 {props.memories.filter((m) => !m.forgotten).length} 篇</span>
           {props.dreamState?.forgottenTotal ? <span className="sm">已忘 {props.dreamState.forgottenTotal}</span> : null}
           <button className="mgraph" onClick={actions.showGraph} disabled={props.memories.length === 0}>
-            星图
+            记忆网络
           </button>
         </div>
         {props.maintaining && <p className="memNote">{props.maintaining}</p>}

@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Block, HertaBlock, ImportBundle, Session, UserBlock } from "@herta/protocol";
 import {
   appendBlocks,
+  type BroadcastIssue,
+  type BroadcastItem,
   classifyPickedFile,
   createSession,
   decodeTextFile,
-  effectiveWeight,
   humanizeError,
-  memoryTitle,
   parseImportBundle,
   parseSharedConversation,
   planImport,
@@ -18,9 +18,7 @@ import {
   shareIdFromInput,
   READABLE_FILE_EVENT_NOTE,
   sanitizeFileName,
-  shouldConsolidate,
   stripStageDirections,
-  shouldForget,
   SHARE_API,
   TEXT_FILE_MAX_BYTES,
   timePhrase,
@@ -28,7 +26,10 @@ import {
 } from "@herta/core";
 import { BrowserAssetSource } from "./assets-browser.ts";
 import { Drawer } from "./components/Drawer.tsx";
-import { GraphView } from "./components/GraphView.tsx";
+import { NmsScreen } from "./nms/NmsScreen.tsx";
+import { createActivationStore } from "./nms/network/activation.ts";
+import { BroadcastView } from "./components/BroadcastView.tsx";
+import { BroadcastNotice } from "./components/BroadcastNotice.tsx";
 import { CoinView } from "./components/CoinView.tsx";
 import { MemoryViewer } from "./components/MemoryViewer.tsx";
 import { SettingsSheet } from "./components/SettingsSheet.tsx";
@@ -42,15 +43,19 @@ import { longPressProps } from "./components/long-press.ts";
 import { Shot, ShotViewer, isTallImage } from "./components/Shot.tsx";
 import { Splash } from "./components/Splash.tsx";
 import { UsageChip } from "./components/UsageChip.tsx";
+import { ReminderCard, parseReminderLike, reminderMeta } from "./components/ReminderCard.tsx";
 import { useChatTurn } from "./hooks/useChatTurn.ts";
 import { useProactive } from "./hooks/useProactive.ts";
 import { seedPureIfNeeded } from "./pure.ts";
 import { captionImage, compressImage, dataUrlToBlob, prepareImage } from "./vision.ts";
 import { extractDocumentText, type DocumentFormat } from "./doc-text.ts";
 import { tagSticker } from "./sticker-tag.ts";
-import { cameraFailureText, dueReminders, formatBytes, isNative, markReminderSpoken, snapPhoto } from "./capabilities.ts";
+import { cameraFailureText, dueReminders, formatBytes, isNative, listReminders, markReminderSpoken, openLink, snapPhoto, type ReminderRecord } from "./capabilities.ts";
 import { useMemory } from "./hooks/useMemory.ts";
-import { MemoryGraph } from "./MemoryGraph.tsx";
+import { flushNmsTurns, recordNmsTurn } from "./nms/turn-recorder.ts";
+import { acquireKeepAlive } from "./nms/keepalive-lease.ts";
+import { deleteNmsTurn } from "./nms/controller.ts";
+import { countUserTurns } from "@herta/nms";
 import { collect } from "./stream.ts";
 import { buildTools } from "./devtools.ts";
 import { IdbMemoryStore } from "./memory-idb.ts";
@@ -73,12 +78,24 @@ import { loadPromptCode } from "./prompts.ts";
 import { resolveCoinApiBase } from "./coin/config.ts";
 import { loadCoinQuote } from "./coin/coin-storage.ts";
 import { onCoinNotificationTap, syncCoinReminder } from "./coin/notify.ts";
+import { onBroadcastNotificationTap, syncBroadcastReminder } from "./broadcast/notify.ts";
+import { useBroadcast } from "./broadcast/useBroadcast.ts";
+import { readArticle } from "./broadcast/reader.ts";
 import { synthesize } from "./tts.ts";
 import { playVoice, stopVoice } from "./voice.ts";
 
 const assets = new BrowserAssetSource();
 const transport = pickTransport();
 const memoryStore = new IdbMemoryStore();
+
+/** 侧栏底部的四个入口图标（线稿，跟桌面端同一套笔画）。 */
+function RailIcon({ d }: { d: string }) {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d={d} />
+    </svg>
+  );
+}
 
 /** 模型名里带这些的，当它自己能看图（deepseek-flash / 各家 VL）。 */
 const VISION_MODEL = /flash|vision|vl|omni/i;
@@ -88,6 +105,10 @@ const DOC_LABEL: Record<DocumentFormat, string> = { pdf: "PDF", docx: "Word", pp
 
 export function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings);
+  /** 系统是不是深色。theme=system 时用它决定解析结果。 */
+  const [systemDark, setSystemDark] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches
+  );
   /** 开屏动画：播完（或失败兜底）之后卸掉 */
   const [splashGone, setSplashGone] = useState(false);
   // 稳定的回调：启动页退场那 450ms 里如果 App 重渲染，内联箭头会让计时器反复重置
@@ -103,6 +124,7 @@ export function App() {
   const {
     memories,
     dreamState,
+    nmsSnapshot,
     dreaming,
     distilling,
     distillNote,
@@ -114,6 +136,9 @@ export function App() {
     distillNow,
     maintainMemories,
   } = useMemory(settings, { onError: (m) => reportError(m) });
+  const nmsActivation = useMemo(() => createActivationStore(), []);
+  const nmsRecallSeq = useRef(0);
+  const memorySleepEnabled = settings.autoDream || settings.nmsDeepSleepEnabled;
   const [showSettings, setShowSettings] = useState(false);
   const [showCaps, setShowCaps] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -158,8 +183,11 @@ export function App() {
   const [showGraph, setShowGraph] = useState(false);
   /** 黑塔币页：聊天之外的小模块，v1 只从抽屉进。 */
   const [showCoin, setShowCoin] = useState(false);
+  const [showBroadcast, setShowBroadcast] = useState(false);
   /** 抽屉入口右侧那枚涨跌幅：只用最后一次成功行情的缓存，没打开过就是 null。 */
   const [coinPct, setCoinPct] = useState<number | null>(null);
+  /** 本机提醒记录：用来把写进对话的「提醒」认出来、渲染成卡片。 */
+  const [reminderRecords, setReminderRecords] = useState<ReminderRecord[]>([]);
   const [shareInput, setShareInput] = useState("");
   const [importBusy, setImportBusy] = useState(false);
   const dreamingRef = useRef(false);
@@ -173,6 +201,24 @@ export function App() {
   const [atBottom, setAtBottom] = useState(true);
 
   useEffect(() => saveSettings(settings), [settings]);
+
+  /**
+   * 外观：把解析后的主题写到 <html data-theme>。
+   * CSS 只在 [data-theme="dark"] 下覆盖 token；布局不动。
+   */
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      setSystemDark(mq.matches);
+      const dark = settings.theme === "dark" || (settings.theme === "system" && mq.matches);
+      document.documentElement.dataset.theme = dark ? "dark" : "light";
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute("content", dark ? "#061018" : "#f8fbfa");
+    };
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, [settings.theme]);
 
   /** 行情接口从哪来：设置里手填的优先，其次构建注入；再没有就空（页面会说明未配置）。 */
   const coinBase = useMemo(() => resolveCoinApiBase(settings.coinApiBase), [settings.coinApiBase]);
@@ -195,6 +241,24 @@ export function App() {
     void onCoinNotificationTap(() => {
       setDrawer(false);
       setShowCoin(true);
+    }).then((fn) => {
+      if (cancelled) fn();
+      else off = fn;
+    });
+    return () => {
+      cancelled = true;
+      off?.();
+    };
+  }, []);
+
+  /** 播报提醒：每次开 app 补排一遍；点通知直接落到播报页。 */
+  useEffect(() => {
+    void syncBroadcastReminder();
+    let off: (() => void) | null = null;
+    let cancelled = false;
+    void onBroadcastNotificationTap(() => {
+      setDrawer(false);
+      setShowBroadcast(true);
     }).then((fn) => {
       if (cancelled) fn();
       else off = fn;
@@ -247,22 +311,8 @@ export function App() {
         // 纯净版：第一次打开把库清空，只留内置的那条对话
         await seedPureIfNeeded();
 
-        // 种子只在**真正第一次**启动时搬一次，用标记记住。
-        // 否则用户把记忆全删光之后，下次启动会被原样复活——"我删了它又回来了"这种惊吓不能有。
-        const seeded = localStorage.getItem("herta.seeded.v1") === "1";
-        if (!seeded) {
-          if ((await memoryStore.list()).length === 0) {
-            const names = await assets.seedFiles();
-            const at = new Date().toISOString();
-            for (const name of names) {
-              const body = await assets.readSeed(name);
-              if (body && body.trim()) {
-                await memoryStore.write({ name, body, createdAt: at });
-              }
-            }
-          }
-          localStorage.setItem("herta.seeded.v1", "1");
-        }
+        // 不再往手机里预装记忆。第一次打开记忆库就是空的；
+        // 之后每一条都必须是这段对话真正长出来的。
         if (alive) await refreshMemories();
         if (alive) setStickers(await listStickers());
 
@@ -412,6 +462,18 @@ export function App() {
     };
   }, [flushReminders, session?.id]);
 
+  // 提醒卡片的数据源：本机提醒记录。一分钟刷一次，她新排的提醒也能很快被认出来。
+  useEffect(() => {
+    const load = () => {
+      void listReminders()
+        .then(setReminderRecords)
+        .catch(() => undefined);
+    };
+    load();
+    const timer = window.setInterval(load, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   /** 一个回合的全过程都在这里：判心情、算行踪、带工具说话、复核、落库。 */
   const { send, stop, busy, mood, typing } = useChatTurn({
     settings,
@@ -426,6 +488,11 @@ export function App() {
     onKeepSticker: (record) => keepStickerRef.current(record),
     onError: reportError,
     onNeedKey: () => setShowSettings(true),
+    onTurnEnd: (payload) => recordNmsTurn(payload),
+    onNmsRecall: (events) => {
+      nmsRecallSeq.current += 1;
+      nmsActivation.ingest({ seq: nmsRecallSeq.current, at: new Date().toISOString(), nodes: events });
+    },
   });
 
   // 她说话的那几秒里不让提醒插进来（那一轮结束时会整体覆盖会话）
@@ -446,11 +513,81 @@ export function App() {
     onError: reportError,
   });
 
+  // NMS 深睡与 proactive 共用 HertaKeeperService：引用计数，任一需要就保活。
+  useEffect(() => {
+    if (!settings.nmsDeepSleepEnabled) return;
+    const release = acquireKeepAlive("nms-deep-sleep");
+    return release;
+  }, [settings.nmsDeepSleepEnabled]);
+
   /** 从表情面板发一张：文字是空的，这一轮的起点是那张表情块。 */
   const sendSticker = useCallback(
     (record: StickerRecord) => {
       setShowTray(false);
       void send("", undefined, record);
+    },
+    [send]
+  );
+
+  /** 播报好了：往当时的会话里塞一条「播报提示」，同一天只塞一次。 */
+  const appendBroadcastPrompt = useCallback(
+    async (issue: BroadcastIssue) => {
+      // 她正在回话时不要插：那一轮结束时会用自己的会话覆盖，提示会丢
+      if (busyRef.current) throw new Error("她正在说话，等这一轮结束再递播报");
+      const target = sessionRef.current ?? (await loadSession((await listSessions())[0]?.id ?? ""));
+      if (!target) throw new Error("还没有会话能接住播报提示");
+      const exists = target.blocks.some(
+        (block) => block.kind === "herta" && block.action?.kind === "broadcast" && block.action.issueId === issue.id
+      );
+      if (exists) return;
+      const at = new Date().toISOString();
+      const block: HertaBlock = {
+        kind: "herta",
+        surface: "speech",
+        text: "今天的星际和平播报到了。",
+        at,
+        action: { kind: "broadcast", issueId: issue.id, no: issue.no },
+      };
+      const next: Session = { ...target, blocks: [...target.blocks, block], updatedAt: at };
+      await putSession(next);
+      if (sessionRef.current?.id === next.id) setSession(next);
+      await refreshList();
+    },
+    [refreshList]
+  );
+
+  const broadcast = useBroadcast({
+    settings,
+    enabled: splashGone,
+    onPrompt: appendBroadcastPrompt,
+  });
+
+  /** 侧栏四个入口：同一时间只开一页，再点一次关掉。 */
+  const openPage = useCallback(
+    (target: "memory" | "broadcast" | "coin") => {
+      const isOpen = target === "memory" ? showGraph : target === "broadcast" ? showBroadcast : showCoin;
+      setShowGraph(target === "memory" ? !isOpen : false);
+      setShowBroadcast(target === "broadcast" ? !isOpen : false);
+      setShowCoin(target === "coin" ? !isOpen : false);
+    },
+    [showGraph, showBroadcast, showCoin]
+  );
+
+  /** 回对话：关掉所有整屏页，不新建会话。 */
+  const showChat = useCallback(() => {
+    setShowGraph(false);
+    setShowBroadcast(false);
+    setShowCoin(false);
+    setShowSettings(false);
+    setDrawer(false);
+  }, []);
+
+  /** 从播报里点「让她再多说两句」：关页、回聊天、带引用发一句。 */
+  const discussBroadcastItem = useCallback(
+    (item: BroadcastItem) => {
+      setShowBroadcast(false);
+      const quote = "关于这条新闻，你怎么看？\n「" + item.title + "」" + (item.url ? "\n" + item.url : "");
+      void send(quote);
     },
     [send]
   );
@@ -499,10 +636,10 @@ export function App() {
   }, [draft, busy, session?.blocks.length]);
 
   useEffect(() => {
-    if (!settings.autoDream) return;
+    if (!memorySleepEnabled) return;
     const tick = () => {
       if (!session || busy || dreaming || distilling || maintaining) return;
-      if (!settings.autoDream) return;
+      if (!memorySleepEnabled) return;
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       const phase = presenceAt().phase;
       const quiet = phase === "凌晨" || phase === "深夜" || phase === "夜里";
@@ -513,7 +650,7 @@ export function App() {
     };
     const timer = setInterval(tick, 60_000);
     return () => clearInterval(timer);
-  }, [busy, distilling, dreamNow, dreaming, maintaining, session, settings.autoDream]);
+  }, [busy, distilling, dreamNow, dreaming, maintaining, memorySleepEnabled, session]);
 
   /**
    * 切到后台满十分钟：做梦，然后把记忆整理一遍。
@@ -537,7 +674,7 @@ export function App() {
   }, [busy, consolidateNow, dreamNow, dreaming, session]);
 
   useEffect(() => {
-    if (!settings.autoDream) return;
+    if (!memorySleepEnabled) return;
 
     const onVisibility = () => {
       if (document.visibilityState === "hidden") {
@@ -568,11 +705,11 @@ export function App() {
       document.removeEventListener("visibilitychange", onVisibility);
       clearInterval(timer);
     };
-  }, [runUpkeep, settings.autoDream]);
+  }, [memorySleepEnabled, runUpkeep]);
 
   /** 打开 App 放了半天没说话的，进来二十秒后让她做一次梦。 */
   useEffect(() => {
-    if (!settings.autoDream) return;
+    if (!memorySleepEnabled) return;
     const t = setTimeout(() => {
       if (session && !busy && !dreaming) void dreamNow(session, false);
     }, 20_000);
@@ -701,9 +838,15 @@ export function App() {
 
   const retract = useCallback(async () => {
     if (!session || busy) return;
+    const turn = countUserTurns(session.blocks);
     const cut = retractLastTurn(session);
     setSession(cut);
     await persist(cut);
+    if (turn > 0) {
+      // 先让排队中的 pending 落库，再删，避免插入晚于删除。
+      await flushNmsTurns();
+      void deleteNmsTurn(session.id, turn);
+    }
   }, [busy, persist, session]);
 
   /** 念一段：合成完直接播。合成失败就把原因说出来，不静默。 */
@@ -1038,6 +1181,31 @@ export function App() {
   );
 
   const blocks = useMemo(() => session?.blocks ?? [], [session]);
+
+  /**
+   * 把「先想一句、紧跟着说出来」合成一张卡：
+   * 桌面端也是一张卡里先想再说，分成两块会多一个头像、多一个时间。
+   */
+  const renderBlocks = useMemo(() => {
+    const out: { b: Block; i: number; thought: HertaBlock | null }[] = [];
+    for (let i = 0; i < blocks.length; i += 1) {
+      const b = blocks[i];
+      const next = blocks[i + 1];
+      if (
+        b.kind === "herta" &&
+        b.surface === "thought" &&
+        next &&
+        next.kind === "herta" &&
+        next.surface === "speech"
+      ) {
+        out.push({ b: next, i: i + 1, thought: b });
+        i += 1;
+      } else {
+        out.push({ b, i, thought: null });
+      }
+    }
+    return out;
+  }, [blocks]);
   /** 表情块只存引用：渲染时按 id 去库里找那张图。 */
   const stickerById = useMemo(() => new Map(stickers.map((s) => [s.id, s])), [stickers]);
   /** 她的库（她发给你用）与你的箱（你发给她用）分开。 */
@@ -1059,6 +1227,7 @@ export function App() {
 
   const memHits = useMemo(() => searchMemories(memories, filter), [memories, filter]);
   const sessHits = useMemo(() => searchSessions(allSessions, filter), [allSessions, filter]);
+  const themeIsDark = settings.theme === "dark" || (settings.theme === "system" && systemDark);
 
   /* 从搜索结果跳到某一条消息：开对应会话，然后滚到那一块。 */
   useEffect(() => {
@@ -1083,30 +1252,6 @@ export function App() {
     []
   );
 
-  /** 星图数据：节点=记忆（大小=有效权重），边=她自己建立的关联。布局交给组件实时算。 */
-  const graph = useMemo(() => {
-    const now = Date.now();
-    const active = memories.filter((m) => !m.forgotten);
-    const nodes = active.map((m) => ({ name: m.name, weight: effectiveWeight(m, now), title: memoryTitle(m) }));
-    const names = new Set(nodes.map((n) => n.name));
-    const edges: { a: string; b: string }[] = [];
-    for (const m of active) {
-      for (const l of m.links ?? []) {
-        if (names.has(l) && m.name < l) edges.push({ a: m.name, b: l });
-      }
-    }
-    return { nodes, edges };
-  }, [memories]);
-
-  // 记忆跨过阈值就自动整理/遗忘。整理要用模型，没填 Key 就不动。
-  useEffect(() => {
-    if (!settings.apiKey || maintaining || memories.length === 0) return;
-    const active = memories.filter((m) => !m.forgotten).length;
-    if (shouldForget(active) || shouldConsolidate(active, dreamState?.lastConsolidatedCount ?? null)) {
-      void maintainMemories();
-    }
-  }, [memories, dreamState, maintaining, maintainMemories, settings.apiKey]);
-
   // 换了会话：直接落在最新一条，别让人自己找。
   useEffect(() => {
     stickToBottom.current = true;
@@ -1119,17 +1264,36 @@ export function App() {
     requestAnimationFrame(() => scrollToBottom(false));
   }, [blocks.length, scrollToBottom]);
 
+  /** 提醒记录按「title\n正文」索引：写进对话的提醒正文就是这个格式。 */
+  const reminderByText = useMemo(() => {
+    const map = new Map<string, ReminderRecord>();
+    for (const record of reminderRecords) map.set(record.title + "\n" + record.text, record);
+    return map;
+  }, [reminderRecords]);
+
+  /** 块上的时间：只给眼睛看，不参与序列化。 */
+  const clockOf = (at: string) => {
+    const d = new Date(at);
+    return Number.isNaN(d.getTime())
+      ? ""
+      : d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  };
+
   /** 一条消息的正文：图在气泡里，字是字。 */
   const bodyOf = (b: UserBlock | HertaBlock) => {
     if (b.kind === "herta" && b.surface === "thought") {
       return (
-        <details>
-          <summary>想法</summary>
+        <div className="thought">
+          <span className="thoughtLabel">想</span>
           <p>{b.text}</p>
-        </details>
+        </div>
       );
     }
     const att = b.attachments?.[0];
+    const actionMatch =
+      b.kind === "herta" && b.surface === "speech" ? /^（([^）]*)）\s*/.exec(b.text) : null;
+    const actionText = actionMatch?.[1] ?? "";
+    const bodyText = actionMatch ? b.text.slice(actionMatch[0].length) : b.text;
     return (
       <>
         {b.kind === "user" && att && (
@@ -1147,7 +1311,8 @@ export function App() {
             ▶ 念
           </button>
         )}
-        {b.text && <p>{b.text}</p>}
+        {actionText && <p className="action">（{actionText}）</p>}
+        {bodyText && <p>{bodyText}</p>}
         {b.kind === "herta" && b.surface === "speech" && b.usage && <UsageChip usage={b.usage} />}
       </>
     );
@@ -1156,16 +1321,80 @@ export function App() {
   return (
     <div className="app">
       {!splashGone && <Splash onDone={hideSplash} />}
+
+      {/* 桌面端那条侧栏的窄版：会话常驻，入口在底部 */}
+      <aside className="rail" aria-label="侧栏">
+        <button className="railMark" type="button" onClick={() => setDrawer((v) => !v)} aria-label="会话">
+          H
+        </button>
+        <button className="railNew" type="button" onClick={() => void newSession()} aria-label="新对话">
+          ＋
+        </button>
+        <nav className="railNav" aria-label="模块">
+          <button
+            type="button"
+            className={!showGraph && !showBroadcast && !showCoin && !showSettings ? "on" : ""}
+            onClick={showChat}
+            aria-label="对话"
+          >
+            <RailIcon d="M4 5.5h16v10.5H9l-5 4z" />
+          </button>
+          <button type="button" className={showGraph ? "on" : ""} onClick={() => openPage("memory")} aria-label="记忆">
+            <RailIcon d="M8 4h8a2 2 0 0 1 2 2v14l-6-4-6 4V6a2 2 0 0 1 2-2Z" />
+          </button>
+          <button
+            type="button"
+            className={showBroadcast ? "on" : ""}
+            onClick={() => openPage("broadcast")}
+            aria-label="播报"
+          >
+            <RailIcon d="M12 12h.01M8.6 15.4a4.8 4.8 0 0 1 0-6.8M15.4 8.6a4.8 4.8 0 0 1 0 6.8M5.6 18.4a9 9 0 0 1 0-12.8M18.4 5.6a9 9 0 0 1 0 12.8" />
+          </button>
+          <button type="button" className={showCoin ? "on" : ""} onClick={() => openPage("coin")} aria-label="黑塔币">
+            <RailIcon d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18ZM12 8v8M9 10h4.5a1.5 1.5 0 0 1 0 3H9" />
+          </button>
+        </nav>
+        <div className="railFoot">
+          <button
+            type="button"
+            className={showSettings ? "on" : ""}
+            onClick={() => setShowSettings((v) => !v)}
+            aria-label="设置"
+          >
+            <RailIcon d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM19.4 13a7.9 7.9 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.9 7.9 0 0 0-1.7-1L15 3.5h-4l-.3 2.5a7.9 7.9 0 0 0-1.7 1l-2.4-1-2 3.4L6.6 11a7.9 7.9 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.9 7.9 0 0 0 1.7 1l.3 2.5h4l.3-2.5a7.9 7.9 0 0 0 1.7-1l2.4 1 2-3.4-2-1.6Z" />
+          </button>
+          <button type="button" onClick={() => setDrawer((v) => !v)} aria-label="更多">
+            ⋯
+          </button>
+        </div>
+      </aside>
+
+      <section className="workspace">
       <header className="bar">
-        <button className="link left" onClick={() => setDrawer((v) => !v)} aria-label="会话列表">
+        <button className="iconBtn" type="button" onClick={() => setDrawer((v) => !v)} aria-label="会话">
           ☰
         </button>
-        <span className="title">{session?.title ?? "Herta"}</span>
-        <span className={"tag " + (transport.name === "native" ? "ok" : "warn")}>
-          {transport.name === "native" ? "原生" : "浏览器"}
+        <div className="topTitle">
+          <span className="topName">黑塔</span>
+          <span className="topSub">
+            {presenceAt().phase} · {presenceAt().place}
+          </span>
+        </div>
+        <span className="moodChip">
+          <i />
+          {!mood || mood === "默认" ? "平静" : mood}
         </span>
-        <button className="link" onClick={() => setShowSettings((v) => !v)}>
-          设置
+        <button
+          className="themeToggle"
+          type="button"
+          onClick={() => setSettings((s) => ({ ...s, theme: themeIsDark ? "light" : "dark" }))}
+          aria-label={themeIsDark ? "切到日间" : "切到夜间"}
+          title={themeIsDark ? "切到日间" : "切到夜间"}
+        >
+          {themeIsDark ? "日" : "夜"}
+        </button>
+        <button className="topAvatarBtn" type="button" onClick={() => setShowSettings(true)} aria-label="设置">
+          <img src="/herta.png" alt="" />
         </button>
       </header>
 
@@ -1191,6 +1420,8 @@ export function App() {
           nowLine={timePhrase() + " · 她在" + presenceAt().place}
           canDistill={(session?.blocks.length ?? 0) >= 12}
           coinPct={coinPct}
+          broadcastNo={broadcast.today?.no ?? null}
+          broadcastUnread={broadcast.unread}
           actions={{
             newSession: () => void newSession(),
             openSession: (id) => void openSession(id),
@@ -1215,7 +1446,11 @@ export function App() {
             importFromLink: () => void importFromLink(),
             openCoin: () => {
               setDrawer(false);
-              setShowCoin(true);
+              openPage("coin");
+            },
+            openBroadcast: () => {
+              setDrawer(false);
+              openPage("broadcast");
             },
           }}
         />
@@ -1226,19 +1461,44 @@ export function App() {
           // base 变了就重挂：设置里改接口地址后要重新拉，不用杀 app
           key={coinBase || "coin-no-base"}
           base={coinBase}
+          identity={settings.coinIdentity}
+          onIdentityChange={(next) => setSettings({ ...settings, coinIdentity: next })}
           onClose={() => setShowCoin(false)}
           onQuoteChange={(q) => setCoinPct(q ? q.market.changePct : null)}
         />
       )}
 
-      {showGraph && (
-        <GraphView
-          nodes={graph.nodes}
-          edges={graph.edges}
-          onOpen={(name) => {
-            const rec = memories.find((m) => m.name === name);
-            if (rec) setViewing(rec);
+      {showBroadcast && (
+        <BroadcastView
+          issues={broadcast.issues}
+          today={broadcast.today}
+          status={broadcast.status}
+          error={broadcast.error}
+          generating={broadcast.generating}
+          config={broadcast.config}
+          onClose={() => setShowBroadcast(false)}
+          onRetry={() => void broadcast.generate(true)}
+          onMarkRead={broadcast.markRead}
+          onOpenLink={(url) => {
+            void openLink(url).catch((openError) => {
+              setError(openError instanceof Error ? openError.message : String(openError));
+            });
           }}
+          onDiscuss={discussBroadcastItem}
+          onReadItem={(item) => readArticle(item, settings)}
+          onCacheItem={(issueId, itemId, digest) => broadcast.cacheDetail(issueId, itemId, digest)}
+          onConfigChange={(next) => void broadcast.updateConfig(next)}
+          onClearHistory={() => void broadcast.clearHistory()}
+        />
+      )}
+
+      {showGraph && (
+        <NmsScreen
+          snapshot={nmsSnapshot}
+          activationStore={nmsActivation}
+          settings={settings}
+          onSettingsChange={(patch) => setSettings({ ...settings, ...patch })}
+          onRefresh={() => void refreshMemories()}
           onClose={() => setShowGraph(false)}
         />
       )}
@@ -1293,6 +1553,7 @@ export function App() {
             void refreshList();
             void refreshMemories();
             void listStickers().then(setStickers);
+            void broadcast.refresh();
           }}
         />
       )}
@@ -1307,11 +1568,28 @@ export function App() {
 
       {viewingShot && <ShotViewer pieces={viewingShot.pieces} name={viewingShot.name} onClose={() => setViewingShot(null)} />}
 
+      <div className="chatContext">
+        <span className="liveDot" />
+        <span>记忆 {memories.filter((m) => !m.forgotten).length} 篇</span>
+        <i>·</i>
+        <span>复核 {settings.reviewEnabled ? "开" : "关"}</span>
+        <i>·</i>
+        <span>省 token {settings.cheapMode ? "开" : "关"}</span>
+        <span className="chatClock">
+          {new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+        </span>
+      </div>
+
       {/* 点聊天区就把附件面板收起来：它是冲着输入框来的，不该一直挂着 */}
       <main className="feed" ref={feedRef} onScroll={onFeedScroll} onPointerDown={() => setShowAttach(false)}>
         {blocks.length === 0 && <p className="empty">她还没开口。说点什么。</p>}
+        {blocks.length > 0 && (
+          <div className="dayLine">
+            <span>今天</span>
+          </div>
+        )}
 
-        {blocks.map((b, i) => {
+        {renderBlocks.map(({ b, i, thought }) => {
           if (b.kind === "system") {
             // 文件库事件只在「工具调用记录」里显示，聊天流里不刷屏；
             // 老版本写下的块没有 hidden 标记，按正文再认一遍（见 core 的 READABLE_FILE_EVENT_NOTE）
@@ -1341,10 +1619,70 @@ export function App() {
               </article>
             );
           }
+          // 播报提示：她递过来的一份东西，不是一句台词 —— 用转播卡，不用对话气泡
+          if (b.kind === "herta" && b.action?.kind === "broadcast") {
+            const issue = broadcast.issues.find((item) => item.id === b.action?.issueId);
+            return (
+              <BroadcastNotice
+                key={i}
+                no={b.action.no}
+                count={issue?.items.length}
+                text={b.text}
+                onOpen={() => {
+                  setDrawer(false);
+                  setShowBroadcast(true);
+                }}
+              />
+            );
+          }
+          // 提醒：到点被写进对话的那条，渲染成卡片，不混在对话气泡里
+          if (b.kind === "herta" && b.surface === "speech") {
+            const record = reminderByText.get(b.text);
+            if (record) {
+              return (
+                <ReminderCard
+                  key={i}
+                  index={i}
+                  title={record.title}
+                  text={record.text}
+                  at={b.at}
+                  meta={reminderMeta(record)}
+                />
+              );
+            }
+            const parsed = parseReminderLike(b.text);
+            if (parsed) {
+              return <ReminderCard key={i} index={i} title={parsed.title} text={parsed.text} at={b.at} />;
+            }
+          }
+          if (b.kind === "herta" && b.surface === "speech" && thought) {
+            return (
+              <div key={i} data-idx={i} className="turn herta speech">
+                <img className="turnAvatar" src="/herta.png" alt="" />
+                <article className="bubble herta speech">
+                  <div className="thought">
+                    <span className="thoughtLabel">想</span>
+                    <p>{thought.text}</p>
+                  </div>
+                  {bodyOf(b)}
+                  <span className="bubbleTime">{clockOf(b.at)}</span>
+                </article>
+              </div>
+            );
+          }
           return (
-            <article key={i} data-idx={i} className={"bubble " + b.kind + (b.kind === "herta" ? " " + b.surface : "")}>
-              {bodyOf(b)}
-            </article>
+            <div
+              key={i}
+              data-idx={i}
+              className={"turn " + b.kind + (b.kind === "herta" ? " " + b.surface : "")}
+            >
+              {b.kind === "herta" && <img className="turnAvatar" src="/herta.png" alt="" />}
+              <article className={"bubble " + b.kind + (b.kind === "herta" ? " " + b.surface : "")}>
+                {bodyOf(b)}
+                <span className="bubbleTime">{clockOf(b.at)}</span>
+              </article>
+              {b.kind === "user" && <span className="userMark">你</span>}
+            </div>
           );
         })}
         {typing && <p className="note typing">她正在敲字…</p>}
@@ -1408,11 +1746,14 @@ export function App() {
             void ingestImage(file, file.name || "相机照片");
           }}
         />
-        {!busy && blocks.length > 0 && (
-          <button className="composerRetract" onClick={() => void retract()} title="撤回上一轮">
-            ↶ 撤回上一轮
-          </button>
-        )}
+        <div className="composerQuick">
+          {!busy && blocks.length > 0 && (
+            <button className="composerRetract" onClick={() => void retract()} title="撤回上一轮">
+              ↶ 撤回上一轮
+            </button>
+          )}
+          <span>Enter 发送 · 长图自动切段</span>
+        </div>
 
         {showAttach && (
           <AttachTray
@@ -1453,7 +1794,7 @@ export function App() {
             }}
           />
           <button
-            className={"composerAttach" + (showTray ? " on" : "")}
+            className={"composerAttach composerEmoji" + (showTray ? " on" : "")}
             onClick={() => {
               setShowAttach(false);
               setShowTray((v) => !v);
@@ -1476,7 +1817,7 @@ export function App() {
             </svg>
           </button>
           <button
-            className={"composerAttach" + (showAttach ? " on" : "")}
+            className={"composerAttach composerFile" + (showAttach ? " on" : "")}
             onClick={() => {
               setShowTray(false);
               setShowAttach((v) => !v);
@@ -1525,7 +1866,12 @@ export function App() {
             </button>
           )}
         </div>
+        <div className="composerFoot">
+          <span>她的手机 · 本机模型调用</span>
+          <span>{settings.model}</span>
+        </div>
       </footer>
+      </section>
     </div>
   );
 }
