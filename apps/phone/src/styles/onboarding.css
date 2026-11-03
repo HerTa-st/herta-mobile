@@ -1,0 +1,45 @@
+/* 开屏引导：prototype A 的玻璃封面 + 四步卡 */
+.onboardA {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  overflow-y: auto;
+  display: flex;
+  justify-content: center;
+  padding: calc(env(safe-area-inset-top) + 26px) 22px calc(env(safe-area-inset-bottom) + 22px);
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 50% 24%, rgba(192, 246, 215, 0.55), transparent 46%),
+    radial-gradient(circle at 50% 40%, rgba(165, 240, 250, 0.35), transparent 48%),
+    linear-gradient(180deg, #f7fbfd 0%, #eef7f6 100%);
+}
+.onboardGlow { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at 50% 30%, rgba(38, 158, 236, 0.16), transparent 42%); }
+.onboardInner { position: relative; z-index: 1; width: 100%; max-width: 360px; display: flex; flex-direction: column; align-items: center; }
+.onboardMark { width: 32px; height: 32px; border: 1px solid var(--line); border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; background: rgba(255, 255, 255, 0.6); }
+.onboardAvatar { width: 104px; height: 104px; border-radius: 50%; object-fit: cover; border: 1px solid var(--line); margin-top: 16px; box-shadow: 0 18px 48px rgba(32, 45, 58, 0.16); }
+.onboardInner h1 { margin: 18px 0 4px; font-size: 24px; letter-spacing: -0.03em; font-weight: 620; }
+.onboardLede { margin: 0; font-size: 11.5px; line-height: 1.7; color: var(--muted); text-align: center; }
+.onboardCard { width: 100%; margin-top: 18px; border: 1px solid var(--line); border-radius: 18px; background: var(--card); box-shadow: var(--shadow); padding: 2px 12px; }
+.onboardStep { display: flex; gap: 10px; padding: 11px 0; border-top: 1px solid var(--line); }
+.onboardStep:first-child { border-top: 0; }
+.onboardNo { flex: none; width: 22px; font-family: ui-monospace, Consolas, monospace; font-size: 9px; color: var(--accent); padding-top: 2px; }
+.onboardStepBody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.onboardStepBody h3 { margin: 0; font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.onboardStepBody p { margin: 0; font-size: 9.5px; line-height: 1.6; color: var(--muted); }
+.onboardStepBody input { width: 100%; box-sizing: border-box; background: var(--field); border: 1px solid var(--line); border-radius: 9px; color: var(--ink); padding: 8px 10px; font: inherit; font-size: 12px; }
+.onboardRow { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.42); border-radius: 9px; padding: 8px 9px; color: var(--ink); font: inherit; font-size: 11px; text-align: left; }
+.onboardRow span:last-child { color: var(--muted); font-size: 9.5px; }
+.onboardNote { width: 100%; margin: 10px 0 0; font-size: 10px; color: var(--muted); text-align: center; }
+.onboardStart { width: 100%; margin-top: 16px; border: 1px solid rgba(17, 20, 23, 0.86); border-radius: 999px; background: rgba(17, 20, 23, 0.88); color: #fff; padding: 11px; font: inherit; font-size: 13px; }
+.onboardSkip { margin-top: 9px; border: 0; background: none; color: var(--muted); font: inherit; font-size: 10px; }
+
+:root[data-theme="dark"] .onboardA {
+  background:
+    radial-gradient(circle at 50% 24%, rgba(26, 108, 120, 0.32), transparent 46%),
+    radial-gradient(circle at 50% 40%, rgba(28, 74, 120, 0.3), transparent 48%),
+    linear-gradient(180deg, #061018 0%, #08141e 100%);
+}
+:root[data-theme="dark"] .onboardGlow { background: radial-gradient(circle at 50% 30%, rgba(110, 231, 255, 0.12), transparent 42%); }
+:root[data-theme="dark"] .onboardMark { background: rgba(10, 26, 38, 0.72); }
+:root[data-theme="dark"] .onboardRow { background: rgba(10, 26, 38, 0.72); }
+:root[data-theme="dark"] .onboardStart { background: rgba(110, 231, 255, 0.86); border-color: rgba(110, 231, 255, 0.86); color: #041016; }

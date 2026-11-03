@@ -1,0 +1,126 @@
+/* 会话页 · prototype A 的整页卡面（Drawer 仍负责搜索/删除/导入逻辑） */
+.workspace > .drawer {
+  top: 54px;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  max-height: none;
+  padding: 12px 12px calc(env(safe-area-inset-bottom) + 18px);
+  border: 0;
+  border-radius: 0;
+  background: rgba(248, 251, 253, 0.94);
+  box-shadow: none;
+  backdrop-filter: blur(18px) saturate(140%);
+  color: var(--ink);
+}
+.drawer .new {
+  height: 38px;
+  margin-bottom: 8px;
+  border-radius: 11px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: none;
+  font-size: 12px;
+  font-weight: 600;
+}
+.drawer .coinEntry,
+.drawer .broadcastEntry {
+  min-height: 36px;
+  padding: 7px 11px;
+  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: none;
+  font-size: 12px;
+}
+.drawer .coinEntryName,
+.drawer .broadcastEntryName { font-weight: 560; }
+.drawer .nowLine { margin: 9px 2px 8px; font-size: 9.5px; color: var(--muted); }
+.drawer .filter {
+  height: 36px;
+  padding: 0 11px;
+  margin-bottom: 9px;
+  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  font-size: 11px;
+}
+.drawer ul { gap: 2px; }
+.drawer li { border-radius: 9px; }
+.drawer li.on { background: rgba(47, 125, 146, 0.07); }
+.drawer .row { padding: 8px 8px; font-size: 12px; }
+.drawer .st { font-weight: 560; }
+.drawer .sm { font-size: 9px; }
+.drawer .del { font-size: 12px; color: var(--muted); }
+.drawer .none { font-size: 10px; }
+.drawer .results { gap: 5px; }
+.drawer .rhit { border-radius: 10px; background: var(--card); border-color: var(--line); padding: 7px 9px; }
+.drawer .rt { font-size: 11px; }
+.drawer .rs { font-size: 9px; }
+
+.drawer .mem,
+.drawer .imp {
+  margin-top: 10px;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+.drawer .memHead { font-size: 11px; font-weight: 600; }
+.drawer .memHead .sm { font-size: 8px; }
+.drawer .mgraph {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.55);
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 9px;
+  color: var(--accent);
+}
+.drawer .memNote { font-size: 9px; line-height: 1.6; color: var(--muted); }
+.drawer .dream {
+  width: 100%;
+  margin-top: 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 10px;
+  background: rgba(255, 255, 255, 0.45);
+  color: var(--ink);
+  font: inherit;
+  font-size: 10px;
+}
+.drawer .dream:first-of-type { background: rgba(17, 20, 23, 0.86); color: #fff; border-color: rgba(17, 20, 23, 0.86); }
+.drawer .memList { margin-top: 7px; }
+.drawer .memList li { display: flex; align-items: center; gap: 6px; padding: 4px 0; border-top: 1px solid var(--line); font-size: 10px; }
+.drawer .mw { font-family: ui-monospace, Consolas, monospace; font-size: 8px; color: var(--muted); }
+.drawer .mt { flex: 1; text-align: left; border: 0; background: none; color: var(--ink); font: inherit; font-size: 10px; }
+.drawer .ml { font-size: 8px; color: var(--accent); }
+.drawer .mx { border: 0; background: none; color: var(--muted); font-size: 11px; }
+.drawer .voice summary { font-size: 9px; color: var(--muted); }
+.drawer .voice p { font-size: 9px; line-height: 1.6; color: var(--ink-soft); }
+.drawer .impToggle {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.45);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 10px;
+  color: var(--ink);
+}
+.drawer .impHelp { font-size: 9px; line-height: 1.6; color: var(--muted); }
+.drawer .shareRow { display: flex; gap: 5px; }
+.drawer .shareRow input { flex: 1; min-width: 0; background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; color: var(--ink); font: inherit; font-size: 9px; }
+.drawer .shareRow button { border: 0; background: rgba(17, 20, 23, 0.86); color: #fff; border-radius: 8px; padding: 3px 9px; font: inherit; font-size: 9px; }
+.drawer .impBox { background: var(--field); border: 1px solid var(--line); color: var(--ink); border-radius: 8px; font-size: 9px; }
+.drawer .impGo { background: rgba(17, 20, 23, 0.86); color: #fff; border: 0; border-radius: 9px; padding: 7px; font: inherit; font-size: 10px; }
+.drawer .impNote { font-size: 9px; color: var(--muted); }
+
+:root[data-theme="dark"] .workspace > .drawer { background: rgba(8, 20, 30, 0.94); }
+:root[data-theme="dark"] .drawer li.on { background: rgba(110, 231, 255, 0.08); }
+:root[data-theme="dark"] .drawer .mgraph,
+:root[data-theme="dark"] .drawer .dream,
+:root[data-theme="dark"] .drawer .impToggle { background: rgba(10, 26, 38, 0.72); }
+:root[data-theme="dark"] .drawer .dream:first-of-type,
+:root[data-theme="dark"] .drawer .shareRow button,
+:root[data-theme="dark"] .drawer .impGo { background: rgba(110, 231, 255, 0.86); color: #041016; }

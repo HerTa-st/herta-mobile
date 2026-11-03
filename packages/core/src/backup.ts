@@ -11,9 +11,11 @@
 
 import type { Block, Session } from "../../protocol/src/index.ts";
 import type { MemoryRecord } from "./memory.ts";
+import type { BroadcastIssue, BroadcastItem } from "./broadcast.ts";
 
 export const BACKUP_FORMAT = "herta-backup";
-export const BACKUP_VERSION = 1;
+/** v1 = 旧 MemoryRecord 备份；v2 = 允许带 NMS 快照（当前先保留字段，恢复由 app 层迁移旧记忆）。 */
+export const BACKUP_VERSION = 2;
 
 /** 表情也一样要搬：表情块只存引用，不带图过去，历史里那几张就全变成「已删」。 */
 export interface BackupSticker {
@@ -56,6 +58,10 @@ export interface BackupBundle {
   settings?: Record<string, unknown>;
   /** 黑塔币钱包（v1 单机；换机时跟着走）。 */
   coin?: BackupCoinWallet;
+  /** 星际和平播报：一期一条，换机时跟着走。 */
+  broadcast?: BroadcastIssue[];
+  /** v2：NMS 快照（可选；没有时恢复旧 MemoryRecord 后再迁移）。 */
+  nms?: unknown;
 }
 
 export interface BackupStats {
@@ -63,6 +69,8 @@ export interface BackupStats {
   blocks: number;
   memories: number;
   stickers: number;
+  /** 播报期数（可选：旧包没有这一项）。 */
+  broadcast?: number;
   /** JSON 的字节数（按 UTF-8 算）。 */
   bytes: number;
 }
@@ -73,6 +81,8 @@ export interface BuildBackupInput {
   stickers?: readonly BackupSticker[];
   settings?: Record<string, unknown>;
   coin?: BackupCoinWallet;
+  broadcast?: readonly BroadcastIssue[];
+  nms?: unknown;
   from?: string;
   now?: Date;
 }
@@ -100,6 +110,10 @@ export function buildBackupBundle(input: BuildBackupInput): { bundle: BackupBund
     ...(input.stickers && input.stickers.length > 0 ? { stickers: input.stickers.map((s) => ({ ...s })) } : {}),
     ...(input.settings ? { settings: input.settings } : {}),
     ...(input.coin ? { coin: { ...input.coin } } : {}),
+    ...(input.broadcast && input.broadcast.length > 0
+      ? { broadcast: input.broadcast.map((issue) => ({ ...issue, items: issue.items.map((item) => ({ ...item })) })) }
+      : {}),
+    ...(input.nms !== undefined ? { nms: input.nms } : {}),
   };
   const bytes = byteLength(JSON.stringify(bundle));
   return {
@@ -109,6 +123,7 @@ export function buildBackupBundle(input: BuildBackupInput): { bundle: BackupBund
       blocks: bundle.sessions.reduce((n, s) => n + s.blocks.length, 0),
       memories: bundle.memories.length,
       stickers: bundle.stickers?.length ?? 0,
+      broadcast: bundle.broadcast?.length ?? 0,
       bytes,
     },
   };
@@ -166,6 +181,60 @@ function sanitizeCoin(raw: unknown): BackupCoinWallet | null {
   };
 }
 
+/* ---------------------------------------------------------------- 播报 */
+
+/**
+ * 拆播报：坏一条丢掉、坏一期丢掉，不因为播报脏了就让整份家底进不来。
+ * 真新闻必须有 http(s) 原文；彩蛋没有链接（和设计一致）。
+ */
+function sanitizeBroadcastItem(raw: unknown): BroadcastItem | null {
+  if (!isRecord(raw)) return null;
+  const egg = raw.egg === true;
+  const title = String(raw.title ?? "").trim();
+  const summary = String(raw.summary ?? "").trim();
+  const comment = String(raw.comment ?? "").trim();
+  if (!title || !summary || !comment) return null;
+  const url = egg ? "" : String(raw.url ?? "").trim();
+  if (!egg && !/^https?:\/\//i.test(url)) return null;
+  return {
+    id: String(raw.id ?? "").trim() || (egg ? "egg-" + title.slice(0, 8) : url),
+    source: String(raw.source ?? "").trim() || (egg ? "星际和平公司" : "媒体"),
+    domain: egg ? "" : String(raw.domain ?? "").trim(),
+    title,
+    summary,
+    url,
+    ...(typeof raw.publishedAt === "string" ? { publishedAt: raw.publishedAt } : {}),
+    ...(typeof raw.tag === "string" ? { tag: raw.tag } : {}),
+    comment,
+    ...(egg ? { egg: true } : {}),
+  };
+}
+
+function sanitizeBroadcast(raw: unknown): BroadcastIssue[] {
+  if (!Array.isArray(raw)) return [];
+  const out: BroadcastIssue[] = [];
+  for (const rawIssue of raw) {
+    if (!isRecord(rawIssue)) continue;
+    const id = String(rawIssue.id ?? "").trim();
+    const date = String(rawIssue.date ?? "").trim();
+    const no = Number(rawIssue.no);
+    if (!id || !date || !Number.isFinite(no) || no < 1) continue;
+    const items = Array.isArray(rawIssue.items)
+      ? rawIssue.items.map(sanitizeBroadcastItem).filter((item): item is BroadcastItem => item !== null)
+      : [];
+    if (items.length === 0) continue;
+    out.push({
+      id,
+      no: Math.floor(no),
+      date,
+      createdAt: typeof rawIssue.createdAt === "string" ? rawIssue.createdAt : new Date().toISOString(),
+      items,
+      status: "ready",
+    });
+  }
+  return out;
+}
+
 const BLOCK_KINDS = new Set(["user", "herta", "system", "sticker"]);
 
 /** 校验一块。坏块丢掉，不整包失败——一个坏块不该让整份家底进不来。 */
@@ -191,6 +260,19 @@ function sanitizeBlock(raw: unknown): Block | null {
       at,
       ...(Array.isArray(raw.attachments) ? { attachments: raw.attachments.filter(isRecord) as never } : {}),
       ...(isRecord(raw.usage) ? { usage: raw.usage as never } : {}),
+      // 播报提示的按钮要跟着备份走，不然恢复之后只剩一句话、点不开播报页
+      ...(isRecord(raw.action) &&
+      raw.action.kind === "broadcast" &&
+      typeof raw.action.issueId === "string" &&
+      Number.isFinite(Number(raw.action.no))
+        ? {
+            action: {
+              kind: "broadcast" as const,
+              issueId: String(raw.action.issueId),
+              no: Math.floor(Number(raw.action.no)),
+            },
+          }
+        : {}),
     };
   }
   if (kind === "sticker") {
@@ -229,8 +311,9 @@ export function parseBackupBundle(raw: string): ParseBackupResult {
   if (parsed.format !== BACKUP_FORMAT) {
     return { ok: false, error: "这不是备份包（format 应当是 " + BACKUP_FORMAT + "）" };
   }
-  if (parsed.version !== BACKUP_VERSION) {
-    return { ok: false, error: "备份版本不支持：" + String(parsed.version) + "（这个版本只认 " + BACKUP_VERSION + "）" };
+  const version = Number(parsed.version);
+  if (!Number.isInteger(version) || version < 1 || version > BACKUP_VERSION) {
+    return { ok: false, error: "备份版本不支持：" + String(parsed.version) + "（这个版本接受 1.." + BACKUP_VERSION + "）" };
   }
 
   const sessions: Session[] = [];
@@ -270,6 +353,9 @@ export function parseBackupBundle(raw: string): ParseBackupResult {
         ...(typeof raw.weight === "number" ? { weight: raw.weight } : {}),
         ...(Array.isArray(raw.links) ? { links: raw.links.filter((l): l is string => typeof l === "string") } : {}),
         ...(typeof raw.gist === "string" ? { gist: raw.gist } : {}),
+        ...(typeof raw.recalls === "number" && Number.isFinite(raw.recalls) ? { recalls: raw.recalls } : {}),
+        ...(typeof raw.lastRecallAt === "string" ? { lastRecallAt: raw.lastRecallAt } : {}),
+        ...(typeof raw.deepenNote === "string" ? { deepenNote: raw.deepenNote } : {}),
         ...(raw.forgotten === true ? { forgotten: true } : {}),
       });
     }
@@ -295,8 +381,9 @@ export function parseBackupBundle(raw: string): ParseBackupResult {
   }
 
   const coin = sanitizeCoin(parsed.coin);
+  const broadcast = sanitizeBroadcast(parsed.broadcast);
 
-  if (sessions.length === 0 && memories.length === 0 && !coin) {
+  if (sessions.length === 0 && memories.length === 0 && broadcast.length === 0 && !coin) {
     return { ok: false, error: "包里没有能用的会话或记忆" };
   }
 
@@ -310,6 +397,8 @@ export function parseBackupBundle(raw: string): ParseBackupResult {
     ...(stickers.length > 0 ? { stickers } : {}),
     ...(isRecord(parsed.settings) ? { settings: parsed.settings } : {}),
     ...(coin ? { coin } : {}),
+    ...(broadcast.length > 0 ? { broadcast } : {}),
+    ...(isRecord(parsed.nms) ? { nms: parsed.nms } : {}),
   };
   return {
     ok: true,
@@ -319,6 +408,7 @@ export function parseBackupBundle(raw: string): ParseBackupResult {
       blocks: sessions.reduce((n, s) => n + s.blocks.length, 0),
       memories: memories.length,
       stickers: stickers.length,
+      broadcast: broadcast.length,
       bytes: byteLength(raw),
     },
   };
@@ -328,6 +418,8 @@ export interface RestoreExisting {
   sessionIds: ReadonlySet<string>;
   memoryNames: ReadonlySet<string>;
   stickerIds: ReadonlySet<string>;
+  /** 本机已经有的播报期 id（日期）；同一期不重复写。 */
+  broadcastIds?: ReadonlySet<string>;
   /** 本机已经有黑塔币钱包：不覆盖（钱包只有一个，覆盖等于把本地的币抹掉）。 */
   wallet?: boolean;
 }
@@ -336,8 +428,9 @@ export interface RestorePlan {
   sessions: Session[];
   memories: MemoryRecord[];
   stickers: BackupSticker[];
+  broadcast: BroadcastIssue[];
   coin?: BackupCoinWallet;
-  skipped: { sessions: number; memories: number; stickers: number };
+  skipped: { sessions: number; memories: number; stickers: number; broadcast: number };
 }
 
 /**
@@ -350,9 +443,12 @@ export function planRestore(bundle: BackupBundle, existing: RestoreExisting): Re
   const sessions: Session[] = [];
   const memories: MemoryRecord[] = [];
   const stickers: BackupSticker[] = [];
+  const broadcast: BroadcastIssue[] = [];
   let skipS = 0;
   let skipM = 0;
   let skipK = 0;
+  let skipB = 0;
+  const broadcastIds = existing.broadcastIds ?? new Set<string>();
 
   for (const s of bundle.sessions) {
     if (existing.sessionIds.has(s.id)) skipS += 1;
@@ -366,13 +462,18 @@ export function planRestore(bundle: BackupBundle, existing: RestoreExisting): Re
     if (existing.stickerIds.has(k.id)) skipK += 1;
     else if (!stickers.some((x) => x.id === k.id)) stickers.push(k);
   }
+  for (const issue of bundle.broadcast ?? []) {
+    if (broadcastIds.has(issue.id)) skipB += 1;
+    else if (!broadcast.some((x) => x.id === issue.id)) broadcast.push(issue);
+  }
 
   return {
     sessions,
     memories,
     stickers,
+    broadcast,
     ...(bundle.coin && !existing.wallet ? { coin: { ...bundle.coin } } : {}),
-    skipped: { sessions: skipS, memories: skipM, stickers: skipK },
+    skipped: { sessions: skipS, memories: skipM, stickers: skipK, broadcast: skipB },
   };
 }
 

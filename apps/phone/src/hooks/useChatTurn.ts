@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Capacitor } from "@capacitor/core";
 import type { Block, ChatPart, Session } from "@herta/protocol";
 import {
   DEFAULT_MOOD,
@@ -33,6 +34,7 @@ import {
   type MoodState,
 } from "@herta/core";
 import { BrowserAssetSource } from "../assets-browser.ts";
+import { recallNmsPromptSeeds } from "../nms/controller.ts";
 import { captionImage } from "../vision.ts";
 import { buildTools } from "../devtools.ts";
 import { appendToolLog, loadMoodState, saveMoodState, type StickerRecord } from "../storage.ts";
@@ -92,8 +94,12 @@ export function useChatTurn(opts: {
   onKeepSticker(record: StickerRecord): void;
   onError(message: string | null): void;
   onNeedKey(): void;
+  /** 回合结束（最终/拒答/打断/异常）时通知外层写 NMS pending_turns。 */
+  onTurnEnd?(payload: { sessionId: string; turn: number; userText: string; assistantText: string; reason: "final" | "refused" | "aborted" | "error" }): void;
+  /** 本轮 NMS 召回命中的节点，给网络视图点亮。 */
+  onNmsRecall?(events: Array<{ id: number; activation: number }>): void;
 }) {
-  const { settings, session, setSession, persist, memories, dreamState, files, stickers, onKeepSticker, onError, onNeedKey } = opts;
+  const { settings, session, setSession, persist, memories, dreamState, files, stickers, onKeepSticker, onError, onNeedKey, onTurnEnd, onNmsRecall } = opts;
   const [busy, setBusy] = useState(false);
   /** 她在"想一下"的那几秒（或者说，在装作想一下）。 */
   const [typing, setTyping] = useState(false);
@@ -142,6 +148,27 @@ export function useChatTurn(opts: {
     setSession(history);
     void persist(history);
 
+    // pending_turns 的写入点：正常、拒答、打断、异常都要覆盖；同一轮只发一次。
+    let turnEndSent = false;
+    const emitTurnEnd = (blocks: readonly Block[], reason: "final" | "refused" | "aborted" | "error") => {
+      if (turnEndSent || onTurnEnd === undefined) return;
+      turnEndSent = true;
+      let turn = 0;
+      for (const block of blocks) if (block.kind === "user" || block.kind === "sticker") turn += 1;
+      const fresh = blocks.slice(history.blocks.length);
+      const assistantText = fresh
+        .filter((block): block is Extract<Block, { kind: "herta" }> => block.kind === "herta" && block.surface === "speech")
+        .map((block) => block.text)
+        .join("\n");
+      onTurnEnd({
+        sessionId: session.id,
+        turn,
+        userText: text.trim().length > 0 ? text : sticker?.name ?? "",
+        assistantText,
+        reason,
+      });
+    };
+
     /**
      * 接不接、多久接。
      *
@@ -165,6 +192,7 @@ export function useChatTurn(opts: {
         const kept = appendBlocks(history, [note]);
         setSession(kept);
         await persist(kept);
+        emitTurnEnd(kept.blocks, "refused");
         setBusy(false);
         return;
       }
@@ -193,8 +221,21 @@ export function useChatTurn(opts: {
     try {
       const promptAssets = await assets.promptAssets();
       // 这一轮用哪几篇记忆：开局定死，想 / 说 / 复核共用同一批（否则三趟看到的她不一样）。
-      const pool = memories.map((m) => ({ file: m.name, body: m.body }));
-      const seeds = pickSeeds(pool, text, budget.memorySeeds);
+      // 原生 NMS：按本轮文本走联想召回（会写回 recall/reinforce）；Web/失败回退旧 pickSeeds。
+      let seeds: string[] = [];
+      if (Capacitor.isNativePlatform()) {
+        try {
+          const recalled = await recallNmsPromptSeeds(text, budget.memorySeeds);
+          seeds = recalled.seeds;
+          if (recalled.events.length > 0) onNmsRecall?.(recalled.events);
+        } catch {
+          seeds = [];
+        }
+      }
+      if (seeds.length === 0) {
+        const pool = memories.map((m) => ({ file: m.name, body: m.body }));
+        seeds = pickSeeds(pool, text, budget.memorySeeds);
+      }
       const context = trimForContext(history.blocks, budget.contextBlocks);
 
       // 先判心情：一次十几个 token 的调用，换来她这一轮的语气基线不一样。
@@ -485,6 +526,7 @@ export function useChatTurn(opts: {
       const final = appendBlocks(withRedos, tail);
       setSession(final);
       await persist(final);
+      emitTurnEnd(final.blocks, "final");
 
       // 注意：这里**不**做梦。做梦要等她闲下来（见 App 里的空闲调度）——
       // 刚说完话就去做梦，等于你还没走她就当着你的面发呆。
@@ -495,16 +537,18 @@ export function useChatTurn(opts: {
         const kept = partial ? appendBlocks(history, [{ kind: "herta", surface: "speech", text: partial, at: new Date().toISOString() }]) : history;
         setSession(kept);
         await persist(kept);
+        emitTurnEnd(kept.blocks, "aborted");
       } else {
         onError(e instanceof Error ? e.message : String(e));
         setSession(history);
         await persist(history);
+        emitTurnEnd(history.blocks, "error");
       }
     } finally {
       abort.current = null;
       setBusy(false);
     }
-  }, [busy, files, memories, onError, onKeepSticker, onNeedKey, persist, session, settings, stickers]);
+  }, [busy, files, memories, onError, onKeepSticker, onNeedKey, onNmsRecall, onTurnEnd, persist, session, settings, stickers]);
 
   // 中途被打断（打断/切会话）别把"正在输入"留在界面上
   useEffect(() => () => setTyping(false), []);

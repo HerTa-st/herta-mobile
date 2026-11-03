@@ -16,7 +16,7 @@ import type { Session } from "@herta/protocol";
 import { MOOD_TTL_MS, type MoodState } from "@herta/core";
 
 const DB_NAME = "herta";
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 export const STORE_SESSIONS = "sessions";
 export const STORE_MEMORIES = "memories";
@@ -24,6 +24,8 @@ export const STORE_KV = "kv";
 export const STORE_STICKERS = "stickers";
 /** 黑塔币：钱包 + 最后一次成功的行情响应。设计见 docs/设计-黑塔币-v1.md。 */
 export const STORE_COIN = "coin";
+/** 星际和平播报：一期一条，键 = 本地日期。设计见 docs/设计-星际和平播报-v1.md。 */
+export const STORE_BROADCAST = "broadcast";
 
 /** 表情是谁的：她的库（她发给你）还是你的箱（你发给她）。 */
 export type StickerOwner = "herta" | "mine";
@@ -72,6 +74,10 @@ function open(): Promise<IDBDatabase> {
       // v4：黑塔币（钱包 / 最后一次行情缓存，键固定 wallet / quote）
       if (!db.objectStoreNames.contains(STORE_COIN)) {
         db.createObjectStore(STORE_COIN, { keyPath: "key" });
+      }
+      // v5：星际和平播报（一期一条，键 = 本地日期）
+      if (!db.objectStoreNames.contains(STORE_BROADCAST)) {
+        db.createObjectStore(STORE_BROADCAST, { keyPath: "id" });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -132,7 +138,7 @@ export async function hasLocalData(): Promise<boolean> {
 
 /** 清空全部本地数据。纯净版第一次启动时用——它要"什么都不带"。 */
 export async function clearAll(): Promise<void> {
-  for (const store of [STORE_SESSIONS, STORE_MEMORIES, STORE_KV, STORE_STICKERS, STORE_COIN]) {
+  for (const store of [STORE_SESSIONS, STORE_MEMORIES, STORE_KV, STORE_STICKERS, STORE_COIN, STORE_BROADCAST]) {
     await tx(store, "readwrite", (s) => s.clear());
   }
 }

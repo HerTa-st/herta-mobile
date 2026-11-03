@@ -1,4 +1,5 @@
 import { useState } from "react";
+import "../styles/onboarding.css";
 import type { Settings } from "../settings.ts";
 import { ensureNotificationPermission } from "../capabilities.ts";
 import { openAppSettings } from "../keepalive.ts";
@@ -39,57 +40,81 @@ export function Onboarding({
   };
 
   return (
-    <div className="sheet onboarding">
-      <div className="sheetHead">
-        <span>先把她安顿好</span>
-        <button type="button" className="sheetClose" onClick={onDone} aria-label="跳过">
-          ✕
+    <div className="onboardA">
+      <div className="onboardGlow" aria-hidden="true" />
+      <div className="onboardInner">
+        <div className="onboardMark" aria-hidden="true">H</div>
+        <img className="onboardAvatar" src="/herta.png" alt="" />
+        <h1>她在这里。</h1>
+        <p className="onboardLede">四件事，两分钟。都能跳过，之后再从设置里补。</p>
+
+        <div className="onboardCard">
+          <section className="onboardStep">
+            <span className="onboardNo">01</span>
+            <div className="onboardStepBody">
+              <h3>她的 Key</h3>
+              <input
+                type="password"
+                value={settings.apiKey}
+                onChange={(e) => onChange({ apiKey: e.target.value.trim() })}
+                placeholder="sk-..."
+              />
+              <p>用你自己的额度。只存在这台手机上，不上传，也不进日志。</p>
+            </div>
+          </section>
+
+          <section className="onboardStep">
+            <span className="onboardNo">02</span>
+            <div className="onboardStepBody">
+              <h3>她能做什么</h3>
+              <button type="button" className="onboardRow" onClick={onOpenCapabilities}>
+                <span>挑几件让她做</span>
+                <span>默认全关 ›</span>
+              </button>
+            </div>
+          </section>
+
+          <section className="onboardStep">
+            <span className="onboardNo">03</span>
+            <div className="onboardStepBody">
+              <h3>到点能喊你</h3>
+              <button type="button" className="onboardRow" onClick={() => void askNotify()} disabled={asking}>
+                <span>{asking ? "等系统弹窗…" : "允许通知"}</span>
+                <span>到点提醒 ›</span>
+              </button>
+            </div>
+          </section>
+
+          <section className="onboardStep">
+            <span className="onboardNo">04</span>
+            <div className="onboardStepBody">
+              <h3>别让她被系统杀掉</h3>
+              <p>国产系统会清后台。系统设置 → 电池 → 选「不受限制」，她才能在你不打开 App 的时候也醒着。</p>
+              <button
+                type="button"
+                className="onboardRow"
+                onClick={() =>
+                  void openAppSettings().then((ok) =>
+                    setNote(ok ? "去「电池」里改成不受限制再回来。" : "浏览器里打不开系统设置——真机上才有。")
+                  )
+                }
+              >
+                <span>打开系统设置</span>
+                <span>电池 ›</span>
+              </button>
+            </div>
+          </section>
+        </div>
+
+        {note && <p className="onboardNote">{note}</p>}
+
+        <button type="button" className="onboardStart" onClick={onDone}>
+          开始
+        </button>
+        <button type="button" className="onboardSkip" onClick={onDone}>
+          先跳过，之后在设置里补
         </button>
       </div>
-      <p className="memNote">四件事，两分钟。都能跳过，之后再从设置里补。</p>
-
-      <h3 className="capGroup">1 · 她的 Key</h3>
-      <label>
-        API Key
-        <input
-          type="password"
-          value={settings.apiKey}
-          onChange={(e) => onChange({ apiKey: e.target.value.trim() })}
-          placeholder="sk-..."
-        />
-      </label>
-      <p className="memNote">用你自己的额度。只存在这台手机上，不上传，也不进日志。</p>
-
-      <h3 className="capGroup">2 · 她能做什么</h3>
-      <button type="button" className="sheetLink" onClick={onOpenCapabilities}>
-        <span>挑几件让她做</span>
-        <span className="sheetLinkHint">默认全关 ›</span>
-      </button>
-
-      <h3 className="capGroup">3 · 到点能喊你</h3>
-      <button type="button" className="onboardBtn" onClick={() => void askNotify()} disabled={asking}>
-        {asking ? "等系统弹窗…" : "允许通知"}
-      </button>
-
-      <h3 className="capGroup">4 · 别让她被系统杀掉</h3>
-      <p className="memNote">国产系统会清后台。打开本应用的系统设置 → 电池 → 选「不受限制」，她才能在你不打开 App 的时候也醒着。</p>
-      <button
-        type="button"
-        className="onboardBtn"
-        onClick={() =>
-          void openAppSettings().then((ok) =>
-            setNote(ok ? "去「电池」里改成不受限制再回来。" : "浏览器里打不开系统设置——真机上才有。")
-          )
-        }
-      >
-        打开系统设置
-      </button>
-
-      {note && <p className="memNote">{note}</p>}
-
-      <button type="button" className="onboardDone" onClick={onDone}>
-        开始
-      </button>
     </div>
   );
 }

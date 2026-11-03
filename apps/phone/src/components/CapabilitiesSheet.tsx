@@ -1,7 +1,76 @@
-import { useState } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import type { Settings } from "../settings.ts";
 import { openNotifySettings } from "../notif.ts";
 import { A11ySheet } from "./A11ySheet.tsx";
+import "../styles/settings-suite.css";
+
+const ALL_KEYS = [
+  "statusEnabled",
+  "notifyEnabled",
+  "mediaEnabled",
+  "locationEnabled",
+  "remindersEnabled",
+  "calendarEnabled",
+  "openEnabled",
+  "shareEnabled",
+  "cameraEnabled",
+  "a11yEnabled",
+  "proactiveEnabled",
+] as const;
+
+type CapKey =
+  | "statusEnabled"
+  | "notifyEnabled"
+  | "mediaEnabled"
+  | "locationEnabled"
+  | "remindersEnabled"
+  | "calendarEnabled"
+  | "openEnabled"
+  | "shareEnabled"
+  | "cameraEnabled"
+  | "a11yEnabled"
+  | "proactiveEnabled"
+  | "proactiveDeepMemory";
+
+type CapState = "off" | "ask" | "granted";
+
+interface CapItem {
+  key: CapKey;
+  title: string;
+  hint: string;
+  /** 高权限单独标出来：授权前值得多想一秒的那几项。 */
+  high?: "高权限" | "最高权限";
+  /** 开着 = 她动手前会先在对话里问一句。 */
+  ask?: boolean;
+  after?: ReactNode;
+}
+
+const ICON = {
+  back: "M15 6l-6 6 6 6",
+  close: "M6 6l12 12M18 6L6 18",
+  caps: "M12 3l7 3v5c0 4.5-2.8 7.8-7 10-4.2-2.2-7-5.5-7-10V6zM9 12l2 2 4-4",
+  lock: "M5 10h14v10H5zM8 10V8a4 4 0 018 0v2",
+} as const;
+
+function Icon({ d, size = 16 }: { d: string; size?: number }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.7}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d={d} />
+    </svg>
+  );
+}
+
+const STATE_TEXT: Record<CapState, string> = { off: "关闭", ask: "询问", granted: "已开" };
 
 /**
  * 「她能做什么」——一整页，不是塞在设置里的一堆勾。
@@ -22,109 +91,216 @@ export function CapabilitiesSheet({
   onClose(): void;
 }) {
   const [showA11y, setShowA11y] = useState(false);
-  const row = (checked: boolean, key: keyof Settings, title: string, hint: string) => (
-    <label className="check capRow">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange({ [key]: e.target.checked } as Partial<Settings>)} />
-      <span>
-        <b>{title}</b>
-        <em>{hint}</em>
-      </span>
-    </label>
-  );
+
+  const setKey = (key: CapKey, on: boolean) => {
+    onChange({ [key]: on } as Partial<Settings>);
+  };
+
+  const stateOf = (on: boolean, ask?: boolean): CapState => {
+    if (!on) return "off";
+    return ask ? "ask" : "granted";
+  };
+
+  const notifyBtn = (settings.notifyEnabled || settings.mediaEnabled) ? (
+    <button type="button" className="ss-linkRow" onClick={() => void openNotifySettings()}>
+      去系统里开「通知使用权」
+      <span>系统设置 ›</span>
+    </button>
+  ) : null;
+
+  const a11yBtn = settings.a11yEnabled ? (
+    <button type="button" className="ss-linkRow" onClick={() => setShowA11y(true)}>
+      允许她碰哪些 App
+      <span>白名单 ›</span>
+    </button>
+  ) : null;
+
+  const groups: { title: string; hint: string; items: CapItem[] }[] = [
+    {
+      title: "只看得见",
+      hint: "看，不碰",
+      items: [
+        {
+          key: "statusEnabled",
+          title: "看手机状态",
+          hint: "电量、是否在充电、联网方式、这个 App 占多大地方。看不到你的照片和消息。",
+        },
+        {
+          key: "notifyEnabled",
+          title: "看通知栏",
+          high: "高权限",
+          hint: "她只会读最近二十几条（应用名、标题、正文、时间），不落盘、不常驻盯着；问她「刚才有什么事」才用得上。",
+        },
+        {
+          key: "mediaEnabled",
+          title: "看 / 控正在放的音乐",
+          high: "高权限",
+          hint: "和上面共用同一个系统授权；只能暂停、继续、切歌，看不到播放列表。",
+          after: notifyBtn,
+        },
+        {
+          key: "locationEnabled",
+          title: "知道你在哪",
+          high: "高权限",
+          hint: "只给经纬度和精度，不做逆地理编码。只在你要她查的时候查一次，不会在后台跟着你。",
+        },
+      ],
+    },
+    {
+      title: "会动手",
+      hint: "先问，再做",
+      items: [
+        {
+          key: "remindersEnabled",
+          title: "排提醒",
+          hint: "到点由系统响。标题是她那句话，正文写清楚事情。关掉之后她只能说「你自己记一下」。",
+        },
+        {
+          key: "calendarEnabled",
+          title: "你的日历",
+          ask: true,
+          hint: "能看接下来几天有什么，也能往里写字。写之前她会先说一句，你说行才写。",
+        },
+        {
+          key: "openEnabled",
+          title: "打开链接或别的 App",
+          ask: true,
+          hint: "把 https、tel:、地图、深链交给系统打开。她不会自己偷偷打开。",
+        },
+        {
+          key: "shareEnabled",
+          title: "分享出去",
+          ask: true,
+          hint: "调出系统分享面板，发不发、发给谁由你点。",
+        },
+        {
+          key: "cameraEnabled",
+          title: "打开相机",
+          high: "高权限",
+          ask: true,
+          hint: "她会先问一句再开；拍完只拿到一段文字描述，原图不留在她那儿。这条要配了视觉模型才有用。",
+        },
+        {
+          key: "a11yEnabled",
+          title: "无障碍：替你看屏、替你点",
+          high: "最高权限",
+          ask: true,
+          hint: "只在下面勾过的 App 里生效；动手之前她会先在对话里问一句。这是这批里权限最重的一样。",
+          after: a11yBtn,
+        },
+      ],
+    },
+    {
+      title: "常驻后台",
+      hint: "她自己会醒",
+      items: [
+        {
+          key: "proactiveEnabled",
+          title: "她自己找你",
+          hint: "通知栏会挂一条「她在后台」。一天最多三条，二十二点到早上八点不吵；省 token 模式下不发。",
+        },
+        ...(settings.proactiveEnabled
+          ? [
+              {
+                key: "proactiveDeepMemory" as const,
+                title: "主动找你时翻完整记忆",
+                hint: "默认只带最近八块对话（几 k token）；打开后她会先检索一遍记忆，更像她，但一次可能上万 token。",
+              },
+            ]
+          : []),
+      ],
+    },
+  ];
+
+  const onCount = ALL_KEYS.filter((key) => settings[key]).length;
+
+  const row = (item: CapItem) => {
+    const on = Boolean(settings[item.key]);
+    const state = stateOf(on, item.ask);
+    return (
+      <Fragment key={item.key}>
+        <label className="cap-row">
+          <span className="cap-icon">
+            <Icon d={item.high ? ICON.lock : ICON.caps} size={15} />
+          </span>
+          <span className="cap-main">
+            <b>
+              {item.title}
+              {item.high && (
+                <em className={"cap-high" + (item.high === "最高权限" ? " top" : "")}>{item.high}</em>
+              )}
+            </b>
+            <small>{item.hint}</small>
+          </span>
+          <span className={"cap-state " + state}>{STATE_TEXT[state]}</span>
+          <input
+            type="checkbox"
+            className="cap-check"
+            checked={on}
+            aria-label={item.title}
+            onChange={(e) => setKey(item.key, e.target.checked)}
+          />
+        </label>
+        {item.after}
+      </Fragment>
+    );
+  };
 
   return (
-    <div className="sheet">
-      <div className="sheetHead">
-        <span>她能做什么</span>
-        <button type="button" className="sheetClose" onClick={onClose} aria-label="关闭">
-          ✕
+    <div className="ss-page" role="dialog" aria-label="她能做什么">
+      <header className="ss-top">
+        <button type="button" className="ss-iconBtn" onClick={onClose} aria-label="返回">
+          <Icon d={ICON.back} size={18} />
         </button>
+        <div className="ss-title">
+          <b>她能做什么</b>
+          <span>
+            {onCount} / {ALL_KEYS.length} 项开着 · 默认全关
+          </span>
+        </div>
+        <span className="ss-badge">
+          <i />
+          权限
+        </span>
+        <button type="button" className="ss-iconBtn" onClick={onClose} aria-label="关闭">
+          <Icon d={ICON.close} size={16} />
+        </button>
+      </header>
+
+      <div className="ss-body">
+        <section className="ss-card ss-cardPad">
+          <div className="ss-cardHead">
+            <div>
+              <h3>她能碰手机到什么程度</h3>
+              <p>
+                每一项都单独开，默认全关；没开的那些，她连工具都看不见。开一项，她那一轮才拿得到那只手。
+              </p>
+            </div>
+            <span className="ss-count">
+              {onCount} / {ALL_KEYS.length}
+            </span>
+          </div>
+        </section>
+
+        {groups.map((group) => (
+          <section className="ss-card" key={group.title}>
+            <div className="ss-groupHead">
+              <span>{group.title}</span>
+              <span>
+                {group.items.filter((item) => Boolean(settings[item.key])).length} / {group.items.length} ·{" "}
+                {group.hint}
+              </span>
+            </div>
+            {group.items.map(row)}
+          </section>
+        ))}
+
+        <p className="ss-hint">
+          标记「高权限」的那几项，系统会再问你一次；她在会话里只能先说「我需要」，不能自己打开。这一批到这里就齐了，再往后是 M4 双模（连 PC）——那是另一整块。
+        </p>
       </div>
-      <p className="memNote">
-        默认全是关的。开一项，她那一轮才拿得到那只手；没开的那些，她连工具都看不见。
-      </p>
-
-      <h3 className="capGroup">只看得见</h3>
-      {row(settings.statusEnabled, "statusEnabled", "看手机状态", "电量、是否在充电、联网方式、这个 App 占多大地方。看不到你的照片和消息。")}
-      {row(
-        settings.notifyEnabled,
-        "notifyEnabled",
-        "看通知栏",
-        "她只会读最近二十几条（应用名、标题、正文、时间），不落盘、不常驻盯着；问她「刚才有什么事」才用得上。"
-      )}
-      {row(
-        settings.mediaEnabled,
-        "mediaEnabled",
-        "看/控正在放的音乐",
-        "和上面共用同一个系统授权；只能暂停、继续、切歌，看不到播放列表。"
-      )}
-      {(settings.notifyEnabled || settings.mediaEnabled) && (
-        <button type="button" className="onboardBtn" onClick={() => void openNotifySettings()}>
-          去系统里开「通知使用权」
-        </button>
-      )}
-      {row(
-        settings.locationEnabled,
-        "locationEnabled",
-        "知道你在哪",
-        "只给经纬度和精度，不做逆地理编码。只在你要她查的时候查一次，不会在后台跟着你。"
-      )}
-
-      <h3 className="capGroup">会动手</h3>
-      {row(
-        settings.remindersEnabled,
-        "remindersEnabled",
-        "排提醒",
-        "到点由系统响。标题是她那句话，正文写清楚事情。关掉之后她只能说「你自己记一下」。"
-      )}
-      {row(
-        settings.calendarEnabled,
-        "calendarEnabled",
-        "你的日历",
-        "能看接下来几天有什么，也能往里写字。写之前她会先说一句，你说行才写。"
-      )}
-      {row(settings.openEnabled, "openEnabled", "打开链接或别的 App", "把 https、tel:、地图、深链交给系统打开。她不会自己偷偷打开。")}
-      {row(settings.shareEnabled, "shareEnabled", "分享出去", "调出系统分享面板，发不发、发给谁由你点。")}
-      {row(
-        settings.cameraEnabled,
-        "cameraEnabled",
-        "打开相机",
-        "她会先问一句再开；拍完只拿到一段文字描述，原图不留在她那儿。这条要配了视觉模型才有用。"
-      )}
-
-      {row(
-        settings.a11yEnabled,
-        "a11yEnabled",
-        "无障碍：替你看屏、替你点",
-        "只在下面勾过的 App 里生效；动手之前她会先在对话里问一句。这是这批里权限最重的一样。"
-      )}
-      {settings.a11yEnabled && (
-        <button type="button" className="sheetLink" onClick={() => setShowA11y(true)}>
-          <span>允许她碰哪些 App</span>
-          <span className="sheetLinkHint">白名单 ›</span>
-        </button>
-      )}
-
-      <h3 className="capGroup">常驻后台</h3>
-      {row(
-        settings.proactiveEnabled,
-        "proactiveEnabled",
-        "她自己找你",
-        "通知栏会挂一条「她在后台」。一天最多三条，二十二点到早上八点不吵；省 token 模式下不发。"
-      )}
-      {settings.proactiveEnabled &&
-        row(
-          settings.proactiveDeepMemory,
-          "proactiveDeepMemory",
-          "主动找你时翻完整记忆",
-          "默认只带最近八块对话（几 k token）；打开后她会先检索一遍记忆，更像她，但一次可能上万 token。"
-        )}
 
       {showA11y && <A11ySheet onClose={() => setShowA11y(false)} />}
-
-      <p className="memNote">
-        v0.29 这批到这儿就齐了。再往后是 M4 双模（连 PC）——那是另一整块。
-      </p>
     </div>
   );
 }

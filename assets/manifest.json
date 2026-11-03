@@ -18,34 +18,5 @@
       "assets/voice/easter_egg/你动它干什么？实在没事的话，过来帮我测模拟宇宙？.opus"
     ]
   },
-  "memory": [
-    {
-      "file": "### 废案_00：终端外侧的噪声.txt",
-      "index": 0,
-      "title": "终端外侧的噪声",
-      "path": "assets/memory/### 废案_00：终端外侧的噪声.txt",
-      "bytes": 23512
-    },
-    {
-      "file": "### 废案_07：一条不需要回复的消息.txt",
-      "index": 7,
-      "title": "一条不需要回复的消息",
-      "path": "assets/memory/### 废案_07：一条不需要回复的消息.txt",
-      "bytes": 3361
-    },
-    {
-      "file": "### 废案_14：未落盘的红线.txt",
-      "index": 14,
-      "title": "未落盘的红线",
-      "path": "assets/memory/### 废案_14：未落盘的红线.txt",
-      "bytes": 2646
-    },
-    {
-      "file": "### 废案_15：一份没有签名的资料.txt",
-      "index": 15,
-      "title": "一份没有签名的资料",
-      "path": "assets/memory/### 废案_15：一份没有签名的资料.txt",
-      "bytes": 5378
-    }
-  ]
+  "memory": []
 }

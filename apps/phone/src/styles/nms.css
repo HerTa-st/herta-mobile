@@ -1,0 +1,101 @@
+/* 记忆 NMS · prototype A 卡面 */
+.nmsPage {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  background: var(--sheet-bg, rgba(248, 251, 253, 0.96));
+  color: var(--ink, #111417);
+  backdrop-filter: blur(18px) saturate(130%);
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.nmsHead {
+  flex: none;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px 0 12px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.5);
+}
+.nmsTitle { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
+.nmsTitle b { font-size: 15px; font-weight: 650; color: var(--ink); }
+.nmsTitle span { margin-top: 2px; font-size: 9px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nmsTabs { display: flex; gap: 3px; padding: 2px; border: 1px solid var(--line); border-radius: 999px; background: rgba(17, 20, 23, 0.04); }
+.nmsTab { border: 0; background: none; border-radius: 999px; padding: 4px 8px; font: inherit; font-size: 9px; color: var(--muted); }
+.nmsTab.on { background: var(--ink); color: var(--accent-ink); }
+.nmsClose { flex: none; width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 50%; background: rgba(255, 255, 255, 0.5); color: var(--muted); font: inherit; font-size: 11px; }
+.nmsScroll { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px 24px; display: flex; flex-direction: column; gap: 9px; }
+
+.nmsNetCard, .nmsListCard, .nmsVoiceCard, .nmsSettingGroup {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  padding: 11px 12px;
+}
+.nmsCardHead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.nmsCardHead h3 { margin: 0; font-size: 13px; font-weight: 650; color: var(--ink); }
+.nmsCardHead span { font-family: ui-monospace, Consolas, monospace; font-size: 8px; color: var(--muted); }
+.nmsCardHead button { border: 0; background: none; padding: 0; font: inherit; font-size: 9px; color: var(--accent); }
+.nmsNetWrap { height: 236px; margin: 8px -4px 0; }
+.nmsNetWrap > * { width: 100%; height: 100%; }
+.nmsStats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--line); margin-top: 7px; padding-top: 8px; }
+.nmsStats div { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.nmsStats b { font-family: ui-monospace, Consolas, monospace; font-size: 11px; font-weight: 650; color: var(--ink); }
+.nmsStats span { font-size: 7.5px; color: var(--muted); text-align: center; }
+.nmsSleepRow { display: flex; align-items: center; gap: 6px; }
+.nmsSleepRow button, .nmsActions button {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.55);
+  border-radius: 999px;
+  padding: 6px 11px;
+  font: inherit;
+  font-size: 9.5px;
+  color: var(--ink);
+}
+.nmsSleepPrimary { background: rgba(17, 20, 23, 0.86); border-color: rgba(17, 20, 23, 0.86); color: #fff; }
+.nmsSleepRow span { margin-left: auto; font-size: 8px; color: var(--muted); }
+.nmsNote { margin: 0 2px; font-size: 9px; color: var(--muted); }
+.nmsHint { margin: 0 2px; font-size: 8.5px; line-height: 1.6; color: var(--muted); }
+.nmsNodeRow { display: flex; align-items: center; gap: 7px; width: 100%; text-align: left; border: 0; border-top: 1px solid var(--line); background: none; padding: 7px 0; }
+.nmsTier { flex: none; font-size: 7.5px; border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; color: var(--accent); }
+.nmsTier.sem { color: #6b7fbf; }
+.nmsTier.note { color: #b5873f; }
+.nmsNodeMain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.nmsNodeMain b { font-size: 10.5px; font-weight: 560; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nmsNodeMain small { font-size: 8px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nmsNodeWeight { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-family: ui-monospace, Consolas, monospace; font-size: 8px; color: var(--ink-soft); }
+.nmsNodeWeight i { width: 32px; height: 2px; background: rgba(17, 20, 23, 0.08); border-radius: 2px; overflow: hidden; }
+.nmsNodeWeight em { display: block; height: 100%; background: var(--accent); }
+.nmsEmpty { margin: 8px 0 2px; font-size: 9.5px; color: var(--muted); text-align: center; }
+.nmsVoiceCard p { margin: 7px 0 0; font-size: 9.5px; line-height: 1.7; color: var(--ink-soft); }
+.nmsListTab { display: flex; flex-direction: column; gap: 8px; }
+.nmsSearch { width: 100%; box-sizing: border-box; background: var(--field); border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; color: var(--ink); font: inherit; font-size: 10px; }
+.nmsTierGroup h3 { margin: 4px 0 5px; font-size: 9px; font-weight: 500; color: var(--muted); letter-spacing: 0.04em; }
+.nmsNodeCard { padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); margin-bottom: 5px; }
+.nmsNodeTop { display: flex; gap: 8px; align-items: baseline; }
+.nmsNodeTop strong { flex: 1; font-size: 11px; font-weight: 560; }
+.nmsNodeTop span { font-family: ui-monospace, Consolas, monospace; font-size: 8px; color: var(--muted); }
+.nmsNodeCard p { margin: 2px 0 0; font-size: 9px; color: var(--muted); line-height: 1.5; }
+.nmsSettingGroup { display: flex; flex-direction: column; gap: 10px; }
+.nmsCheck { display: flex; align-items: flex-start; gap: 8px; font-size: 10.5px; color: var(--ink); }
+.nmsCheck input { margin-top: 2px; }
+.nmsField { display: flex; flex-direction: column; gap: 5px; font-size: 9px; color: var(--muted); }
+.nmsField input { width: 80px; background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; color: var(--ink); font: inherit; font-size: 11px; }
+.nmsActions { display: flex; gap: 6px; flex-wrap: wrap; }
+.nmsMeta { font-size: 8.5px; line-height: 1.8; color: var(--muted); }
+
+:root[data-theme="dark"] .nmsHead { background: rgba(6, 16, 24, 0.62); }
+:root[data-theme="dark"] .nmsTabs { background: rgba(110, 231, 255, 0.04); }
+:root[data-theme="dark"] .nmsTab.on { background: rgba(110, 231, 255, 0.18); color: var(--accent); }
+:root[data-theme="dark"] .nmsClose,
+:root[data-theme="dark"] .nmsSleepRow button,
+:root[data-theme="dark"] .nmsActions button { background: rgba(10, 26, 38, 0.72); }
+:root[data-theme="dark"] .nmsSleepPrimary { background: rgba(110, 231, 255, 0.86); border-color: rgba(110, 231, 255, 0.86); color: #041016; }
+:root[data-theme="dark"] .nmsNodeWeight i { background: rgba(110, 231, 255, 0.12); }
+:root[data-theme="dark"] .nmsTier.sem { color: #7dffc4; }
+:root[data-theme="dark"] .nmsTier.note { color: #ffb86b; }

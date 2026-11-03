@@ -16,7 +16,9 @@ import {
 } from "@herta/core";
 import type { Session } from "@herta/protocol";
 import { IdbMemoryStore } from "./memory-idb.ts";
+import { exportNmsBackup, restoreNmsBackup } from "./nms/controller.ts";
 import { loadCoinWallet, saveCoinWallet } from "./coin/coin-storage.ts";
+import { listBroadcastIssues, saveBroadcastIssue } from "./broadcast/storage.ts";
 import type { Settings } from "./settings.ts";
 import { listSessions, listStickers, loadSession, putSession, putSticker } from "./storage.ts";
 
@@ -66,6 +68,8 @@ export async function buildLocalBackup(
   const sessions = loaded.filter((s): s is Session => s !== null);
   const memories = await store.list();
   const coin = await loadCoinWallet();
+  const broadcast = await listBroadcastIssues();
+  const nms = await exportNmsBackup();
   const stickers: BackupSticker[] = opts.withStickers
     ? (await listStickers()).map((s) => ({
         id: s.id,
@@ -85,6 +89,9 @@ export async function buildLocalBackup(
     ...(opts.withSettings ? { settings: settingsForBackup(settings) } : {}),
     // 黑塔币钱包是单机的，换机就该跟着走；没激活过就不写这块
     ...(coin ? { coin } : {}),
+    // 播报期也是单机的家当，换机跟着走
+    ...(broadcast.length > 0 ? { broadcast } : {}),
+    ...(nms ? { nms } : {}),
     from: "Herta 手机端",
   });
   return { json: JSON.stringify(bundle), filename: backupFilename(), stats };
@@ -116,8 +123,8 @@ export async function saveBackup(backup: LocalBackup): Promise<string> {
 export interface RestoreOutcome {
   stats: BackupStats;
   from?: string;
-  writes: { sessions: number; memories: number; stickers: number; wallet: boolean };
-  skipped: { sessions: number; memories: number; stickers: number };
+  writes: { sessions: number; memories: number; stickers: number; broadcast: number; wallet: boolean };
+  skipped: { sessions: number; memories: number; stickers: number; broadcast: number };
 }
 
 /** 拆包：读完先校验，确认之后再真正写库。 */
@@ -129,12 +136,18 @@ export async function restoreLocalBackup(text: string): Promise<RestoreOutcome> 
   const parsed = parseBackupBundle(text);
   if (!parsed.ok) throw new Error(parsed.error);
 
-  const [metas, memories, stickers] = await Promise.all([listSessions(), store.list(), listStickers()]);
+  const [metas, memories, stickers, issues] = await Promise.all([
+    listSessions(),
+    store.list(),
+    listStickers(),
+    listBroadcastIssues(),
+  ]);
   const existingWallet = await loadCoinWallet();
   const plan = planRestore(parsed.bundle, {
     sessionIds: new Set(metas.map((m) => m.id)),
     memoryNames: new Set(memories.map((m) => m.name)),
     stickerIds: new Set(stickers.map((s) => s.id)),
+    broadcastIds: new Set(issues.map((i) => i.id)),
     wallet: existingWallet !== null,
   });
 
@@ -151,8 +164,11 @@ export async function restoreLocalBackup(text: string): Promise<RestoreOutcome> 
       owner: k.owner ?? "herta",
     });
   }
+  for (const issue of plan.broadcast) await saveBroadcastIssue(issue);
   // 本地没有钱包才写；有就不覆盖（币是单机的，覆盖等于把本地的抹掉）
   if (plan.coin) await saveCoinWallet(plan.coin);
+  // v2 备份带 NMS 节点/边：新库为空时直接恢复；旧 v1 包没有这段，交给首启迁移。
+  if (parsed.bundle.nms !== undefined) await restoreNmsBackup(parsed.bundle.nms);
 
   return {
     stats: parsed.stats,
@@ -161,6 +177,7 @@ export async function restoreLocalBackup(text: string): Promise<RestoreOutcome> 
       sessions: plan.sessions.length,
       memories: plan.memories.length,
       stickers: plan.stickers.length,
+      broadcast: plan.broadcast.length,
       wallet: plan.coin !== undefined,
     },
     skipped: plan.skipped,

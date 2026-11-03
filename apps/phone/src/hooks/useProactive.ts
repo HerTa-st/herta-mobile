@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import type { Session } from "@herta/protocol";
 import type { DreamState, MemoryRecord } from "@herta/core";
 import { pickTransport } from "../transport.ts";
-import { startKeepAlive, stopKeepAlive } from "../keepalive.ts";
+import { acquireKeepAlive } from "../nms/keepalive-lease.ts";
 import {
   inQuietHours,
   pickNextPing,
@@ -46,11 +46,9 @@ export function useProactive(opts: {
   const enabled = opts.settings.proactiveEnabled && !opts.settings.cheapMode;
 
   useEffect(() => {
-    if (!enabled) {
-      void stopKeepAlive();
-      return;
-    }
-    void startKeepAlive();
+    if (!enabled) return;
+    const release = acquireKeepAlive("proactive");
+    return release;
   }, [enabled]);
 
   useEffect(() => {
@@ -68,6 +66,13 @@ export function useProactive(opts: {
         if (Date.now() < due) return;
         // 到点了，但撞上睡觉时段：往后推，不补发——半夜弹一条「我想起你了」很吓人
         if (inQuietHours()) {
+          await writeNextPing(pickNextPing());
+          return;
+        }
+        // 她刚把播报递过去、他还没开口：那条提示不是一句「话」，她也别自己
+        // 接自己的茬（2026-11-02 真机上她把它当成开拓者发的消息回了）。
+        const last = p.session.blocks[p.session.blocks.length - 1];
+        if (last && last.kind === "herta" && last.action?.kind === "broadcast") {
           await writeNextPing(pickNextPing());
           return;
         }

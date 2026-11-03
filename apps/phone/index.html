@@ -12,9 +12,29 @@
     <meta name="theme-color" content="#f8fbfa" />
     <title>Herta</title>
     <style>
-      /* 首帧就是浅色：WebView 起来之前别闪一下白 / 黑 */
+      /* 首帧就是主题色：WebView 起来之前别闪一下白 / 黑 */
       html, body { background: #f8fbfa; }
+      html[data-theme="dark"], html[data-theme="dark"] body { background: #061018; }
     </style>
+    <script>
+      /* 在 CSS/React 之前先把主题放上 <html>，避免深色用户看到一帧白。 */
+      (function () {
+        try {
+          var raw = localStorage.getItem("herta.settings.v1");
+          var theme = raw ? JSON.parse(raw).theme : "system";
+          var dark =
+            theme === "dark" ||
+            (theme !== "light" &&
+              window.matchMedia &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.dataset.theme = dark ? "dark" : "light";
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute("content", dark ? "#061018" : "#f8fbfa");
+        } catch (e) {
+          document.documentElement.dataset.theme = "light";
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
