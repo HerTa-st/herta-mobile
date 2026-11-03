@@ -2,18 +2,11 @@
    青白渐变打底，她的气泡是白卡片、你的是淡粉——这是桌面版她自己那套配色，
    手机端原来那套深紫是我随手拼的，不像她。 */
 
-@font-face {
-  font-family: "Herta Sans";
-  src: url("/fonts/NotoSansSC-VF.ttf") format("truetype");
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
-
 :root {
   color-scheme: light;
-  --app-font: "Herta Sans", "Noto Sans SC", "Noto Sans CJK SC", "PingFang SC",
-    "Microsoft YaHei", sans-serif;
+  /* 不打包字体文件：跟着手机自己的字体走（系统换了主题字体，她也跟着换） */
+  --app-font: system-ui, -apple-system, "Segoe UI", "PingFang SC",
+    "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
   /* 桌面端（<Herta-desktop-install-dir>）那套：墨更黑、灰更冷，卡面是半透明玻璃 */
   --ink: #111417;
   --ink-soft: #3b4350;

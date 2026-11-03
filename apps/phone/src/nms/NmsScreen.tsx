@@ -198,9 +198,18 @@ export function NmsScreen({
             <div className="nmsVoiceCard">
               <div className="nmsCardHead">
                 <h3>她写字的样子</h3>
-                <span>只读</span>
+                <span>{voice ? "v" + voice.version : "还没生成"}</span>
               </div>
-              <p>旧 DreamState.voice 冻结在这里；NMS 自动语气是下一步。</p>
+              {voice ? (
+                <p className="nmsVoiceExcerpt">{voice.profile}</p>
+              ) : (
+                <p className="nmsVoiceExcerpt">
+                  还没生成过。深睡出新记忆后会自己重写，也可以在「设置」里点一次；在那之前用的是冻结的旧语气。
+                </p>
+              )}
+              <button type="button" className="nmsCardAction" onClick={() => setTab("settings")}>
+                去「设置」重写
+              </button>
             </div>
             <p className="nmsHint">深睡只在有 Key、有网、前台或保活时 opportunistic 跑；cap {settings.nmsNightCap}/晚。</p>
           </>

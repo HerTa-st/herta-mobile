@@ -85,9 +85,18 @@ Pop-Location
 
 $apk = Join-Path $app 'android\app\build\outputs\apk\debug\app-debug.apk'
 if (Test-Path $apk) {
+  # 按版本号出一份带名字的产物：dist-apk/Herta-手机端-v<versionName>-<yyyy-MM-dd>.apk
+  $gradle = Get-Content (Join-Path $app 'android\app\build.gradle') -Raw
+  $m = [regex]::Match($gradle, 'versionName\s+"([^"]+)"')
+  $version = if ($m.Success) { $m.Groups[1].Value } else { 'unknown' }
+  $dist = Join-Path $root 'dist-apk'
+  New-Item -ItemType Directory -Force -Path $dist | Out-Null
+  $named = Join-Path $dist ("Herta-手机端-v" + $version + "-" + (Get-Date -Format 'yyyy-MM-dd') + ".apk")
+  Copy-Item -LiteralPath $apk -Destination $named -Force
   Write-Host ""
   Write-Host ("APK: " + $apk)
   Write-Host ("大小: {0:N1} MB" -f ((Get-Item $apk).Length / 1MB))
+  Write-Host ("按版本号: " + $named + "（v" + $version + "）")
 } else {
   throw '没找到 APK，构建失败了'
 }
