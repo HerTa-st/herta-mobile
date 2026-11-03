@@ -18,6 +18,7 @@ import { parseSharedConversation, shareIdFromInput } from "../src/share.ts";
 import { repairFeian } from "../src/feian.ts";
 import { VOICE_HEADING, VOICE_MAX_CHARS, buildVoiceRevisionPrompt, cleanVoiceText } from "../src/voice.ts";
 import { EMPTY_STATE } from "../src/memory.ts";
+import { PRESENCE_PING_MAX_PER_DAY, decidePresencePing, presenceKey } from "../src/presence.ts";
 import { distillSession, segmentBlocks } from "../src/distill.ts";
 import {
   effectiveWeight,
@@ -53,7 +54,7 @@ const src = new NodeAssetSource(ASSETS, "zh");
 
 /* ------------------------------------------------------------------ 素材 */
 
-test("素材齐：《自传、话术、4 条 veto 原声、4 篇记忆》（开局与设定已删）", async () => {
+test("素材齐：《自传、话术、4 条 veto 原声》；手机端不预装记忆（开局与设定已删）", async () => {
   const a = await src.promptAssets();
   assert.ok(a.hertaBio.length > 5000, "自传太短，多半读错了文件");
   // 办公室设定与语气指南都删了：她不再永远坐在同一个房间，语气也不是别人写死的
@@ -64,8 +65,8 @@ test("素材齐：《自传、话术、4 条 veto 原声、4 篇记忆》（开�
   const v = await src.voice();
   assert.equal(v.veto.length, 4);
 
-  // 13 篇种子里的「远程办公的一百种无聊方式」那 9 篇按用户要求删掉了
-  assert.equal((await src.seedFiles()).length, 4);
+  // 手机端不再预装记忆：assets/memory 留空；老安装的 IndexedDB / NMS 原样保留
+  assert.equal((await src.seedFiles()).length, 0);
 });
 
 /* ------------------------------------------------------------ 人格装配 */
@@ -107,10 +108,12 @@ test("静态前缀：顺序是 自传 → 种子 → 此刻在哪 → 处境 →
   assert.ok(iPresence < prefix.indexOf(MOBILE_NOTE), "行踪应排在处境之前");
 });
 
-test("挑种子：确定性（rng 固定时同一输入同一结果）且不超过上限", async () => {
-  const files = await src.seedFiles();
-  const pool = [];
-  for (const f of files) pool.push({ file: f, body: (await src.readSeed(f)) ?? "" });
+test("挑种子：确定性（rng 固定时同一输入同一结果）且不超过上限", () => {
+  // 包内不预装记忆，这里用假种子验挑选逻辑本身
+  const pool = Array.from({ length: 4 }, (_, i) => ({
+    file: "seed-" + i,
+    body: "### 废案_0" + i + "：测试\n正文" + i,
+  }));
 
   const a = pickSeeds(pool, "你今天怎么这么慢", 3, { rng: () => 0 });
   const b = pickSeeds(pool, "你今天怎么这么慢", 3, { rng: () => 0 });
@@ -1962,4 +1965,53 @@ test("备份：播报期随包走；同一期不重复写", () => {
   });
   assert.equal(fresh.broadcast.length, 1);
   assert.equal(fresh.broadcast[0].items[0].comment, "评");
+});
+
+test("行踪开口：新的一段、掷骰子过了，才开口", () => {
+  const now = new Date(2026, 10, 4, 10, 0, 0);
+  const d = decidePresencePing({ now, seenKey: null, countToday: 0, lastPingAt: null, random: 0.1 });
+  assert.equal(d.fire, true);
+  assert.equal(d.markSeen, true);
+  assert.equal(d.reason, "new-slot");
+});
+
+test("行踪开口：安静时段不消费、同一段不重复", () => {
+  const night = new Date(2026, 10, 4, 23, 30, 0);
+  assert.deepEqual(
+    decidePresencePing({ now: night, seenKey: null, countToday: 0, lastPingAt: null, random: 0.1 }),
+    { fire: false, markSeen: false, reason: "quiet" }
+  );
+  const day = new Date(2026, 10, 4, 10, 0, 0);
+  const same = decidePresencePing({
+    now: day,
+    seenKey: presenceKey(day),
+    countToday: 1,
+    lastPingAt: null,
+    random: 0.1,
+  });
+  assert.equal(same.fire, false);
+  assert.equal(same.markSeen, false);
+  assert.equal(same.reason, "same-slot");
+});
+
+test("行踪开口：配额满 / 间隔太近 / 掷骰子没过，这段都算消费掉", () => {
+  const now = new Date(2026, 10, 4, 16, 0, 0);
+  const cap = decidePresencePing({
+    now,
+    seenKey: null,
+    countToday: PRESENCE_PING_MAX_PER_DAY,
+    lastPingAt: null,
+    random: 0.1,
+  });
+  assert.deepEqual(cap, { fire: false, markSeen: true, reason: "daily-cap" });
+  const soon = decidePresencePing({
+    now,
+    seenKey: null,
+    countToday: 0,
+    lastPingAt: now.getTime() - 30 * 60_000,
+    random: 0.1,
+  });
+  assert.deepEqual(soon, { fire: false, markSeen: true, reason: "too-soon" });
+  const unlucky = decidePresencePing({ now, seenKey: null, countToday: 0, lastPingAt: null, random: 0.99 });
+  assert.deepEqual(unlucky, { fire: false, markSeen: true, reason: "coin-flip" });
 });

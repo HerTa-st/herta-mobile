@@ -58,16 +58,16 @@
 - 4px 基准：4 / 8 / 12 / 16 / 20 / 24。
 - 圆角：卡面 18，控件 10–14，胶囊 999；不新增 6/22/27 这类随手圆角。
 - 厚度：<code>--line</code> 1px；浮层加 <code>--shadow</code> 或 <code>--shadow-soft</code>，不要两套阴影混用。
-- z-index 只允许这几档：看图 50，黑塔币 55，播报 56，读原文 57，设置 60，开屏 90；新模块先申请档位，不要随手写 99。
+- z-index 只允许这几档：心情弹层 45，看图 50，黑塔币 55，播报 56，读原文 57，设置 60，左轨把手 62，开屏 90；新模块先申请档位，不要随手写 99。
 
 ---
 
 ## 3. 布局骨架
 
-- **左轨**：58px，图标（H / + / 对话 / 记忆 / 播报 / 黑塔币 / 设置 / 更多）；会话标题不塞进左轨，放抽屉。
+- **左轨**：58px，可收成 12px（右缘 10×36 把手，状态存 `settings.railCollapsed`）；图标（H / + / 对话 / 记忆 / 播报 / 黑塔币 / 设置 / 更多）；会话标题不塞进左轨，放抽屉。宽度只认 `--rail-w`。
 - **顶栏**：54px，菜单 + 「黑塔」+ 行踪副标题 + 心情胶囊 + 夜/日 + 头像；标题必须单行省略。
 - **对话**：上下文条（记忆 / 复核 / 省 token + 时间）→ 日期线 → 消息；feed 滚动 + composer 固定在底部；键盘弹出时 composer 不能被顶掉。
-- **整屏页**：<code>position: fixed; inset: 0;</code>，头部固定、主体自己滚；参考 <code>.coinView</code> / <code>.broadcastView</code> / <code>.bcrView</code>。
+- **整屏页**：<code>position: fixed; inset: 0;</code>，头部固定、主体自己滚；参考 <code>.coinView</code> / <code>.broadcastView</code> / <code>.bcrView</code>。左缘要用 <code>left: var(--rail-w, 58px)</code>，不要写死 58，否则左轨一收就露馅。
 - **设置**：整屏 sheet，顶部吸顶；新增长项直接往下排，不要另起一套设置页。
 - **弹层**：表情 / 附件 / 看图；不抢整屏页的 z-index。
 
@@ -91,7 +91,7 @@
 - 时间：<code>.bubbleTime</code> 等宽 8px，右下；用量 <code>UsageChip</code> 在正文下。
 - 上下文条：<code>.chatContext</code>（记忆 / 复核 / 省 token + 时间），不要塞进顶栏。
 - 输入区：<code>.composerQuick</code>（撤回 + Enter 提示）+ <code>.composerBar</code> + <code>.composerFoot</code>（本机 + 模型名）。
-- <code>.composerBar</code> 固定 46px、<code>align-items:center</code>；发送键 34px、附件键 30px，三者必须同一中线，不许用底对齐。
+- <code>.composerBar</code> 最小 46px（<code>min-height</code>，多行跟着 textarea 长到约 120）、<code>align-items:center</code>；发送键 34px、附件键 30px，三者必须同一中线，不许用底对齐。textarea 随草稿自动长高，不要在小框里滚。触控热区纵向 44（<code>::after</code>），横向不侵入输入框。
 - 工具旁白：<code>.note</code>，一行灰字；完整参数进工具记录，不刷聊天。
 - 用量：<code>UsageChip</code>；失败/省 token 状态不能隐藏。
 - 图片/长图：<code>Shot</code>；长图按宽度切片，气泡只放第一片缩略图。
@@ -292,7 +292,8 @@
 | 黑塔币 | <code>components/CoinView.tsx</code> | <code>styles/coin.css</code> | workspace 内，页头 54 |
 | 播报 | <code>components/BroadcastView.tsx</code> | <code>styles/broadcast.css</code> | workspace 内，页头 54 |
 | 设置 / 能力 / 备份 / 工具 | 四个 Sheet 组件 | <code>styles/settings-suite.css</code>（.ss-*） | fixed + left 58，页头 54 |
-| 开屏 / 引导 | <code>components/Onboarding.tsx</code> | <code>styles/onboarding.css</code>（.onboard*） | 全屏，首启 |
+| 开屏 / 引导 | <code>components/Onboarding.tsx</code> | <code>styles/onboarding.css</code>（.onboard*） | 全屏，首启；设置 · 界面可重播 |
+| 设计系统 | <code>components/DesignSystemSheet.tsx</code> | <code>styles/design-system.css</code>（.ds-*） | 设置 sheet 壳 + 页头 54 |
 | 启动 ASCII | <code>components/Splash.tsx</code> | <code>styles.css</code> | 固定白底，不随主题 |
 
 **新模块要么复用上表的壳，要么先在本表登记新壳；不允许第三种 rail / 页头 / 卡面。**
@@ -307,3 +308,7 @@
 - 2026.11：去掉手机端随包预装的 4 篇「废案」记忆。启动不再 seed；**安装/升级不清理已有记忆**，旧 IndexedDB / NMS / 备份原样保留。
 - 2026.11：字体固定为打包的 Noto Sans SC（`--app-font`），不再跟随手机系统主题字体；修正 CSS 加载顺序（全局先于模块），并修播报报头重复、来源列挤压、封面过大、标题截断。
 - 2026.11：输入条改为垂直居中（原来继承 `align-items:flex-end`，回形针/表情/发送键贴底，看起来错位）。
+- 2026.11：左轨可收成 12px 把手（右缘 10×36，整屏页用 `--rail-w` 让位）；新增 z-index 档位 45（心情弹层）/ 62（左轨把手）。
+- 2026.11：输入条收口——`min-height:46` 取代固定高（多行自动长高，最多 120），三键同一中线，纵向热区 44；快速行/脚注行与胶囊同一条左右基线；键盘弹出时把最新一条留在输入条上面。
+- 2026.11：设置加「界面」组：开屏与引导可重播、设计系统只读页；按拍板不做 D 的底部外观条，外观三选一留在顶部。
+- 2026.11：她按自己的行踪先开口（换地方/换时段，LLM 写一句，每天≤2 次、间隔≥2h、22–8 不吵，离线回落本地台词）；顶栏心情胶囊点开只显示心情与判定时间，不额外调模型。

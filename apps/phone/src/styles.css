@@ -49,6 +49,9 @@ body {
 }
 
 .app {
+  /* 左轨宽度只有一个出处：把手收起时整屏页（fixed/absolute）也跟着让位 */
+  --rail-w: 58px;
+  position: relative;
   display: flex;
   flex-direction: row;
   height: 100%;
@@ -712,7 +715,7 @@ body {
 
 .composerBar {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 4px;
   padding: 6px 6px 6px 16px;
   border: 1px solid var(--line);
@@ -2551,7 +2554,8 @@ body {
    ========================================================================== */
 
 .rail {
-  width: 58px;
+  width: var(--rail-w);
+  transition: width 0.18s ease;
   gap: 8px;
   padding: calc(env(safe-area-inset-top) + 14px) 0 calc(env(safe-area-inset-bottom) + 10px);
   background: rgba(255, 255, 255, 0.46);
@@ -2612,6 +2616,40 @@ body {
 }
 .railFoot { gap: 4px; }
 
+/* 左轨收起：58 → 12，只留一条把手。整屏页用 --rail-w 让位。 */
+.app[data-rail="collapsed"] { --rail-w: 12px; }
+.app[data-rail="collapsed"] .rail { padding-left: 0; padding-right: 0; }
+.app[data-rail="collapsed"] .rail > * { opacity: 0; pointer-events: none; }
+.railHandle {
+  position: absolute;
+  z-index: 62; /* 高于设置 60，低于开屏 90；新档位已登记进 UI 规范 §2.3 */
+  top: 50%;
+  left: var(--rail-w);
+  width: 10px;
+  height: 36px;
+  transform: translateY(-50%);
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-left: 0;
+  border-radius: 0 6px 6px 0;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  transition: left 0.18s ease, background 0.18s ease;
+}
+.railHandle::after { content: "‹"; }
+.railHandle::before { content: ""; position: absolute; inset: -6px -8px -6px -4px; } /* 22×48 热区 */
+.app[data-rail="collapsed"] .railHandle::after { content: "›"; }
+:root[data-theme="dark"] .railHandle {
+  background: rgba(10, 26, 38, 0.72);
+  border-color: var(--line);
+}
+
 .bar {
   height: 54px;
   padding: 0 12px 0 8px;
@@ -2653,6 +2691,33 @@ body {
   text-overflow: ellipsis;
 }
 .moodChip i { flex: none; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); }
+button.moodChip { cursor: pointer; font: inherit; }
+button.moodChip:active { background: rgba(17, 20, 23, 0.05); }
+
+/* 心情弹层：只报「这一轮判成什么、几点判的」，不额外调模型。 */
+.moodPop {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 90px); /* 顶栏 54 + 上下文条 30 + 6 */
+  right: 54px;
+  z-index: 45; /* 心情弹层 · 见 UI 规范 §2.3 */
+  width: 216px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--sheet-bg);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px) saturate(140%);
+}
+.moodPop b { font-size: 13px; font-weight: 600; color: var(--ink); }
+.moodPop span {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 10px;
+  color: var(--muted);
+}
+.moodPop small { margin-top: 4px; font-size: 10px; line-height: 1.55; color: var(--muted); }
 .themeToggle {
   flex: none;
   width: 28px;
@@ -2760,10 +2825,11 @@ body {
 
 .composer { padding: 7px 12px calc(11px + env(safe-area-inset-bottom)); background: transparent; }
 .composerQuick { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding: 0 2px; font-size: 8.5px; color: var(--muted); }
+/* 快速行、输入胶囊、脚注行共用同一条左右基线（胶囊外沿 = composer padding 12） */
 .composerQuick .composerRetract { margin: 0; padding: 0; font-size: 8.5px; }
 .composerQuick > span { margin-left: auto; }
 .composerBar {
-  height: 46px;
+  min-height: 46px;
   padding: 0 5px 0 9px;
   gap: 2px;
   align-items: center;
@@ -2775,13 +2841,26 @@ body {
 }
 .composerBar textarea {
   order: 1;
-  min-height: 30px;
+  min-height: 32px;
   padding: 7px 2px;
   font-size: 13px;
   line-height: 1.4;
+  align-self: center;
 }
 .composerFile { order: 0; }
 .composerEmoji { order: 2; }
+
+/* 触控热区：46 高的胶囊里，三键纵向拉到 44；横向不侵入输入框（46 高里做不出
+   互不重叠的 44×44，硬做会把输入框左右各 7px 变成按钮）。 */
+.composerFile, .composerEmoji, .composerSend { position: relative; }
+.composerFile::after, .composerEmoji::after, .composerSend::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+}
+.composerFile::after { inset: -7px 0; }
+.composerEmoji::after { inset: -7px 0; }
+.composerSend::after { inset: -5px -5px; }
 .composerSend {
   order: 3;
   width: 34px;
@@ -2791,7 +2870,7 @@ body {
 }
 .composerSend:not(:disabled) { background: rgba(17, 20, 23, 0.86); }
 .composerAttach { width: 30px; height: 30px; }
-.composerFoot { display: flex; justify-content: space-between; margin-top: 6px; padding: 0 3px; font-size: 8px; color: var(--muted); font-family: ui-monospace, Consolas, monospace; }
+.composerFoot { display: flex; justify-content: space-between; margin-top: 6px; padding: 0 2px; font-size: 8px; color: var(--muted); font-family: ui-monospace, Consolas, monospace; }
 
 /* 夜间：新壳的同一套 token */
 :root[data-theme="dark"] .railNav button.on,

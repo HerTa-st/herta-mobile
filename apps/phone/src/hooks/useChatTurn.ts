@@ -104,12 +104,17 @@ export function useChatTurn(opts: {
   /** 她在"想一下"的那几秒（或者说，在装作想一下）。 */
   const [typing, setTyping] = useState(false);
   const [mood, setMood] = useState<string>(DEFAULT_MOOD);
+  /** 这次心情是几点定的（ms）。顶栏胶囊点开时只显示这个，不额外调模型。 */
+  const [moodAt, setMoodAt] = useState<number | null>(null);
   // 打开 App 时把上次的心情接上；超过三小时 loadMoodState 会返回 null，就当没有
   useEffect(() => {
     let alive = true;
     void loadMoodState()
       .then((s) => {
-        if (alive && s) setMood(s.mood);
+        if (alive && s) {
+          setMood(s.mood);
+          setMoodAt(s.at);
+        }
       })
       .catch(() => undefined);
     return () => {
@@ -275,6 +280,7 @@ export function useChatTurn(opts: {
             thisMood = decision.mood;
             // 落盘不挡这一轮：写失败最多是下次少一点惯性
             void saveMoodState(decision.state).catch(() => undefined);
+            setMoodAt(decision.state.at);
           }
         } catch {
           /* 判不出来就保持上一轮 */
@@ -555,5 +561,5 @@ export function useChatTurn(opts: {
 
   const stop = useCallback(() => abort.current?.abort(), []);
 
-  return { send, stop, busy, mood, typing };
+  return { send, stop, busy, mood, moodAt, typing };
 }

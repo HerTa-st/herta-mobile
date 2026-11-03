@@ -1,0 +1,115 @@
+/* 设计系统：只读对样页。颜色/字阶/圆角/部件，不复用业务类名。 */
+
+.ds-swatches {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 6px;
+}
+.ds-swatch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+}
+.ds-swatch i {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+.ds-swatch b { font-size: 12px; font-weight: 600; color: var(--ink); white-space: nowrap; }
+.ds-swatch code {
+  margin-left: auto;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 8.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.ds-type { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.ds-typeRow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.ds-typeRow:last-child { padding-bottom: 0; border-bottom: 0; }
+.ds-typeName { flex: none; width: 68px; font-size: 11px; color: var(--muted); }
+.ds-typeSample { flex: 1; min-width: 0; overflow: hidden; color: var(--ink); white-space: nowrap; text-overflow: ellipsis; }
+.ds-t-display { font-size: 25px; font-weight: 620; letter-spacing: -0.02em; }
+.ds-t-h1 { font-size: 19px; font-weight: 620; letter-spacing: -0.01em; }
+.ds-t-h2 { font-size: 15.5px; font-weight: 600; }
+.ds-t-body { font-size: 14.5px; line-height: 1.7; }
+.ds-t-meta { font-family: ui-monospace, Consolas, monospace; font-size: 10.5px; color: var(--muted); }
+.ds-typeMeta { flex: none; font-family: ui-monospace, Consolas, monospace; font-size: 9px; color: var(--muted); }
+
+.ds-radiusRow { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.ds-radius {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--line);
+  background: var(--card);
+}
+.ds-radius.card { border-radius: 18px; }
+.ds-radius.ctl { border-radius: 12px; }
+.ds-radius.pill { border-radius: 999px; }
+
+.ds-parts { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.ds-bubble {
+  max-width: 270px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--card);
+  box-shadow: var(--shadow-soft);
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--ink);
+}
+.ds-bubble.mine { align-self: flex-end; border-color: transparent; background: var(--mine); }
+.ds-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+.ds-chip i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.ds-btnRow { display: flex; align-items: center; gap: 8px; }
+.ds-btn {
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+}
+.ds-btn.primary { border-color: transparent; background: var(--accent); color: var(--accent-ink); }
+.ds-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--field);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.ds-rule { display: flex; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); }
+.ds-rule:first-of-type { border-top: 0; }
+.ds-rule b { flex: none; width: 64px; font-size: 10.5px; font-weight: 600; color: var(--accent); }
+.ds-rule span { font-size: 12px; line-height: 1.6; color: var(--ink-soft); }

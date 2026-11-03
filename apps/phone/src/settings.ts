@@ -79,6 +79,13 @@ export interface Settings {
   ttsVoice: string;
   ttsGroupId: string;
   /**
+   * 左轨收起。
+   *
+   * true = 左轨压成 12px 的把手（正文多出 46px）；false = 常驻 58px 工作台。
+   * 只改宽度，不改入口；整屏页（币 / 播报 / 设置）跟着一起让位。
+   */
+  railCollapsed: boolean;
+  /**
    * 外观。
    *
    * system = 跟随系统；light = 白天的玻璃工作台；dark = C 的夜间（深空底 / 青色信号）。
@@ -138,6 +145,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ttsGroupId: "",
   coinApiBase: "",
   coinIdentity: "",
+  railCollapsed: false,
   theme: "system",
 };
 

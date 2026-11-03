@@ -37,6 +37,7 @@ import { CapabilitiesSheet } from "./components/CapabilitiesSheet.tsx";
 import { Onboarding } from "./components/Onboarding.tsx";
 import { ToolLogSheet } from "./components/ToolLogSheet.tsx";
 import { BackupSheet } from "./components/BackupSheet.tsx";
+import { DesignSystemSheet } from "./components/DesignSystemSheet.tsx";
 import { StickerTray } from "./components/StickerTray.tsx";
 import { AttachTray } from "./components/AttachTray.tsx";
 import { longPressProps } from "./components/long-press.ts";
@@ -144,6 +145,8 @@ export function App() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showToolLog, setShowToolLog] = useState(false);
   const [showBackup, setShowBackup] = useState(false);
+  const [showDesignSystem, setShowDesignSystem] = useState(false);
+  const [moodOpen, setMoodOpen] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState("");
@@ -196,6 +199,8 @@ export function App() {
   /** 她把你的表情收进库时要落库；存库函数定义在后面，用 ref 把这根线接上。 */
   const keepStickerRef = useRef<(record: StickerRecord) => void>(() => undefined);
   const feedRef = useRef<HTMLElement | null>(null);
+  /** 输入框：多行草稿要自己长高，胶囊跟着长，别在 1 行小框里滚。 */
+  const draftRef = useRef<HTMLTextAreaElement | null>(null);
   /** 用户是不是"贴着底部"。他往上一翻就松手，不再跟着新消息跑。 */
   const stickToBottom = useRef(true);
   const [atBottom, setAtBottom] = useState(true);
@@ -475,7 +480,7 @@ export function App() {
   }, []);
 
   /** 一个回合的全过程都在这里：判心情、算行踪、带工具说话、复核、落库。 */
-  const { send, stop, busy, mood, typing } = useChatTurn({
+  const { send, stop, busy, mood, moodAt, typing } = useChatTurn({
     settings,
     session,
     setSession,
@@ -1264,6 +1269,25 @@ export function App() {
     requestAnimationFrame(() => scrollToBottom(false));
   }, [blocks.length, scrollToBottom]);
 
+  // 草稿换到多行时把输入框长高（最多 120），胶囊跟着长。
+  useEffect(() => {
+    const el = draftRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 120) + "px";
+  }, [draft]);
+
+  // 键盘弹出/收起会改可视高度：adjustResize 之后把最新一条留在输入条上面。
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onViewportResize = () => {
+      if (stickToBottom.current) requestAnimationFrame(() => scrollToBottom(false));
+    };
+    vv.addEventListener("resize", onViewportResize);
+    return () => vv.removeEventListener("resize", onViewportResize);
+  }, [scrollToBottom]);
+
   /** 提醒记录按「title\n正文」索引：写进对话的提醒正文就是这个格式。 */
   const reminderByText = useMemo(() => {
     const map = new Map<string, ReminderRecord>();
@@ -1319,7 +1343,7 @@ export function App() {
   };
 
   return (
-    <div className="app">
+    <div className="app" data-rail={settings.railCollapsed ? "collapsed" : "expanded"}>
       {!splashGone && <Splash onDone={hideSplash} />}
 
       {/* 桌面端那条侧栏的窄版：会话常驻，入口在底部 */}
@@ -1369,6 +1393,15 @@ export function App() {
         </div>
       </aside>
 
+      {/* 左轨收起的把手：贴在轨道右缘，点一下 58 → 12；状态记在 settings 里。 */}
+      <button
+        className="railHandle"
+        type="button"
+        onClick={() => setSettings((s) => ({ ...s, railCollapsed: !s.railCollapsed }))}
+        aria-label={settings.railCollapsed ? "展开左轨" : "收起左轨"}
+        aria-expanded={!settings.railCollapsed}
+      />
+
       <section className="workspace">
       <header className="bar">
         <button className="iconBtn" type="button" onClick={() => setDrawer((v) => !v)} aria-label="会话">
@@ -1380,10 +1413,17 @@ export function App() {
             {presenceAt().phase} · {presenceAt().place}
           </span>
         </div>
-        <span className="moodChip">
+        <button
+          className="moodChip"
+          type="button"
+          onClick={() => setMoodOpen((v) => !v)}
+          aria-expanded={moodOpen}
+          aria-label="她的心情"
+          title="点开看她这会儿是什么心情"
+        >
           <i />
           {!mood || mood === "默认" ? "平静" : mood}
-        </span>
+        </button>
         <button
           className="themeToggle"
           type="button"
@@ -1397,6 +1437,14 @@ export function App() {
           <img src="/herta.png" alt="" />
         </button>
       </header>
+
+      {moodOpen && (
+        <div className="moodPop" role="dialog" aria-label="她的心情">
+          <b>{!mood || mood === "默认" ? "平静" : mood}</b>
+          <span>{moodAt ? clockOf(new Date(moodAt).toISOString()) + " 判的" : "还没判过"}</span>
+          <small>每轮开头判一次；三小时没说话就淡回去。这里不额外调模型。</small>
+        </div>
+      )}
 
       {drawer && (
         <Drawer
@@ -1527,6 +1575,11 @@ export function App() {
           onOpenCapabilities={() => setShowCaps(true)}
           onOpenToolLog={() => setShowToolLog(true)}
           onOpenBackup={() => setShowBackup(true)}
+          onReplayOnboarding={() => {
+            setShowSettings(false);
+            setShowOnboarding(true);
+          }}
+          onOpenDesignSystem={() => setShowDesignSystem(true)}
           onFile={(file) => ingestReadable(file)}
         />
       )}
@@ -1544,6 +1597,8 @@ export function App() {
       )}
 
       {showToolLog && <ToolLogSheet onClose={() => setShowToolLog(false)} />}
+
+      {showDesignSystem && <DesignSystemSheet onClose={() => setShowDesignSystem(false)} />}
 
       {showBackup && (
         <BackupSheet
@@ -1780,6 +1835,7 @@ export function App() {
 
         <div className="composerBar">
           <textarea
+            ref={draftRef}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="给黑塔发消息…"

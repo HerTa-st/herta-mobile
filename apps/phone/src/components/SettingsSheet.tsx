@@ -59,6 +59,8 @@ export function SettingsSheet({
   onOpenCapabilities,
   onOpenToolLog,
   onOpenBackup,
+  onReplayOnboarding,
+  onOpenDesignSystem,
 }: {
   settings: Settings;
   onChange(patch: Partial<Settings>): void;
@@ -72,6 +74,8 @@ export function SettingsSheet({
   onOpenCapabilities(): void;
   onOpenToolLog(): void;
   onOpenBackup(): void;
+  onReplayOnboarding(): void;
+  onOpenDesignSystem(): void;
 }) {
   const capCount = CAP_KEYS.filter((key) => settings[key]).length;
   const capHint = capCount > 0 ? capCount + " 项开着" : "全关着";
@@ -521,6 +525,31 @@ export function SettingsSheet({
               <small>{fileNames.length} 个文件 · {stickers.length} 张表情 · 全部只留在这台手机</small>
             </span>
           </div>
+        </section>
+
+        <section className="ss-card">
+          <div className="ss-groupHead">
+            <span>界面</span>
+            <span>2</span>
+          </div>
+          <button type="button" className="ss-row ss-rowTap" onClick={onReplayOnboarding}>
+            <span className="ss-rowMain">
+              <b>开屏与引导</b>
+              <small>ASCII 半调 · 白底淡出；再看一遍引导</small>
+            </span>
+            <span className="ss-rowValue">
+              <Icon d={ICON.chevron} size={13} />
+            </span>
+          </button>
+          <button type="button" className="ss-row ss-rowTap" onClick={onOpenDesignSystem}>
+            <span className="ss-rowMain">
+              <b>设计系统</b>
+              <small>颜色 / 字阶 / 半径 / 组件；只读，给以后加功能对样</small>
+            </span>
+            <span className="ss-rowValue">
+              <Icon d={ICON.chevron} size={13} />
+            </span>
+          </button>
         </section>
 
         <p className="ss-hint">全部本机状态，没有一处上传。API Key 不进备份包。</p>
