@@ -75,12 +75,13 @@ export const HERTA_VOICE_SCHEMA = {
     address: {
       type: "enum" as const,
       label: "称呼方式",
+      // 「名字」用的是引导页里填的用户名；没填就按「开拓者」叫。
       values: [
+        { value: "name", label: "名字" },
         { value: "trailblazer", label: "开拓者" },
-        { value: "laomeng", label: "老梦" },
         { value: "none", label: "不称呼" },
       ],
-      default: "trailblazer",
+      default: "name",
     },
   },
 };
@@ -217,23 +218,40 @@ export function clampVoiceParams(
   return { params, changed, rejected };
 }
 
+/** 枚举的值怎么念：name 用真实用户名，没填就按开拓者兜底。 */
+function addressLabel(node: VoiceEnumNode, value: VoiceParamValue, userName?: string | null): string {
+  if (value === "name") {
+    const name = String(userName ?? "").trim();
+    return name || "开拓者";
+  }
+  const hit = node.values.find((item) => item.value === value);
+  return hit ? hit.label : String(value);
+}
+
 /** 给提示词/面板看的一行性子摘要。 */
-export function renderVoiceParamsLine(schema: VoiceSchema, params: VoiceParams): string {
+export function renderVoiceParamsLine(
+  schema: VoiceSchema,
+  params: VoiceParams,
+  userName?: string | null
+): string {
   const parts: string[] = [];
   for (const [key, node] of Object.entries(schema.nodes)) {
     const value = params[key];
     if (node.type === "number") {
       parts.push(node.label + " " + String(value) + "/" + String(node.max));
     } else {
-      const hit = node.values.find((item) => item.value === value);
-      parts.push(node.label + "：" + (hit ? hit.label : String(value)));
+      parts.push(node.label + "：" + addressLabel(node, value, userName));
     }
   }
   return "我现在的性子：" + parts.join("；");
 }
 
 /** 给模型看的参数说明。 */
-export function renderVoiceSchemaHint(schema: VoiceSchema, params: VoiceParams): string {
+export function renderVoiceSchemaHint(
+  schema: VoiceSchema,
+  params: VoiceParams,
+  userName?: string | null
+): string {
   const lines = Object.entries(schema.nodes).map(([key, node]) => {
     if (node.type === "number") {
       return "- " + key + "（" + node.label + "）：数字 " + node.min + "–" + node.max + "，每次最多挪 " + node.step + "，现在是 " + String(params[key]);
@@ -244,9 +262,9 @@ export function renderVoiceSchemaHint(schema: VoiceSchema, params: VoiceParams):
       "（" +
       node.label +
       "）：只能保持或挪到相邻候选（" +
-      node.values.map((item) => item.label).join(" / ") +
+      node.values.map((item) => (item.value === "name" ? "名字" : item.label)).join(" / ") +
       "），现在是 " +
-      String(node.values.find((item) => item.value === params[key])?.label ?? params[key])
+      addressLabel(node, params[key], userName)
     );
   });
   return lines.join("\n");
@@ -281,6 +299,8 @@ export function buildVoicePrompt(input: {
   previousProfile: string | null;
   previousParams: VoiceParams;
   schema?: VoiceSchema;
+  /** 引导页里填的用户名：只用来把「名字」这一档念成真名。 */
+  userName?: string | null;
 }): VoicePrompt {
   const schema = input.schema ?? normalizeVoiceSchema();
   const samples = input.samples
@@ -300,7 +320,7 @@ export function buildVoicePrompt(input: {
     "5. 参数只能动一格：数字每次最多一个步长；枚举只能保持或挪到相邻候选。没有依据就别动。",
     "",
     "参数说明：",
-    renderVoiceSchemaHint(schema, input.previousParams),
+    renderVoiceSchemaHint(schema, input.previousParams, input.userName),
     "",
     '只输出 JSON：{"profile": "……", "params": {…}}。不要代码块，不要多余的话。',
   ].join("\n");

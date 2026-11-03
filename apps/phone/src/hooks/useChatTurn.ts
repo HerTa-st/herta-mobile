@@ -291,6 +291,14 @@ export function useChatTurn(opts: {
       }
 
       const styleNote = budget.mood ? moodStyleNote(promptAssets, thisMood) : null;
+      // 引导页里填的名字：有自动语气时只报事实（称呼方式按她自己的性子），
+      // 没有自动语气就明确让她用这个名字叫。
+      const userName = settings.userName.trim();
+      const nameNote = userName
+        ? nmsVoice
+          ? "〔旁注：他叫「" + userName + "」。这是他的名字；怎么称呼他，按你现在的性子来。〕"
+          : "〔旁注：他叫「" + userName + "」。称呼他的时候用这个名字。〕"
+        : null;
       // 她此刻在哪：按钟点算，同一天同一时段固定，隔天才换。
       const presenceNote = buildPresenceNote(presenceAt(), timePhrase());
       const prefix = buildStaticPrefix({
@@ -300,7 +308,9 @@ export function useChatTurn(opts: {
         voiceText: nmsVoice?.profile || voiceTextOf(dreamState),
         voiceParams: nmsVoice?.paramsLine ?? null,
         presence: presenceNote,
-        extraNotes: styleNote ? ["〔旁注：" + styleNote + "〕"] : [],
+        extraNotes: [styleNote ? "〔旁注：" + styleNote + "〕" : null, nameNote].filter(
+          (note): note is string => Boolean(note)
+        ),
       });
       const transcript = serializeRecord(context, { maxBlocks: 0 });
       /**

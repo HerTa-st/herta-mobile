@@ -124,6 +124,8 @@ export interface PingDeps {
   blocks: readonly Block[];
   /** 深一点：先检索记忆（贵，设置在「她能做什么」里） */
   deep: boolean;
+  /** 引导页里填的名字：她主动找你时也这么叫。 */
+  userName?: string | null;
 }
 
 /**
@@ -151,6 +153,9 @@ export async function writePing(deps: PingDeps): Promise<string> {
       "〔旁注：现在不是他叫你。是你自己想起了他，想发一条消息过去。" +
         "短，一两句；不要问「在吗」，直接说你想到的那件事。" +
         "你手上这一档事刚换到「" + presence.place + "」——真要说自己在干嘛，就从这个新地方、新事情说起，别照抄旁注。〕",
+      ...(deps.userName && deps.userName.trim()
+        ? ["〔旁注：他叫「" + deps.userName.trim() + "」。称呼他的时候用这个名字。〕"]
+        : []),
     ],
   });
 

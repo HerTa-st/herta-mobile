@@ -194,12 +194,14 @@ test("自动语气：参数一晚一格、越界夹回、枚举只挪相邻", ()
   assert.equal(base.speech, 70);
   const out = clampVoiceParams(schema, base, { speech: 100, address: "none" });
   assert.equal(out.params.speech, 75, "数字最多差一个步长");
-  assert.equal(out.params.address, "trailblazer", "不称呼离开拓者两格，不能一步到");
+  assert.equal(out.params.address, "name", "不称呼离名字两格，不能一步到");
   assert.ok(out.rejected.some((r) => r.includes("address")));
   const snap = clampVoiceParams(schema, base, { speech: 72 });
   assert.equal(snap.params.speech, 70, "72 落到 5 的格子上还是 70");
-  const moved = clampVoiceParams(schema, base, { address: "laomeng" });
-  assert.equal(moved.params.address, "laomeng");
+  const moved = clampVoiceParams(schema, base, { address: "trailblazer" });
+  assert.equal(moved.params.address, "trailblazer");
+  const legacy = clampVoiceParams(schema, base, { address: "laomeng" });
+  assert.equal(legacy.params.address, "name", "旧版「老梦」不是合法值，回落默认（名字）");
   const unknown = clampVoiceParams(schema, base, { nope: 1, speech: 65 });
   assert.equal("nope" in unknown.params, false);
 });
@@ -207,10 +209,10 @@ test("自动语气：参数一晚一格、越界夹回、枚举只挪相邻", ()
 test("自动语气：解析模型输出；坏 JSON / 空 profile 保留旧版", () => {
   const schema = normalizeVoiceSchema();
   const base = defaultVoiceParams(schema);
-  const ok = parseVoiceReply('{"profile":"我说话很直，不爱解释。","params":{"speech":72,"address":"laomeng"}}', schema, base);
+  const ok = parseVoiceReply('{"profile":"我说话很直，不爱解释。","params":{"speech":72,"address":"trailblazer"}}', schema, base);
   assert.ok(ok);
   assert.equal(ok.params.speech, 70);
-  assert.equal(ok.params.address, "laomeng");
+  assert.equal(ok.params.address, "trailblazer");
   assert.equal(parseVoiceReply("不是 JSON", schema, base), null);
   assert.equal(parseVoiceReply('{"profile":""}', schema, base), null);
   const raw = ["# 我说话的方式", "- 短句。", "- 不解释。"].join("\n");
@@ -246,11 +248,16 @@ test("自动语气：生成 / 手动改 / 回滚，历史裁到 5 条", async ()
   assert.equal(many.history.length, VOICE_SNAPSHOT_LIMIT);
 });
 
-test("自动语气：一行性子摘要带标签", () => {
+test("自动语气：一行性子摘要带标签，名字档念真名", () => {
   const schema = normalizeVoiceSchema();
-  const line = renderVoiceParamsLine(schema, defaultVoiceParams(schema));
-  assert.ok(line.includes("说话长短 70/100"));
-  assert.ok(line.includes("耐心 60/100"));
-  assert.ok(line.includes("主动程度 40/100"));
-  assert.ok(line.includes("称呼方式：开拓者"));
+  const params = defaultVoiceParams(schema);
+  const unnamed = renderVoiceParamsLine(schema, params);
+  assert.ok(unnamed.includes("说话长短 70/100"));
+  assert.ok(unnamed.includes("耐心 60/100"));
+  assert.ok(unnamed.includes("主动程度 40/100"));
+  assert.ok(unnamed.includes("称呼方式：开拓者"), "没填名字时「名字」按开拓者兜底");
+  const named = renderVoiceParamsLine(schema, params, "梦源");
+  assert.ok(named.includes("称呼方式：梦源"));
+  const switched = renderVoiceParamsLine(schema, { ...params, address: "trailblazer" }, "梦源");
+  assert.ok(switched.includes("称呼方式：开拓者"));
 });

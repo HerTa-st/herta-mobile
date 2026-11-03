@@ -321,7 +321,7 @@ export function NmsScreen({
                       >
                         {node.values.map((option) => (
                           <option key={option.value} value={option.value}>
-                            {option.label}
+                            {option.value === "name" ? settings.userName.trim() || "名字" : option.label}
                           </option>
                         ))}
                       </select>
