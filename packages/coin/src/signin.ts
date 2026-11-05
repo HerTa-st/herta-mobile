@@ -6,10 +6,13 @@
  *   - 目标场次 = **服务器本地日期**（不认手机日期，防改时间）。
  *   - 连签：`lastSign.date` 的下一个交易日 ≠ 目标场次 → 从 1 重算。
  *   - 奖励按签到当时实时价入账，v1 不并入成本价。
+ *   - B7：连签第 7 天起奖励 ×1.05（四舍五入到分），断签归零。
  *
  * 这个文件纯函数、无 I/O；时间只从入参 `serverTime` 拿，手机本地日期只用来选一句文案。
  */
 
+import { mergeAchievementIds, snapshotFromWallet } from "./achievements.ts";
+import { applyLedger } from "./wallet.ts";
 import type { CoinHistoryEntry, CoinWallet } from "./types.ts";
 
 export type SigninReason = "ok" | "already" | "preopen" | "weekend" | "clock";
@@ -23,9 +26,17 @@ export interface SigninCheck {
   currentStreak: number;
   /** 下一次签到完成后的连签天数。 */
   nextStreak: number;
-  /** 下一次签到能拿多少 HTC。 */
+  /** 下一次签到能拿多少 HTC（已含连签加成）。 */
   reward: number;
-  /** 签到卡副文案，UI 直接用。 */
+  /** 下一次签到的基础奖励（不含连签加成）。 */
+  rewardBase: number;
+  /** 下一次签到的连签加成百分比：0 或 5。 */
+  bonusPct: number;
+  /** 还差几天到「连签 7 天 +5%」；已经到 7 天就是 0。 */
+  daysToBonus: number;
+  /** 上次签到与本次之间断档了（连签已归零）。 */
+  broken: boolean;
+  /** 签到卡文案，UI 可直接用。 */
   message: string;
 }
 
@@ -34,6 +45,12 @@ export const SIGNIN_OPEN_MINUTE = 570;
 
 /** 签到历史只留最近这么多条。 */
 export const SIGNIN_HISTORY_MAX = 60;
+
+/** 连签从第几天开始有加成。 */
+export const STREAK_BONUS_FROM = 7;
+
+/** 连签加成倍率（+5%）。 */
+export const STREAK_BONUS_RATE = 0.05;
 
 /* ------------------------------------------------------------ 小工具 */
 
@@ -115,8 +132,10 @@ function phoneLocalDate(now: Date): string {
 /* ------------------------------------------------------------ 连签曲线 */
 
 /**
- * 连签奖励：1→10、2→20、之后每天 +5，第 8 天起 +50 封顶。
+ * 连签**基础**奖励：1→10、2→20、之后每天 +5，第 8 天起 +50 封顶。
  * 即 10 / 20 / 25 / 30 / 35 / 40 / 45 / 50 / 50 …
+ *
+ * 注意：这是不含 B7 连签加成的底价；真正入账用 `signinReward()`。
  */
 export function rewardForStreak(streak: number): number {
   const day = Number.isFinite(streak) ? Math.floor(streak) : 0;
@@ -125,7 +144,48 @@ export function rewardForStreak(streak: number): number {
   return Math.min(50, 10 + day * 5);
 }
 
+/** 连签加成倍率：第 7 天起 0.05，其余 0。 */
+export function streakBonusRate(streak: number): number {
+  const day = Number.isFinite(streak) ? Math.floor(streak) : 0;
+  return day >= STREAK_BONUS_FROM ? STREAK_BONUS_RATE : 0;
+}
+
+/** 实际签到奖励 = 基础奖励 ×（1 + 连签加成），四舍五入到分。 */
+export function signinReward(streak: number): number {
+  const base = rewardForStreak(streak);
+  return Math.round(base * (1 + streakBonusRate(streak)) * 100) / 100;
+}
+
+/** 还差几天到「连签 7 天 +5%」；已经 ≥7 天返回 0。 */
+export function daysToStreakBonus(streak: number): number {
+  const day = Number.isFinite(streak) ? Math.max(0, Math.floor(streak)) : 0;
+  return Math.max(0, STREAK_BONUS_FROM - day);
+}
+
 /* ------------------------------------------------------------ 主逻辑 */
+
+interface CheckExtras {
+  reward: number;
+  rewardBase: number;
+  bonusPct: number;
+  daysToBonus: number;
+}
+
+function extrasFor(nextStreak: number, currentStreak: number): CheckExtras {
+  const rewardBase = rewardForStreak(nextStreak);
+  const reward = signinReward(nextStreak);
+  return {
+    reward,
+    rewardBase,
+    bonusPct: Math.round(streakBonusRate(nextStreak) * 100),
+    daysToBonus: daysToStreakBonus(currentStreak),
+  };
+}
+
+function bonusText(nextStreak: number): string {
+  if (nextStreak >= STREAK_BONUS_FROM) return "（连签 +5%）";
+  return " · 还差 " + daysToStreakBonus(nextStreak) + " 天 +5%";
+}
 
 export function signinCheck(input: { wallet: CoinWallet | null; sessionDate: string; serverTime: string }): SigninCheck {
   const { wallet, serverTime } = input;
@@ -136,13 +196,15 @@ export function signinCheck(input: { wallet: CoinWallet | null; sessionDate: str
   const minute = serverMinuteOf(serverTime);
   if (!serverDate || minute === null) {
     // 连服务器时间都解析不了：不猜，一律以服务器为准
+    const nextStreak = lastStreak + 1;
     return {
       canSign: false,
       reason: "clock",
       targetDate: null,
       currentStreak: lastStreak,
-      nextStreak: lastStreak + 1,
-      reward: rewardForStreak(lastStreak + 1),
+      nextStreak,
+      ...extrasFor(nextStreak, lastStreak),
+      broken: false,
       message: "以服务器时间为准",
     };
   }
@@ -159,7 +221,8 @@ export function signinCheck(input: { wallet: CoinWallet | null; sessionDate: str
       targetDate: null,
       currentStreak,
       nextStreak,
-      reward: rewardForStreak(nextStreak),
+      ...extrasFor(nextStreak, currentStreak),
+      broken: !!lastSign && !keep,
       message: "休市 · 下一场开盘后可签",
     };
   }
@@ -168,13 +231,15 @@ export function signinCheck(input: { wallet: CoinWallet | null; sessionDate: str
 
   // 老数据/被改过：上次签到日期在服务器日期之后 → 只信服务器
   if (lastSign && lastSign.date > targetDate) {
+    const nextStreak = lastStreak + 1;
     return {
       canSign: false,
       reason: "clock",
       targetDate,
       currentStreak: lastStreak,
-      nextStreak: lastStreak + 1,
-      reward: rewardForStreak(lastStreak + 1),
+      nextStreak,
+      ...extrasFor(nextStreak, lastStreak),
+      broken: false,
       message: "以服务器时间为准",
     };
   }
@@ -189,7 +254,8 @@ export function signinCheck(input: { wallet: CoinWallet | null; sessionDate: str
       targetDate,
       currentStreak: lastStreak,
       nextStreak,
-      reward: rewardForStreak(nextStreak),
+      ...extrasFor(nextStreak, lastStreak),
+      broken: false,
       message: local !== targetDate ? "以服务器时间为准，未到下一场" : "今日已签到 · 连续 " + lastStreak + " 天",
     };
   }
@@ -205,7 +271,8 @@ export function signinCheck(input: { wallet: CoinWallet | null; sessionDate: str
       targetDate,
       currentStreak,
       nextStreak,
-      reward: rewardForStreak(nextStreak),
+      ...extrasFor(nextStreak, currentStreak),
+      broken: !!lastSign && !keep,
       message: "09:30 开盘后可签到",
     };
   }
@@ -214,20 +281,21 @@ export function signinCheck(input: { wallet: CoinWallet | null; sessionDate: str
   const keep = lastSign ? nextTradingDay(lastSign.date) === targetDate : false;
   const currentStreak = keep ? lastStreak : 0;
   const nextStreak = currentStreak + 1;
-  const reward = rewardForStreak(nextStreak);
+  const extra = extrasFor(nextStreak, currentStreak);
   return {
     canSign: true,
     reason: "ok",
     targetDate,
     currentStreak,
     nextStreak,
-    reward,
-    message: "连续签到第 " + nextStreak + " 天，+" + reward + " HTC",
+    ...extra,
+    broken: !!lastSign && !keep,
+    message: "连续签到第 " + nextStreak + " 天，+" + extra.reward + " HTC" + bonusText(nextStreak),
   };
 }
 
 /**
- * 把一次签到写进钱包：history 追加（最多 60 条）、holdings 加奖励、lastSign 更新。
+ * 把一次签到写进钱包：history 追加（最多 60 条）、奖励走 applyLedger、lastSign 更新。
  * 不可签时原样返回（幂等，防手滑重复入账）。
  */
 export function applySignin(input: {
@@ -243,12 +311,20 @@ export function applySignin(input: {
 
   const entry: CoinHistoryEntry = { date, reward: check.reward, price };
   const history = [...wallet.history, entry].slice(-SIGNIN_HISTORY_MAX);
+  const withLedger = applyLedger(wallet, { htc: check.reward }, "signin", {
+    nowISO,
+    streak: check.nextStreak,
+  });
+  const withAchievements = mergeAchievementIds(
+    withLedger.achievements,
+    snapshotFromWallet(withLedger, price)
+  );
+
   return {
-    ...wallet,
+    ...withLedger,
     version: 1,
-    holdings: wallet.holdings + check.reward,
     lastSign: { date, streak: check.nextStreak, price, reward: check.reward },
     history,
-    updatedAt: nowISO,
+    achievements: withAchievements,
   };
 }

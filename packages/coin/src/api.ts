@@ -7,7 +7,14 @@
  */
 
 import { COIN_API_VERSION, TOTAL_BARS } from "./types.ts";
-import type { CoinBar, CoinDailyResponse, CoinMarket, CoinStatus } from "./types.ts";
+import type {
+  CoinBar,
+  CoinDailyResponse,
+  CoinMarket,
+  CoinNewsFeed,
+  CoinNewsItem,
+  CoinStatus,
+} from "./types.ts";
 
 /** 接口路径。base 去尾斜杠，空串会得到相对路径 `/api/daily`（调用方应自己拦空 base）。 */
 export function coinApiUrl(base: string): string {
@@ -61,6 +68,38 @@ function readBar(value: unknown, where: string): CoinBar {
     bar_.partial = partial;
   }
   return bar_;
+}
+
+function parseNewsItem(value: unknown, where: string): CoinNewsItem {
+  const item = asObject(value, where);
+  const bar = readNumber(item, "bar", where);
+  if (!Number.isInteger(bar) || bar < 0 || bar >= TOTAL_BARS) {
+    bad(where + ".bar 应该是 0.." + (TOTAL_BARS - 1) + " 的整数");
+  }
+  const dir = readString(item, "dir", where);
+  if (dir !== "up" && dir !== "down" && dir !== "flat") bad(where + ".dir 不认识：" + dir);
+  const strength = readNumber(item, "strength", where);
+  if (!Number.isInteger(strength) || strength < 1 || strength > 3) bad(where + ".strength 应该是 1..3");
+  return {
+    bar,
+    time: readString(item, "time", where),
+    dir,
+    tag: readString(item, "tag", where),
+    strength,
+    text: readString(item, "text", where),
+  };
+}
+
+/** B7：服务端随行情下发的快讯（老服务端没有这一块，按可选处理）。 */
+function parseNews(value: unknown): CoinNewsFeed {
+  const where = "news";
+  const feed = asObject(value, where);
+  const total = readNumber(feed, "total", where);
+  if (!Number.isInteger(total) || total < 0) bad(where + ".total 应该是非负整数");
+  const itemsRaw = feed["items"];
+  if (!Array.isArray(itemsRaw)) bad(where + ".items 缺失或不是数组");
+  const items = itemsRaw.map((item, i) => parseNewsItem(item, where + ".items[" + i + "]"));
+  return { total, items };
 }
 
 function parseMarket(value: unknown): CoinMarket {
@@ -137,7 +176,9 @@ export function parseCoinDaily(text: string): CoinDailyResponse {
   const serverTime = readString(root, "serverTime", "响应");
   if (Number.isNaN(Date.parse(serverTime))) bad("serverTime 不是合法时间");
   const market = parseMarket(root["market"]);
-  return { version, serverTime, market };
+  const newsRaw = root["news"];
+  const news = newsRaw === undefined || newsRaw === null ? undefined : parseNews(newsRaw);
+  return news ? { version, serverTime, market, news } : { version, serverTime, market };
 }
 
 /* ------------------------------------------------------------------ 取数 */
@@ -170,6 +211,16 @@ export function formatPct(pct: number, digits = 2): string {
 /** 价格：两位小数。 */
 export function formatPrice(v: number, digits = 2): string {
   return Number.isFinite(v) ? v.toFixed(digits) : "—";
+}
+
+/**
+ * HTC 数量：整数就不带小数，非整数保留两位（连签 +5% 可能出现 47.25）。
+ * 与 formatAmount 的区别：这个不缩写、不四舍五入到整，持仓/奖励显示用它。
+ */
+export function formatHtc(v: number): string {
+  if (!Number.isFinite(v)) return "—";
+  const rounded = Math.round(v * 100) / 100;
+  return Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(2);
 }
 
 /**
