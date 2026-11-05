@@ -17,6 +17,7 @@
  */
 import { CapacitorSQLite, SQLiteConnection } from "@capacitor-community/sqlite";
 import type { Changes, SQLiteDBConnection } from "@capacitor-community/sqlite";
+import { acquireConnection } from "./connection.ts";
 import { daysBetween, effectiveWeight, normalizeTitle } from "./model.ts";
 import { MOBILE_SCHEMA_VERSION, NMS_SCHEMA_STATEMENTS } from "./schema.ts";
 import { NmsStoreError } from "./store.ts";
@@ -204,26 +205,13 @@ export function createMobileNmsStore(options: MobileNmsStoreOptions = {}): NmsSt
   }
 
   /**
-   * 建立（或复用）JS 侧的连接对象。只 createConnection，不 open —— open 由 doOpen 负责。
-   * isConnection/retrieveConnection 只查 JS 侧字典；同一实例重复 open 时能复用。
+   * 建立（或复用）JS 侧的连接对象。只取连接，不 open —— open 由 doOpen 负责。
+   * 页面重载后原生侧可能还挂着旧连接，acquireConnection 会关掉再建（见 connection.ts）。
    */
   async function connect(): Promise<SQLiteDBConnection> {
     if (db !== null) return db;
-    const wrapper = getConnection();
-    let handle: SQLiteDBConnection | null = null;
-    const existing = await wrapper.isConnection(database, false).catch(() => ({ result: false }));
-    if (existing.result === true) {
-      try {
-        handle = await wrapper.retrieveConnection(database, false);
-      } catch {
-        handle = null;
-      }
-    }
-    if (handle === null) {
-      handle = await wrapper.createConnection(database, false, "no-encryption", MOBILE_SCHEMA_VERSION, false);
-    }
-    db = handle;
-    return handle;
+    db = await acquireConnection(getConnection(), database, MOBILE_SCHEMA_VERSION);
+    return db;
   }
 
   async function doOpen(): Promise<void> {
