@@ -100,6 +100,13 @@ export interface Settings {
    */
   theme: "system" | "light" | "dark";
   /**
+   * 上次开屏的时间（ms，0 = 从没播过）。
+   *
+   * 只用于开屏频次：距上次 ≥12 小时才播一次，而且只算冷启动。
+   * 被门控跳过的那次不算「开屏」，所以不能拿 App 启动时间顶替。
+   */
+  lastSplashAt: number;
+  /**
    * 黑塔币行情接口基址（可选覆盖）。
    *
    * 空 = 用构建时注入的 VITE_COIN_API_BASE（开发模式自动落到本地 mock）；
@@ -155,6 +162,7 @@ export const DEFAULT_SETTINGS: Settings = {
   userName: "",
   railCollapsed: false,
   theme: "system",
+  lastSplashAt: 0,
 };
 
 const KEY = "herta.settings.v1";

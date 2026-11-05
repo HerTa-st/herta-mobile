@@ -132,7 +132,7 @@ export function useChatTurn(opts: {
   ) => {
     if ((!text.trim() && !attachments?.length && !sticker) || busy || !session) return;
     if (!settings.apiKey) {
-      onError("先填 API Key。她不会替你保管，只存在这台手机上。");
+      // 未接通不是错误（设计文档 §4.1）：只把她领到设置去填，界面上不弹红字。
       onNeedKey();
       return;
     }

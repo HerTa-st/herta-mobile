@@ -42,7 +42,7 @@ import { StickerTray } from "./components/StickerTray.tsx";
 import { AttachTray } from "./components/AttachTray.tsx";
 import { longPressProps } from "./components/long-press.ts";
 import { Shot, ShotViewer, isTallImage } from "./components/Shot.tsx";
-import { Splash } from "./components/Splash.tsx";
+import { Splash, shouldPlaySplash } from "./components/Splash.tsx";
 import { UsageChip } from "./components/UsageChip.tsx";
 import { ReminderCard, parseReminderLike, reminderMeta } from "./components/ReminderCard.tsx";
 import { useChatTurn } from "./hooks/useChatTurn.ts";
@@ -110,8 +110,13 @@ export function App() {
   const [systemDark, setSystemDark] = useState(() =>
     typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches
   );
-  /** 开屏动画：播完（或失败兜底）之后卸掉 */
-  const [splashGone, setSplashGone] = useState(false);
+  /**
+   * 开屏动画：播完（或失败兜底）之后卸掉。
+   * 距上次开屏 <12 小时就直接不播（设计文档 §4.4）；后台切回不重播，见下面的 effect。
+   */
+  const [splashGone, setSplashGone] = useState(() => !shouldPlaySplash(loadSettings().lastSplashAt));
+  /** 未接通：装好了、能打开，但没有可用 Key。只锁聊天，记忆 / 币 / 备份照常。 */
+  const unconnected = !settings.apiKey.trim();
   // 稳定的回调：启动页退场那 450ms 里如果 App 重渲染，内联箭头会让计时器反复重置
   const hideSplash = useCallback(() => setSplashGone(true), []);
   const [session, setSession] = useState<Session | null>(null);
@@ -216,6 +221,22 @@ export function App() {
   const [atBottom, setAtBottom] = useState(true);
 
   useEffect(() => saveSettings(settings), [settings]);
+
+  // 真播了才记「上次开屏时间」：被门控跳过的那次不算一次开屏。
+  useEffect(() => {
+    if (splashGone) return;
+    setSettings((s) => ({ ...s, lastSplashAt: Date.now() }));
+  }, [splashGone]);
+
+  // 从后台切回不是冷启动：把开屏收掉，别再演一遍。
+  // （WebView 被系统杀掉再拉起时算冷启动，那条路由上面的 12 小时门控管。）
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") setSplashGone(true);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
 
   /**
    * 外观：把解析后的主题写到 <html data-theme>。
@@ -894,6 +915,11 @@ export function App() {
 
   /** 发出去：文字 + 待发的图（图会作为附件存进会话，描述并进正文）。 */
   const dispatch = useCallback(() => {
+    // 未接通：输入区本来就是引导态，这里只把她领到设置，不弹红字。
+    if (!settings.apiKey.trim()) {
+      setShowSettings(true);
+      return;
+    }
     const img = pendingImage;
     const text = (draft.trim() + (img?.caption ? "\n\n" + img.caption : "")).trim();
     if (!text && !img) return;
@@ -908,7 +934,7 @@ export function App() {
       text,
       img ? img.pieces.map((data) => ({ mediaType: img.mediaType, data, name: img.name })) : undefined
     );
-  }, [draft, pendingImage, send]);
+  }, [draft, pendingImage, send, settings.apiKey]);
 
   /**
    * 图从哪儿来都走这一条：切片 →（模型不收图时）让视觉模型描述 → 落成待发状态。
@@ -1549,6 +1575,7 @@ export function App() {
           onCacheItem={(issueId, itemId, digest) => broadcast.cacheDetail(issueId, itemId, digest)}
           onConfigChange={(next) => void broadcast.updateConfig(next)}
           onClearHistory={() => void broadcast.clearHistory()}
+          unconnected={unconnected}
         />
       )}
 
@@ -1651,9 +1678,23 @@ export function App() {
         </span>
       </div>
 
+      {unconnected && (
+        // 常驻提醒：跳过引导也能随时回到设置。样式借「离线条」那套（本批不动 styles.css）。
+        <button
+          type="button"
+          className="coinOfflineBar"
+          style={{ margin: "8px 12px 0", fontFamily: "inherit", fontSize: 12, textAlign: "left", cursor: "pointer" }}
+          onClick={() => setShowSettings(true)}
+        >
+          她还没接上，点这里填 Key
+        </button>
+      )}
+
       {/* 点聊天区就把附件面板收起来：它是冲着输入框来的，不该一直挂着 */}
       <main className="feed" ref={feedRef} onScroll={onFeedScroll} onPointerDown={() => setShowAttach(false)}>
-        {blocks.length === 0 && <p className="empty">她还没开口。说点什么。</p>}
+        {blocks.length === 0 && (
+          <p className="empty">{unconnected ? "她还没接上。填好 Key，她就会开口。" : "她还没开口。说点什么。"}</p>
+        )}
         {blocks.length > 0 && (
           <div className="dayLine">
             <span>今天</span>
@@ -1817,14 +1858,16 @@ export function App() {
             void ingestImage(file, file.name || "相机照片");
           }}
         />
-        <div className="composerQuick">
-          {!busy && blocks.length > 0 && (
-            <button className="composerRetract" onClick={() => void retract()} title="撤回上一轮">
-              ↶ 撤回上一轮
-            </button>
-          )}
-          <span>Enter 发送 · 长图自动切段</span>
-        </div>
+        {!unconnected && (
+          <div className="composerQuick">
+            {!busy && blocks.length > 0 && (
+              <button className="composerRetract" onClick={() => void retract()} title="撤回上一轮">
+                ↶ 撤回上一轮
+              </button>
+            )}
+            <span>Enter 发送 · 长图自动切段</span>
+          </div>
+        )}
 
         {showAttach && (
           <AttachTray
@@ -1849,6 +1892,16 @@ export function App() {
           />
         )}
 
+        {unconnected ? (
+          <button
+            type="button"
+            className="composerBar"
+            style={{ font: "inherit", fontSize: 13, color: "var(--muted)", textAlign: "left", cursor: "pointer" }}
+            onClick={() => setShowSettings(true)}
+          >
+            她还没接上，点这里填 Key —— 接上就能说话了
+          </button>
+        ) : (
         <div className="composerBar">
           <textarea
             ref={draftRef}
@@ -1938,6 +1991,7 @@ export function App() {
             </button>
           )}
         </div>
+        )}
         <div className="composerFoot">
           <span>她的手机 · 本机模型调用</span>
           <span>{settings.model}</span>
