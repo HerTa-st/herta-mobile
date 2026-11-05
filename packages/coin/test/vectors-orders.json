@@ -1,0 +1,85 @@
+{
+  "trigger": [
+    {
+      "side": "buy",
+      "limitPrice": 89,
+      "market": 88.5,
+      "expected": true
+    },
+    {
+      "side": "buy",
+      "limitPrice": 89,
+      "market": 89,
+      "expected": true
+    },
+    {
+      "side": "buy",
+      "limitPrice": 89,
+      "market": 89.01,
+      "expected": false
+    },
+    {
+      "side": "sell",
+      "limitPrice": 89,
+      "market": 89.5,
+      "expected": true
+    },
+    {
+      "side": "sell",
+      "limitPrice": 89,
+      "market": 89,
+      "expected": true
+    },
+    {
+      "side": "sell",
+      "limitPrice": 89,
+      "market": 88.99,
+      "expected": false
+    }
+  ],
+  "interest": [
+    {
+      "notional": 100000,
+      "days": 0,
+      "expected": 0
+    },
+    {
+      "notional": 100000,
+      "days": 1,
+      "expected": 100
+    },
+    {
+      "notional": 100000,
+      "days": 2,
+      "expected": 200
+    },
+    {
+      "notional": 12345,
+      "days": 3,
+      "expected": 37.04
+    }
+  ],
+  "networth": [
+    {
+      "htc": 1000,
+      "usdt": 10000,
+      "shortAmount": 0,
+      "price": 100,
+      "expected": 110000
+    },
+    {
+      "htc": 1000,
+      "usdt": 10000,
+      "shortAmount": 500,
+      "price": 100,
+      "expected": 60000
+    },
+    {
+      "htc": 0,
+      "usdt": 0,
+      "shortAmount": 500,
+      "price": 100,
+      "expected": -50000
+    }
+  ]
+}

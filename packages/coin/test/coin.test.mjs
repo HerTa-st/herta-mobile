@@ -1,11 +1,24 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { createRequire } from "node:module";
 import {
   ACHIEVEMENTS,
   COIN_API_VERSION,
+  ORDER_TTL_MS,
+  SHORT_MAX_LEVERAGE,
   TOTAL_BARS,
+  accrueShortInterest,
+  canOpenShort,
+  debtOf,
+  isOrderExpired,
+  netWorthOf,
+  orderExpiresAt,
+  orderTriggered,
+  shortInterestDue,
+  shortLeverage,
+  shortPnl,
   INITIAL_HOLDINGS,
   SIGNIN_OPEN_MINUTE,
   achievementProgress,
@@ -681,4 +694,87 @@ test("formatAmount：万/亿缩写沿用网页 fmtWan 口径", () => {
   assert.equal(formatAmount(999), "999");
   assert.equal(formatAmount(10000), "1.00 万");
   assert.equal(formatAmount(1e8), "1.00 亿");
+});
+
+/* ------------------------------------------------------- B8 条件单 / 空头 */
+
+test("B8 条件单触发与过期（含向量）", () => {
+  const vec = JSON.parse(
+    readFileSync(new URL("./vectors-orders.json", import.meta.url), "utf8")
+  );
+  for (const c of vec.trigger) {
+    assert.equal(
+      orderTriggered(c.side, c.limitPrice, c.market),
+      c.expected,
+      c.side + " " + c.limitPrice + " / " + c.market
+    );
+  }
+  assert.equal(orderExpiresAt("1h", 1_000), 1_000 + ORDER_TTL_MS["1h"]);
+  assert.equal(orderExpiresAt("24h", 1_000), 1_000 + 86_400_000);
+  assert.equal(orderExpiresAt("3d", 1_000), 1_000 + 3 * 86_400_000);
+  assert.equal(isOrderExpired({ expiresAt: 2_000 }, 1_999), false);
+  assert.equal(isOrderExpired({ expiresAt: 2_000 }, 2_000), true);
+});
+
+test("B8 净资产扣空头负债，欠款含负现金", () => {
+  const vec = JSON.parse(
+    readFileSync(new URL("./vectors-orders.json", import.meta.url), "utf8")
+  );
+  for (const c of vec.networth) {
+    const short = c.shortAmount
+      ? { amount: c.shortAmount, entryPrice: 100, notional: c.shortAmount * 100, borrowedAt: 0, lastInterestAt: 0 }
+      : null;
+    assert.equal(netWorthOf({ htc: c.htc, usdt: c.usdt, short }, c.price), c.expected);
+  }
+  const short = { amount: 500, entryPrice: 100, notional: 50000, borrowedAt: 0, lastInterestAt: 0 };
+  assert.equal(debtOf({ htc: 1000, usdt: 10000, short }, 100), 50000);
+  assert.equal(debtOf({ htc: 1000, usdt: -200, short: null }, 100), 200);
+  assert.equal(shortPnl(short, 90), 5000);
+  assert.equal(shortLeverage(short, 60000, 100), 50000 / 60000);
+  assert.equal(SHORT_MAX_LEVERAGE, 3);
+});
+
+test("B8 空头杠杆护栏：净资产为负/名义超 3 倍拒绝", () => {
+  const ok = canOpenShort(
+    { htc: 1000, usdt: 10000, short: null },
+    100,
+    1000
+  );
+  assert.equal(ok.ok, true);
+  assert.equal(ok.maxNotional, 330000);
+
+  const tooBig = canOpenShort(
+    { htc: 1000, usdt: 10000, short: null },
+    100,
+    4000
+  );
+  assert.equal(tooBig.ok, false);
+  assert.equal(tooBig.reason, "leverage_cap");
+
+  const negative = canOpenShort(
+    { htc: 0, usdt: -500, short: null },
+    100,
+    1
+  );
+  assert.equal(negative.ok, false);
+  assert.equal(negative.reason, "negative_equity");
+});
+
+test("B8 借币利息：只计整天，零头保留（含向量）", () => {
+  const vec = JSON.parse(
+    readFileSync(new URL("./vectors-orders.json", import.meta.url), "utf8")
+  );
+  for (const c of vec.interest) {
+    const short = { amount: 1, entryPrice: 1, notional: c.notional, borrowedAt: 0, lastInterestAt: 0 };
+    assert.equal(shortInterestDue(short, c.days * 86_400_000).interest, c.expected);
+  }
+  const short = { amount: 1000, entryPrice: 100, notional: 100000, borrowedAt: 0, lastInterestAt: 0 };
+  const twoAndHalf = accrueShortInterest(short, 2.5 * 86_400_000);
+  assert.equal(twoAndHalf.days, 2);
+  assert.equal(twoAndHalf.interest, 200);
+  assert.equal(twoAndHalf.short.lastInterestAt, 2 * 86_400_000);
+  const next = accrueShortInterest(twoAndHalf.short, 2.9 * 86_400_000);
+  assert.equal(next.days, 0);
+  assert.equal(next.interest, 0);
+  assert.equal(next.short.lastInterestAt, 2 * 86_400_000);
 });

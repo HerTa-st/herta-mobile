@@ -5,7 +5,15 @@
  * 缺关键字段就抛中文 Error，页面显示「共享市场连接失败」而不是拿 undefined 去算账。
  */
 
-import type { CoinAchievementStats, CoinStatus } from "./types.ts";
+import type {
+  CoinAchievementStats,
+  CoinLimitOrder,
+  CoinOrderSide,
+  CoinOrderTtl,
+  CoinShortPosition,
+  CoinStatus,
+} from "./types.ts";
+import { INTEREST_RATE_PER_DAY, SHORT_MAX_LEVERAGE, isOrderTtl } from "./orders.ts";
 
 /** `/api/state` 里的 market 块。 */
 export interface CoinMarketApiMarket {
@@ -63,6 +71,14 @@ export interface CoinMarketUser {
   achievementStats: CoinAchievementStats;
   /** B7 占位：B8 的破产次数。 */
   bankruptCount: number;
+  /** B8：空头仓位；没有就是 null。 */
+  short: CoinShortPosition | null;
+  /** B8：空头负债 + 负现金，欠款榜用。 */
+  debt: number;
+  /** B8：空头当前名义价值 / 净资产；没有空头是 0。 */
+  leverage: number;
+  /** B8：净资产为负时才允许主动重开。 */
+  canRestart: boolean;
   signin: CoinMarketSignin;
 }
 
@@ -73,12 +89,29 @@ export interface CoinMarketLimits {
   sellPerDay: number;
   cooldownMs: number;
   mergeCapHtc: number;
+  /** B8：空头最大杠杆（3 倍）。 */
+  shortMaxLeverage: number;
+  /** B8：借币日息（0.001 = 0.1%）。 */
+  interestRateDaily: number;
+  /** B8：破产重开后的信用点起点（10000）。 */
+  restartUsdt: number;
+  /** B8：限价单可选有效期。 */
+  orderTtls: CoinOrderTtl[];
 }
 
 export interface CoinLeaderRow {
   rank: number;
   name: string;
   value: number;
+}
+
+/** 欠款榜：按负债绝对值倒序；ratio = 负债 / 净资产。 */
+export interface CoinDebtRow {
+  rank: number;
+  name: string;
+  debt: number;
+  value: number;
+  ratio: number;
 }
 
 export interface CoinMarketState {
@@ -88,6 +121,12 @@ export interface CoinMarketState {
   user: CoinMarketUser;
   limits: CoinMarketLimits;
   leaderboard: CoinLeaderRow[];
+  /** B8：所有活跃限价单（共享可见，不是订单簿）。 */
+  orders: CoinLimitOrder[];
+  /** B8：欠款榜。 */
+  debtLeaderboard: CoinDebtRow[];
+  /** B8：最近一次日结的服务器日期 YYYY-MM-DD。 */
+  lastSettleDay: string;
 }
 
 type Json = Record<string, unknown>;
@@ -110,6 +149,11 @@ export function coinSigninUrl(base: string): string {
 
 export function coinClaimUrl(base: string): string {
   return stripBase(base) + "/api/claim";
+}
+
+/** B8：主动重开（清仓、重置、破产次数 +1）。 */
+export function coinRestartUrl(base: string): string {
+  return stripBase(base) + "/api/restart";
 }
 
 /* ------------------------------------------------------------------ 解析 */
@@ -225,6 +269,59 @@ function parseSignin(value: unknown): CoinMarketSignin {
   };
 }
 
+function parseShort(value: unknown): CoinShortPosition | null {
+  if (value === undefined || value === null) return null;
+  const where = "user.short";
+  const s = asObject(value, where);
+  return {
+    amount: readNumber(s, "amount", where),
+    entryPrice: readNumber(s, "entryPrice", where),
+    notional: readNumber(s, "notional", where),
+    borrowedAt: readNumber(s, "borrowedAt", where),
+    lastInterestAt: readNumber(s, "lastInterestAt", where),
+  };
+}
+
+function parseOrder(value: unknown, where: string): CoinLimitOrder {
+  const o = asObject(value, where);
+  const side = readString(o, "side", where);
+  if (side !== "buy" && side !== "sell") bad(where + ".side 不是 buy/sell");
+  const ttl = readString(o, "ttl", where);
+  if (!isOrderTtl(ttl)) bad(where + ".ttl 不是 1h/24h/3d");
+  return {
+    id: readString(o, "id", where),
+    user: readString(o, "user", where),
+    side: side as CoinOrderSide,
+    amount: readNumber(o, "amount", where),
+    limitPrice: readNumber(o, "limitPrice", where),
+    ttl,
+    createdAt: readString(o, "createdAt", where),
+    expiresAt: readNumber(o, "expiresAt", where),
+  };
+}
+
+function parseOrders(value: unknown): CoinLimitOrder[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) bad("orders 不是数组");
+  return value.slice(0, 200).map((item, i) => parseOrder(item, "orders[" + i + "]"));
+}
+
+function parseDebtLeaderboard(value: unknown): CoinDebtRow[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) bad("debtLeaderboard 不是数组");
+  return value.slice(0, 50).map((item, i) => {
+    const where = "debtLeaderboard[" + i + "]";
+    const row = asObject(item, where);
+    return {
+      rank: readNumber(row, "rank", where),
+      name: readString(row, "name", where),
+      debt: readNumber(row, "debt", where),
+      value: readNumber(row, "value", where),
+      ratio: readNumber(row, "ratio", where),
+    };
+  });
+}
+
 function parseUserApi(value: unknown): CoinMarketUser {
   const where = "user";
   const u = asObject(value, where);
@@ -243,6 +340,10 @@ function parseUserApi(value: unknown): CoinMarketUser {
     achievements: readStringArray(u, "achievements", where),
     achievementStats: parseAchievementStats(u["achievementStats"]),
     bankruptCount: readNumberOr(u, "bankruptCount", where, 0),
+    short: parseShort(u["short"]),
+    debt: readNumberOr(u, "debt", where, 0),
+    leverage: readNumberOr(u, "leverage", where, 0),
+    canRestart: readBoolOr(u, "canRestart", where, readNumberOr(u, "value", where, 0) < 0),
     signin: parseSignin(u["signin"]),
   };
 }
@@ -257,7 +358,22 @@ function parseLimits(value: unknown): CoinMarketLimits {
     sellPerDay: readNumber(l, "sellPerDay", where),
     cooldownMs: readNumber(l, "cooldownMs", where),
     mergeCapHtc: readNumber(l, "mergeCapHtc", where),
+    shortMaxLeverage: readNumberOr(l, "shortMaxLeverage", where, SHORT_MAX_LEVERAGE),
+    interestRateDaily: readNumberOr(l, "interestRateDaily", where, INTEREST_RATE_PER_DAY),
+    restartUsdt: readNumberOr(l, "restartUsdt", where, 10000),
+    orderTtls: readOrderTtls(l["orderTtls"]),
   };
+}
+
+function readOrderTtls(value: unknown): CoinOrderTtl[] {
+  if (value === undefined || value === null) return ["1h", "24h", "3d"];
+  if (!Array.isArray(value)) bad("limits.orderTtls 不是数组");
+  const out: CoinOrderTtl[] = [];
+  for (const item of value) {
+    if (!isOrderTtl(item)) bad("limits.orderTtls 里有不认识的有效期");
+    if (!out.includes(item)) out.push(item);
+  }
+  return out.length ? out : ["1h", "24h", "3d"];
 }
 
 function parseLeaderboard(value: unknown): CoinLeaderRow[] {
@@ -291,5 +407,8 @@ export function parseCoinState(text: string): CoinMarketState {
     user: parseUserApi(root["user"]),
     limits: parseLimits(root["limits"]),
     leaderboard: parseLeaderboard(root["leaderboard"]),
+    orders: parseOrders(root["orders"]),
+    debtLeaderboard: parseDebtLeaderboard(root["debtLeaderboard"]),
+    lastSettleDay: typeof root["lastSettleDay"] === "string" ? root["lastSettleDay"] : "",
   };
 }

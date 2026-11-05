@@ -10,13 +10,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ORDER_TTL_LABELS,
   coinClaimUrl,
+  coinRestartUrl,
   coinSigninUrl,
   coinStateUrl,
   coinTradeUrl,
   parseCoinState,
 } from "@herta/coin";
-import type { CoinMarketState } from "@herta/coin";
+import type { CoinMarketState, CoinOrderSide, CoinOrderTtl } from "@herta/coin";
 import { pickTransport } from "../transport.ts";
 
 const REFRESH_MS = 30_000;
@@ -35,6 +37,10 @@ export interface UseMarketResult {
   busy: boolean;
   refresh(): Promise<void>;
   trade(side: "buy" | "sell", amount: number): Promise<string>;
+  limit(side: CoinOrderSide, amount: number, limitPrice: number, ttl: CoinOrderTtl): Promise<string>;
+  openShort(amount: number): Promise<string>;
+  closeShort(amount?: number): Promise<string>;
+  restart(): Promise<string>;
   signin(): Promise<string>;
   claim(amount: number): Promise<string>;
 }
@@ -144,6 +150,7 @@ export function useMarket(opts: UseMarketOptions): UseMarketResult {
       try {
         const json = await call(coinTradeUrl(baseRef.current), {
           user: identityRef.current.trim(),
+          action: "market",
           side,
           amount,
         });
@@ -151,13 +158,96 @@ export function useMarket(opts: UseMarketOptions): UseMarketResult {
         const t = (json.trade ?? {}) as Record<string, unknown>;
         const price = typeof t.price === "number" ? t.price.toFixed(2) : "—";
         const fee = typeof t.fee === "number" ? t.fee.toFixed(2) : "—";
-        return (side === "buy" ? "买入" : "卖出") + " " + amount + " HTC 成交，成交价 " + price + "，手续费 " + fee + " USDT";
+        return (side === "buy" ? "买入" : "卖出") + " " + amount + " HTC 成交，成交价 " + price + "，手续费 " + fee + " 信用点";
       } finally {
         setBusy(false);
       }
     },
     [call, refresh]
   );
+
+  const limit = useCallback(
+    async (side: CoinOrderSide, amount: number, limitPrice: number, ttl: CoinOrderTtl): Promise<string> => {
+      setBusy(true);
+      try {
+        const json = await call(coinTradeUrl(baseRef.current), {
+          user: identityRef.current.trim(),
+          action: "limit",
+          side,
+          amount,
+          limitPrice,
+          ttl,
+        });
+        await refresh();
+        const t = (json.order ?? {}) as Record<string, unknown>;
+        const px = typeof t.limitPrice === "number" ? t.limitPrice.toFixed(2) : limitPrice.toFixed(2);
+        if (Array.isArray(json.fills) && json.fills.length > 0) {
+          const fill = json.fills[0] as Record<string, unknown>;
+          const fillPrice = typeof fill.price === "number" ? fill.price.toFixed(2) : "—";
+          return "挂单触价，已按市价 " + fillPrice + " 成交 " + amount + " HTC";
+        }
+        if (json.orderActive === false) {
+          return "挂单已提交，但当前没有成交（可能余额/次数被挡），到期作废";
+        }
+        return "已挂" + (side === "buy" ? "买" : "卖") + "单：" + amount + " HTC @ " + px + "，有效期 " + ORDER_TTL_LABELS[ttl] + "，到期未触价自动作废";
+      } finally {
+        setBusy(false);
+      }
+    },
+    [call, refresh]
+  );
+
+  const openShort = useCallback(async (amount: number): Promise<string> => {
+    setBusy(true);
+    try {
+      const json = await call(coinTradeUrl(baseRef.current), {
+        user: identityRef.current.trim(),
+        action: "open_short",
+        amount,
+      });
+      await refresh();
+      const t = (json.trade ?? {}) as Record<string, unknown>;
+      const price = typeof t.price === "number" ? t.price.toFixed(2) : "—";
+      const notional = typeof t.notional === "number" ? t.notional.toFixed(2) : "—";
+      return "开空 " + amount + " HTC，成交价 " + price + "，名义 " + notional + " 信用点";
+    } finally {
+      setBusy(false);
+    }
+  }, [call, refresh]);
+
+  const closeShort = useCallback(async (amount?: number): Promise<string> => {
+    setBusy(true);
+    try {
+      const json = await call(coinTradeUrl(baseRef.current), {
+        user: identityRef.current.trim(),
+        action: "close_short",
+        ...(amount != null ? { amount } : {}),
+      });
+      await refresh();
+      const t = (json.trade ?? {}) as Record<string, unknown>;
+      const price = typeof t.price === "number" ? t.price.toFixed(2) : "—";
+      const n = typeof t.amount === "number" ? t.amount : amount;
+      return "平空 " + (n ?? "") + " HTC，成交价 " + price + "，信用点已扣回";
+    } finally {
+      setBusy(false);
+    }
+  }, [call, refresh]);
+
+  const restart = useCallback(async (): Promise<string> => {
+    setBusy(true);
+    try {
+      const json = await call(coinRestartUrl(baseRef.current), {
+        user: identityRef.current.trim(),
+        action: "restart",
+      });
+      await refresh();
+      const user = (json.user ?? {}) as Record<string, unknown>;
+      const count = typeof user.bankruptCount === "number" ? user.bankruptCount : 0;
+      return "已重开：1000 HTC / 10000 信用点，破产 " + count + " 次";
+    } finally {
+      setBusy(false);
+    }
+  }, [call, refresh]);
 
   const signin = useCallback(async (): Promise<string> => {
     setBusy(true);
@@ -190,5 +280,5 @@ export function useMarket(opts: UseMarketOptions): UseMarketResult {
     [call, refresh]
   );
 
-  return { state, loading, offline, error, busy, refresh, trade, signin, claim };
+  return { state, loading, offline, error, busy, refresh, trade, limit, openShort, closeShort, restart, signin, claim };
 }

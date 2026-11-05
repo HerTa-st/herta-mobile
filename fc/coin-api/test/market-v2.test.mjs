@@ -398,6 +398,170 @@ function check(name, fn) {
     assert.equal(after.holdings, 1010);
   });
 
+  /* 18. B8：限价单共享可见、条件触发、到期作废 */
+  const envL = makeEnv(TRADE_ISO);
+  const sL = await envL.call('GET', '/api/state', { query: { user: '挂单人' } });
+  const px = sL.json.market.price;
+  const placed = await envL.call('POST', '/api/trade', {
+    body: { user: '挂单人', action: 'limit', side: 'buy', amount: 100, limitPrice: px - 10, ttl: '1h' }
+  });
+  const seen = await envL.call('GET', '/api/state', { query: { user: '挂单人' } });
+  check('B8 挂单：共享可见、不是订单簿、到期前保留', () => {
+    assert.equal(placed.status, 200);
+    assert.equal(placed.json.kind, 'order');
+    assert.equal(placed.json.orderActive, true);
+    assert.equal(placed.json.fills.length, 0);
+    assert.equal(placed.json.order.limitPrice, px - 10);
+    assert.equal(placed.json.order.ttl, '1h');
+    assert.equal(seen.json.orders.length, 1);
+    assert.equal(seen.json.orders[0].user, '挂单人');
+    assert.equal(seen.json.user.htc, 1000);
+  });
+  envL.advance(3_600_001);
+  const expired = await envL.call('GET', '/api/state', { query: { user: '挂单人' } });
+  check('B8 挂单：到 1 小时作废并清掉', () => {
+    assert.equal(expired.json.orders.length, 0);
+  });
+
+  /* 19. B8：价格触及后按市价成交，下单单号回执 */
+  const envFill = makeEnv(TRADE_ISO);
+  const sFill = await envFill.call('GET', '/api/state', { query: { user: '吃单' } });
+  const fill = await envFill.call('POST', '/api/trade', {
+    body: { user: '吃单', action: 'limit', side: 'buy', amount: 100, limitPrice: sFill.json.market.price + 10, ttl: '24h' }
+  });
+  check('B8 挂单：触价后按市价成交、单号回执、不残留', () => {
+    assert.equal(fill.status, 200);
+    assert.equal(fill.json.kind, 'order');
+    assert.equal(fill.json.fills.length, 1);
+    assert.equal(fill.json.fills[0].orderId, fill.json.order.id);
+    assert.equal(fill.json.orderActive, false);
+    assert.equal(fill.json.user.htc, 1100);
+    assert.equal(fill.json.user.todayBuy, 1);
+  });
+
+  /* 19b. B8：卖出限价单同样双向触发 */
+  const envSell = makeEnv(TRADE_ISO);
+  const sSell = await envSell.call('GET', '/api/state', { query: { user: '卖单' } });
+  const sellFill = await envSell.call('POST', '/api/trade', {
+    body: { user: '卖单', action: 'limit', side: 'sell', amount: 100, limitPrice: sSell.json.market.price - 10, ttl: '1h' }
+  });
+  check('B8 卖单：市价 >= 限价触发，按市价卖出', () => {
+    assert.equal(sellFill.status, 200);
+    assert.equal(sellFill.json.fills.length, 1);
+    assert.equal(sellFill.json.fills[0].side, 'sell');
+    assert.equal(sellFill.json.user.htc, 900);
+    assert.equal(sellFill.json.user.todaySell, 1);
+  });
+
+  /* 20. B8：开空 / 日息 / 平空 / 欠款榜 */
+  const envS = makeEnv(TRADE_ISO);
+  await envS.call('GET', '/api/state', { query: { user: '空头' } });
+  const opened = await envS.call('POST', '/api/trade', {
+    body: { user: '空头', action: 'open_short', amount: 1000 }
+  });
+  check('B8 开空：现金增加、负债与杠杆可见', () => {
+    assert.equal(opened.status, 200);
+    assert.equal(opened.json.kind, 'short_open');
+    assert.equal(opened.json.user.short.amount, 1000);
+    assert.ok(opened.json.user.debt > 0);
+    assert.ok(opened.json.user.leverage > 0);
+    assert.equal(opened.json.user.canRestart, false);
+    assert.ok(opened.json.user.usdt > 100000);
+  });
+  envS.advance(86_400_000 + 1000);
+  const afterDay = await envS.call('GET', '/api/state', { query: { user: '空头' } });
+  check('B8 日结：跨天补 0.1% 借币利息，欠款榜有记录', () => {
+    assert.equal(afterDay.json.lastSettleDay, '2026-10-30');
+    assert.ok(afterDay.json.user.short.lastInterestAt > afterDay.json.user.short.borrowedAt);
+    assert.ok(afterDay.json.user.usdt < opened.json.user.usdt);
+    const row = afterDay.json.debtLeaderboard.find((r) => r.name === '空头');
+    assert.ok(row);
+    assert.ok(row.debt > 0);
+    assert.ok(row.ratio > 0);
+  });
+  const shortClosed = await envS.call('POST', '/api/trade', {
+    body: { user: '空头', action: 'close_short' }
+  });
+  check('B8 平空：仓位清空、现金扣回、欠款归零', () => {
+    assert.equal(shortClosed.status, 200);
+    assert.equal(shortClosed.json.kind, 'short_close');
+    assert.equal(shortClosed.json.user.short, null);
+    assert.equal(shortClosed.json.user.debt, 0);
+    assert.equal(shortClosed.json.user.canRestart, false);
+  });
+
+  /* 21. B8：净资产为负才能主动重开；清仓、撤单、重置、破产次数 +1 */
+  const envR = makeEnv(TRADE_ISO);
+  await envR.call('GET', '/api/state', { query: { user: '重开者' } });
+  await envR.call('POST', '/api/trade', {
+    body: { user: '重开者', action: 'open_short', amount: 6000 }
+  });
+  const raw = await envR.store.read();
+  const brokeUser = raw.users['重开者'];
+  brokeUser.htc = 0;
+  brokeUser.usdt = -1000;
+  brokeUser.short = {
+    amount: 500,
+    entryPrice: 100,
+    notional: 50000,
+    borrowedAt: envR.ms,
+    lastInterestAt: envR.ms
+  };
+  raw.orders.push({
+    id: 'x-test-order', user: '重开者', side: 'buy', amount: 10,
+    limitPrice: 1, ttl: '1h', createdAt: new Date(envR.ms).toISOString(),
+    expiresAt: envR.ms + 3_600_000
+  });
+  await envR.store.write(raw);
+  const brokeState = await envR.call('GET', '/api/state', { query: { user: '重开者' } });
+  const restarted = await envR.call('POST', '/api/restart', {
+    body: { user: '重开者' }
+  });
+  check('B8 重开：负净资产才能重开，清仓撤单并重置 1000 / 10000', () => {
+    assert.equal(brokeState.json.user.canRestart, true);
+    assert.equal(brokeState.json.user.value < 0, true);
+    assert.equal(restarted.status, 200);
+    assert.equal(restarted.json.kind, 'restart');
+    assert.equal(restarted.json.user.htc, 1000);
+    assert.equal(restarted.json.user.usdt, 10000);
+    assert.equal(restarted.json.user.short, null);
+    assert.equal(restarted.json.user.bankruptCount, 1);
+    assert.equal(restarted.json.user.debt, 0);
+    assert.ok(restarted.json.user.achievements.includes('first_bankrupt'));
+  });
+  const afterRestart = await envR.call('GET', '/api/state', { query: { user: '重开者' } });
+  check('B8 重开：挂单清空、连胜归零', () => {
+    assert.equal(afterRestart.json.orders.length, 0);
+    assert.equal(afterRestart.json.user.streak, 0);
+    assert.equal(afterRestart.json.user.canRestart, false);
+  });
+
+  /* 22. B8：负净资产禁止开新仓，平仓不限 */
+  const envG = makeEnv(TRADE_ISO);
+  await envG.call('GET', '/api/state', { query: { user: '负资产' } });
+  const rawG = await envG.store.read();
+  rawG.users['负资产'].usdt = -1000;
+  rawG.users['负资产'].htc = 0;
+  rawG.users['负资产'].short = null;
+  await envG.store.write(rawG);
+  const negBuy = await envG.call('POST', '/api/trade', {
+    body: { user: '负资产', action: 'market', side: 'buy', amount: 1 }
+  });
+  const negShort = await envG.call('POST', '/api/trade', {
+    body: { user: '负资产', action: 'open_short', amount: 1 }
+  });
+  const negLimit = await envG.call('POST', '/api/trade', {
+    body: { user: '负资产', action: 'limit', side: 'buy', amount: 1, limitPrice: 1, ttl: '1h' }
+  });
+  check('B8 负净资产：市价买 / 开空 / 挂买单都拒绝', () => {
+    assert.equal(negBuy.status, 400);
+    assert.equal(negBuy.json.error, 'negative_equity');
+    assert.equal(negShort.status, 400);
+    assert.equal(negShort.json.error, 'negative_equity');
+    assert.equal(negLimit.status, 400);
+    assert.equal(negLimit.json.error, 'negative_equity');
+  });
+
   console.log('\n结果：' + pass + ' 通过，' + fail + ' 失败');
   process.exit(fail === 0 ? 0 : 1);
 })().catch(function (e) {
