@@ -10,4 +10,5 @@ export * from "./api.ts";
 export * from "./signin.ts";
 export * from "./wallet.ts";
 export * from "./achievements.ts";
+export * from "./orders.ts";
 export * from "./market.ts";

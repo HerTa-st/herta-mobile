@@ -107,8 +107,51 @@ export interface CoinHistoryEntry {
   price: number;
 }
 
-/** 收支来源：签到、买卖、合并在单机钱包、以后的游戏都从这里过。 */
-export type CoinLedgerSource = "signin" | "trade:buy" | "trade:sell" | "claim" | string;
+/** 挂单方向：限价买入 / 限价卖出（双向）。 */
+export type CoinOrderSide = "buy" | "sell";
+
+/** 挂单有效期：1 小时 / 24 小时 / 3 天。 */
+export type CoinOrderTtl = "1h" | "24h" | "3d";
+
+/**
+ * 共享挂单表里的一条限价单。
+ *
+ * 它不是订单簿：没有对手方，价格触及后由系统按当时市价成交。
+ * expiresAt 是绝对毫秒时间戳；过期后日结/下一次下单时清掉。
+ */
+export interface CoinLimitOrder {
+  id: string;
+  /** 下单昵称；共享挂单表可见，但不是撮合对手。 */
+  user: string;
+  side: CoinOrderSide;
+  amount: number;
+  limitPrice: number;
+  ttl: CoinOrderTtl;
+  createdAt: string;
+  expiresAt: number;
+}
+
+/** 空头仓位（逐仓，一笔）。borrowedAt / lastInterestAt 都是毫秒时间戳。 */
+export interface CoinShortPosition {
+  amount: number;
+  entryPrice: number;
+  /** 开仓时锁定的价值（amount × entryPrice），利息按它算。 */
+  notional: number;
+  borrowedAt: number;
+  lastInterestAt: number;
+}
+
+/** 收支来源：签到、买卖、合并、利息、重开等。 */
+export type CoinLedgerSource =
+  | "signin"
+  | "trade:buy"
+  | "trade:sell"
+  | "trade:short_open"
+  | "trade:short_close"
+  | "interest"
+  | "claim"
+  | "restart"
+  | string;
 
 /** 一条收支审计记录（净变动，单位见 htc / usdt）。 */
 export interface CoinLedgerEntry {

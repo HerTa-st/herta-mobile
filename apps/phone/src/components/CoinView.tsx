@@ -14,15 +14,23 @@ import type { PointerEvent as ReactPointerEvent, TouchEvent as ReactTouchEvent }
 import "../styles/coin.css";
 import {
   ACHIEVEMENTS,
+  ORDER_TTL_LABELS,
   achievementProgress,
   formatAmount,
   formatHtc,
   formatPct,
   formatPrice,
   mergeAchievementIds,
+  shortPnl,
   snapshotFromWallet,
 } from "@herta/coin";
-import type { AchievementSnapshot, CoinBar, CoinDailyResponse } from "@herta/coin";
+import type {
+  AchievementSnapshot,
+  CoinBar,
+  CoinDailyResponse,
+  CoinOrderSide,
+  CoinOrderTtl,
+} from "@herta/coin";
 import { COIN_CHART_THEME, COIN_CHART_THEME_DARK, barIndexOf, barTimeLabel, drawCoinChart } from "../coin/chart.ts";
 import { useCoin } from "../coin/useCoin.ts";
 import { useMarket } from "../coin/useMarket.ts";
@@ -109,6 +117,378 @@ function creditText(text: string): string {
   return text.replace(/USDT/g, "信用点");
 }
 
+/* ------------------------------------------------------- 分享卡（纯图） */
+
+interface ShareCardData {
+  state: "profit" | "empty" | "bankrupt";
+  price: number;
+  changePct: number;
+  htc: number;
+  cash: number;
+  cost: number | null;
+  marketValue: number;
+  pnl: number;
+  pnlPct: number;
+  net: number;
+  debt: number;
+  bankruptCount: number;
+  restartUsdt: number;
+  short: { amount: number; entryPrice: number; leverage: number } | null;
+}
+
+function shareNum(value: number): string {
+  return Math.round(value).toLocaleString("en-US");
+}
+
+function sharePct(value: number): string {
+  return (value >= 0 ? "+" : "") + value.toFixed(2) + "%";
+}
+
+function roundRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number
+): void {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  const out: string[] = [];
+  let line = "";
+  for (const ch of text) {
+    const next = line + ch;
+    if (ctx.measureText(next).width > maxWidth && line) {
+      out.push(line);
+      line = ch;
+    } else {
+      line = next;
+    }
+  }
+  if (line) out.push(line);
+  return out;
+}
+
+/** 1080×1440，三态：盈利/亏损（浅色）、空仓（浅色虚线）、破产（深墨 + 红章）。 */
+function drawShareCard(data: ShareCardData): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1080;
+  canvas.height = 1440;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return "";
+  const W = 1080;
+  const H = 1440;
+  const mono = '"Consolas", "SFMono-Regular", monospace';
+  const han = '"Microsoft YaHei", "PingFang SC", sans-serif';
+  const INK = "#111417";
+  const SOFT = "#3b4350";
+  const MUT = "#717984";
+  const ACC = "#2f7d92";
+  const UP = "#c2554f";
+  const DOWN = "#3f8f6b";
+  const FAINT = "#969ea6";
+  const bankrupt = data.state === "bankrupt";
+
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  if (bankrupt) {
+    bg.addColorStop(0, "#090a0c");
+    bg.addColorStop(1, "#1e1010");
+  } else {
+    bg.addColorStop(0, "#fafcfd");
+    bg.addColorStop(1, "#f2f7f8");
+  }
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, 420);
+  if (bankrupt) {
+    glow.addColorStop(0, "rgba(194,85,79,0.26)");
+    glow.addColorStop(1, "rgba(194,85,79,0)");
+  } else {
+    glow.addColorStop(0, "rgba(201,238,241,0.55)");
+    glow.addColorStop(1, "rgba(201,238,241,0)");
+  }
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+  if (bankrupt) {
+    const red = ctx.createRadialGradient(W / 2, H + 120, 40, W / 2, H + 120, 620);
+    red.addColorStop(0, "rgba(233,118,106,0.28)");
+    red.addColorStop(1, "rgba(233,118,106,0)");
+    ctx.fillStyle = red;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  ctx.fillStyle = bankrupt ? "rgba(233,118,106,0.20)" : "rgba(47,125,146,0.10)";
+  for (let y = 0; y < H; y += 22) {
+    for (let x = 0; x < W; x += 22) {
+      const d = Math.hypot(x + 60, y + 40) / (W * 0.5);
+      const radius = Math.max(0, 3.2 * (1 - d));
+      const alpha = 1 - Math.min(1, d * 1.15);
+      if (radius > 0.6 && alpha > 0.08) {
+        ctx.globalAlpha = alpha;
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  const headColor = bankrupt ? "#e9766a" : ACC;
+  ctx.fillStyle = headColor;
+  ctx.font = "700 25px " + mono;
+  ctx.fillText("HERTA COIN", 72, 92);
+  ctx.fillStyle = bankrupt ? "#78828a" : MUT;
+  ctx.font = "21px " + han;
+  ctx.fillText(bankrupt ? "模拟宇宙交易所 · 破产记录" : "模拟宇宙交易所 · 虚构行情", 72, 130);
+  ctx.strokeStyle = bankrupt ? "rgba(233,118,106,0.22)" : "rgba(17,20,23,0.10)";
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(72, 170);
+  ctx.lineTo(W - 72, 170);
+  ctx.stroke();
+
+  if (bankrupt) {
+    const netText = shareNum(data.net);
+    ctx.fillStyle = "#b2acaa";
+    ctx.font = "22px " + han;
+    ctx.fillText("净资产", 72, 214);
+    ctx.fillStyle = "#e9766a";
+    ctx.font = "84px " + mono;
+    ctx.fillText(netText, 66, 292);
+    ctx.fillStyle = "#78828a";
+    ctx.font = "21px " + han;
+    ctx.fillText("已达负数 · 无下限", 72, 335);
+    ctx.strokeStyle = "rgba(255,255,255,0.10)";
+    ctx.beginPath();
+    ctx.moveTo(72, 376);
+    ctx.lineTo(W - 72, 376);
+    ctx.stroke();
+
+    const rows: Array<[string, string]> = [
+      ["负债合计", shareNum(data.debt)],
+      ["破产次数", data.bankruptCount + " 次"],
+      ["重开起点", "1,000 HTC / " + shareNum(data.restartUsdt) + " 信用点"],
+    ];
+    let y = 404;
+    for (const [k, v] of rows) {
+      ctx.fillStyle = "#78828a";
+      ctx.font = "21px " + han;
+      ctx.fillText(k, 72, y);
+      ctx.fillStyle = "#b2acaa";
+      if (/次|点/.test(v)) {
+        ctx.font = "23px " + han;
+        ctx.fillText(v, 72, y + 34);
+      } else {
+        ctx.font = "30px " + mono;
+        ctx.textAlign = "right";
+        ctx.fillText(v, W - 72, y + 34);
+        ctx.textAlign = "left";
+      }
+      y += 86;
+    }
+    ctx.strokeStyle = "rgba(255,255,255,0.08)";
+    ctx.beginPath();
+    ctx.moveTo(72, 660);
+    ctx.lineTo(W - 72, 660);
+    ctx.stroke();
+
+    ctx.save();
+    ctx.translate(834, 995);
+    ctx.rotate((-9 * Math.PI) / 180);
+    ctx.strokeStyle = "rgba(233,118,106,0.76)";
+    ctx.lineWidth = 8;
+    roundRectPath(ctx, -170, -95, 340, 190, 14);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(233,118,106,0.86)";
+    ctx.font = "98px " + han;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("破产", 0, 6);
+    ctx.restore();
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+
+    ctx.fillStyle = "rgba(233,118,106,0.55)";
+    ctx.fillRect(72, 700, 3, 46);
+    ctx.fillStyle = "#b2acaa";
+    ctx.font = "24px " + han;
+    ctx.fillText(
+      data.bankruptCount > 0
+        ? "破产 " + data.bankruptCount + " 次。你在这方面的确有天赋。"
+        : "重开吧。这次别用同样的方式。",
+      92,
+      702
+    );
+    ctx.fillStyle = "#606a72";
+    ctx.font = "22px " + mono;
+    ctx.fillText("www.herta-st-gp.top", 72, 1300);
+    return canvas.toDataURL("image/png");
+  }
+
+  ctx.fillStyle = SOFT;
+  ctx.font = "22px " + han;
+  ctx.fillText("HTC / 信用点", 72, 214);
+  ctx.fillStyle = INK;
+  ctx.font = "84px " + mono;
+  const priceText = data.price.toFixed(2);
+  ctx.fillText(priceText, 68, 288);
+  const priceWidth = ctx.measureText(priceText).width;
+  ctx.fillStyle = data.changePct >= 0 ? UP : DOWN;
+  ctx.font = "30px " + mono;
+  ctx.fillText(sharePct(data.changePct), 88 + priceWidth, 310);
+
+  if (data.state === "empty") {
+    ctx.strokeStyle = "rgba(17,20,23,0.28)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([15, 10]);
+    roundRectPath(ctx, 72, 404, W - 144, 196, 20);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.textAlign = "center";
+    ctx.fillStyle = FAINT;
+    ctx.font = "32px " + han;
+    ctx.fillText("空仓", W / 2, 492);
+    ctx.fillStyle = "#b0b6bc";
+    ctx.font = "20px " + han;
+    ctx.fillText("还没有持仓", W / 2, 532);
+    ctx.textAlign = "left";
+
+    ctx.fillStyle = MUT;
+    ctx.font = "21px " + han;
+    ctx.fillText("现金", 72, 650);
+    ctx.fillStyle = SOFT;
+    ctx.font = "38px " + mono;
+    const cashText = shareNum(data.cash);
+    ctx.fillText(cashText, 72, 695);
+    ctx.fillStyle = MUT;
+    ctx.font = "21px " + han;
+    ctx.fillText("信用点", 84 + ctx.measureText(cashText).width, 693);
+
+    ctx.fillStyle = MUT;
+    ctx.font = "21px " + han;
+    ctx.fillText("净资产", 72, 785);
+    ctx.fillStyle = INK;
+    ctx.font = "32px " + mono;
+    ctx.fillText(shareNum(data.net), 72, 828);
+    ctx.fillStyle = MUT;
+    ctx.font = "21px " + han;
+    ctx.fillText("破产", 72, 870);
+    ctx.fillStyle = SOFT;
+    ctx.font = "32px " + mono;
+    ctx.fillText(String(data.bankruptCount), 72, 908);
+    ctx.fillStyle = MUT;
+    ctx.font = "21px " + han;
+    ctx.fillText("次", 84 + ctx.measureText(String(data.bankruptCount)).width, 906);
+
+    ctx.strokeStyle = "rgba(17,20,23,0.08)";
+    ctx.beginPath();
+    ctx.moveTo(72, 1096);
+    ctx.lineTo(W - 72, 1096);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(47,125,146,0.55)";
+    ctx.fillRect(72, 1148, 3, 46);
+    ctx.fillStyle = SOFT;
+    ctx.font = "24px " + han;
+    ctx.fillText("空着。挺诚实。", 92, 1178);
+    ctx.fillStyle = MUT;
+    ctx.font = "22px " + mono;
+    ctx.fillText("www.herta-st-gp.top", 72, 1300);
+    return canvas.toDataURL("image/png");
+  }
+
+  const cardY = 404;
+  ctx.save();
+  ctx.shadowColor = "rgba(32,45,58,0.14)";
+  ctx.shadowBlur = 18;
+  ctx.shadowOffsetY = 8;
+  ctx.fillStyle = "rgba(255,255,255,0.92)";
+  roundRectPath(ctx, 72, cardY, W - 144, 206, 24);
+  ctx.fill();
+  ctx.restore();
+  ctx.strokeStyle = "rgba(17,20,23,0.10)";
+  ctx.lineWidth = 2;
+  roundRectPath(ctx, 72, cardY, W - 144, 206, 24);
+  ctx.stroke();
+
+  const qtyLabel = data.short
+    ? "空头 " + shareNum(data.short.amount) + " HTC"
+    : shareNum(data.htc) + " HTC";
+  const rows: Array<[string, string]> = [
+    ["持仓", qtyLabel],
+    ["成本价", data.cost === null ? "—" : data.cost.toFixed(2)],
+    ["市值", shareNum(data.marketValue)],
+  ];
+  let rowY = cardY + 42;
+  for (const [k, v] of rows) {
+    ctx.fillStyle = MUT;
+    ctx.font = "21px " + han;
+    ctx.fillText(k, 104, rowY);
+    ctx.fillStyle = SOFT;
+    ctx.font = "30px " + mono;
+    ctx.textAlign = "right";
+    ctx.fillText(v, W - 104, rowY);
+    ctx.textAlign = "left";
+    rowY += 58;
+  }
+
+  ctx.fillStyle = MUT;
+  ctx.font = "21px " + han;
+  ctx.fillText("浮动盈亏", 72, 665);
+  ctx.fillStyle = data.pnl >= 0 ? UP : DOWN;
+  ctx.font = "48px " + mono;
+  ctx.fillText((data.pnl >= 0 ? "+" : "") + shareNum(data.pnl), 68, 715);
+  ctx.font = "28px " + mono;
+  ctx.fillText(sharePct(data.pnlPct), 70, 760);
+
+  ctx.strokeStyle = "rgba(17,20,23,0.08)";
+  ctx.beginPath();
+  ctx.moveTo(72, 790);
+  ctx.lineTo(W - 72, 790);
+  ctx.stroke();
+
+  ctx.fillStyle = MUT;
+  ctx.font = "21px " + han;
+  ctx.fillText("净资产", 72, 830);
+  ctx.fillStyle = INK;
+  ctx.font = "32px " + mono;
+  ctx.fillText(shareNum(data.net), 72, 868);
+  ctx.fillStyle = MUT;
+  ctx.font = "21px " + han;
+  ctx.fillText("破产", 72, 912);
+  ctx.fillStyle = SOFT;
+  ctx.font = "32px " + mono;
+  ctx.fillText(String(data.bankruptCount), 72, 950);
+  ctx.fillStyle = MUT;
+  ctx.font = "21px " + han;
+  ctx.fillText("次", 84 + ctx.measureText(String(data.bankruptCount)).width, 948);
+
+  ctx.strokeStyle = "rgba(17,20,23,0.08)";
+  ctx.beginPath();
+  ctx.moveTo(72, 1096);
+  ctx.lineTo(W - 72, 1096);
+  ctx.stroke();
+  ctx.fillStyle = "rgba(47,125,146,0.55)";
+  ctx.fillRect(72, 1148, 3, 46);
+  ctx.fillStyle = SOFT;
+  ctx.font = "24px " + han;
+  const quip = data.pnl >= 0 ? "运气不错。别当成能力。" : "你的操作很有观赏性。";
+  const lines = wrapLines(ctx, quip, W - 180);
+  lines.forEach((line, i) => ctx.fillText(line, 92, 1178 + i * 30));
+  ctx.fillStyle = MUT;
+  ctx.font = "22px " + mono;
+  ctx.fillText("www.herta-st-gp.top", 72, 1300);
+  return canvas.toDataURL("image/png");
+}
+
 export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteChange }: CoinViewProps) {
   const coin = useCoin({ base, active: true });
   const { quote, wallet, signin, cached, offline, loading, error, signing } = coin;
@@ -159,6 +539,12 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
     setMarketNote(null);
     setClaimNote(null);
     setIdentityNote(null);
+    setOrderNote(null);
+    setShortNote(null);
+    setRestartNote(null);
+    setShareImage(null);
+    setShareNote(null);
+    setShareViewer(false);
   }, [identity]);
 
   const handleEnterMarket = () => {
@@ -393,6 +779,17 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
   const [marketNote, setMarketNote] = useState<string | null>(null);
   const [claimNote, setClaimNote] = useState<string | null>(null);
   const [tradeAmount, setTradeAmount] = useState("100");
+  const [orderSide, setOrderSide] = useState<CoinOrderSide>("buy");
+  const [orderLimit, setOrderLimit] = useState("");
+  const [orderTtl, setOrderTtl] = useState<CoinOrderTtl>("24h");
+  const [orderNote, setOrderNote] = useState<string | null>(null);
+  const [shortAmount, setShortAmount] = useState("100");
+  const [shortNote, setShortNote] = useState<string | null>(null);
+  const [restartNote, setRestartNote] = useState<string | null>(null);
+  const [shareImage, setShareImage] = useState<string | null>(null);
+  const [shareNote, setShareNote] = useState<string | null>(null);
+  const [shareViewer, setShareViewer] = useState(false);
+  const [boardTab, setBoardTab] = useState<"value" | "debt">("value");
   // 合并后本地钱包已清零，但 useCoin 里的 wallet 还是旧对象；界面上先按 0 显示。
   // 落一个 localStorage 标记，重开 app 也不会把已停用的单机账本又放出来。
   const [localMerged, setLocalMerged] = useState(() => {
@@ -415,6 +812,140 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
         setMarketNote(creditText(await api.trade(side, amount)));
       } catch (err) {
         setMarketNote("交易没成功：" + errorText(err));
+      }
+    })();
+  };
+
+  const handleLimit = () => {
+    const amount = Number(tradeAmount);
+    const limit = Number(orderLimit);
+    if (!Number.isInteger(amount) || amount <= 0) {
+      setOrderNote("数量要填正整数");
+      return;
+    }
+    if (!Number.isFinite(limit) || limit <= 0) {
+      setOrderNote("限价要填正数");
+      return;
+    }
+    setOrderNote(null);
+    void (async () => {
+      try {
+        setOrderNote(creditText(await api.limit(orderSide, amount, limit, orderTtl)));
+      } catch (err) {
+        setOrderNote("挂单没成功：" + errorText(err));
+      }
+    })();
+  };
+
+  const handleOpenShort = () => {
+    const amount = Number(shortAmount);
+    if (!Number.isInteger(amount) || amount <= 0) {
+      setShortNote("数量要填正整数");
+      return;
+    }
+    setShortNote(null);
+    void (async () => {
+      try {
+        setShortNote(creditText(await api.openShort(amount)));
+      } catch (err) {
+        setShortNote("开空没成功：" + errorText(err));
+      }
+    })();
+  };
+
+  const handleCloseShort = (amount?: number) => {
+    setShortNote(null);
+    void (async () => {
+      try {
+        setShortNote(creditText(await api.closeShort(amount)));
+      } catch (err) {
+        setShortNote("平空没成功：" + errorText(err));
+      }
+    })();
+  };
+
+  const handleRestart = () => {
+    if (!window.confirm("重开会清空持仓、挂单，并重置为 1000 HTC / 10000 信用点；破产次数 +1。继续？")) return;
+    setRestartNote(null);
+    void (async () => {
+      try {
+        setRestartNote(creditText(await api.restart()));
+      } catch (err) {
+        setRestartNote("重开没成功：" + errorText(err));
+      }
+    })();
+  };
+
+  const handleMakeShare = () => {
+    const px = shared ? shared.market.price : daily?.close ?? null;
+    if (px === null) {
+      setShareNote("还没拿到价格，等行情加载完再生成。");
+      return;
+    }
+    const htc = shared ? shared.user.htc : localHoldings ?? 0;
+    const cash = shared ? shared.user.usdt : 0;
+    const net = shared ? shared.user.value : htc * px;
+    const cost = shared ? shared.user.cost : wallet?.costPrice ?? null;
+    const short = shared?.user.short
+      ? {
+          amount: shared.user.short.amount,
+          entryPrice: shared.user.short.entryPrice,
+          leverage: shared.user.leverage,
+        }
+      : null;
+    const prev = prevClose || px;
+    const longPnl = htc * (px - prev);
+    const shortPnlValue = shared?.user.short ? shortPnl(shared.user.short, px) : 0;
+    const pnl = shared ? longPnl + shortPnlValue : localPnl ?? 0;
+    const pnlPct = (pnl / Math.max(1, Math.abs(net - pnl))) * 100;
+    const state: ShareCardData["state"] =
+      shared && shared.user.value < 0 ? "bankrupt" : htc <= 0 && !short ? "empty" : "profit";
+    const data: ShareCardData = {
+      state,
+      price: px,
+      changePct: shared ? shared.market.changePct : daily?.changePct ?? 0,
+      htc,
+      cash,
+      cost,
+      marketValue: htc * px,
+      pnl,
+      pnlPct,
+      net,
+      debt: shared?.user.debt ?? 0,
+      bankruptCount: shared?.user.bankruptCount ?? 0,
+      restartUsdt: shared?.limits.restartUsdt ?? 10000,
+      short,
+    };
+    try {
+      const image = drawShareCard(data);
+      if (!image) throw new Error("画布不可用");
+      setShareImage(image);
+      setShareNote("已生成 1080×1440 纯图；不含昵称。");
+    } catch (err) {
+      setShareNote("生成失败：" + errorText(err));
+    }
+  };
+
+  const handleSaveShare = () => {
+    if (!shareImage) return;
+    void (async () => {
+      try {
+        const blob = await (await fetch(shareImage)).blob();
+        const file = new File([blob], "herta-coin.png", { type: "image/png" });
+        const nav = navigator as Navigator & {
+          canShare?: (data?: ShareData) => boolean;
+          share?: (data?: ShareData) => Promise<void>;
+        };
+        if (nav.canShare?.({ files: [file] }) && nav.share) {
+          await nav.share({ files: [file], title: "黑塔币持仓" });
+          setShareNote("已打开系统分享：可存相册，或发给 Herta。");
+          return;
+        }
+        setShareViewer(true);
+        setShareNote("系统分享不可用：长按原图，选「保存图片」或「分享」。");
+      } catch {
+        setShareViewer(true);
+        setShareNote("系统分享没打开：长按原图，选「保存图片」或「分享」。");
       }
     })();
   };
@@ -706,7 +1237,9 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
             </div>
             <div>
               <dt>净资产</dt>
-              <dd>{netWorth === null ? "--" : formatAmount(netWorth) + " 信用点"}</dd>
+              <dd style={netWorth !== null && netWorth < 0 ? { color: "#c2554f", fontWeight: 700 } : undefined}>
+                {netWorth === null ? "--" : formatAmount(netWorth) + " 信用点"}
+              </dd>
             </div>
             <div>
               <dt>成本价</dt>
@@ -725,6 +1258,16 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
                   <dd>
                     {shared.user.todaySell}/{shared.limits.sellPerDay} 次
                   </dd>
+                </div>
+                <div>
+                  <dt>欠款</dt>
+                  <dd style={shared.user.debt > 0 ? { color: "#c2554f", fontWeight: 700 } : undefined}>
+                    {formatAmount(shared.user.debt)}
+                  </dd>
+                </div>
+                <div>
+                  <dt>空头杠杆</dt>
+                  <dd>{shared.user.short ? shared.user.leverage.toFixed(2) + "x" : "—"}</dd>
                 </div>
               </>
             ) : (
@@ -745,6 +1288,34 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
               </>
             )}
           </dl>
+        )}
+        {shared && shared.user.canRestart && (
+          <div
+            className="coinBankrupt"
+            style={{
+              marginTop: 14,
+              padding: "12px 14px",
+              borderRadius: 12,
+              border: "1px solid rgba(194,85,79,0.35)",
+              background: "rgba(194,85,79,0.08)",
+            }}
+          >
+            <p className="coinSignMsg" style={{ color: "#c2554f", fontWeight: 700 }}>
+              净资产为负 · 无下限
+            </p>
+            <p className="coinCardNote">
+              欠款 {formatAmount(shared.user.debt)} 信用点 · 破产 {shared.user.bankruptCount} 次 · 只能平仓，不能开新仓。
+            </p>
+            <button
+              type="button"
+              className="coinBtn coinBtnBuy"
+              onClick={handleRestart}
+              disabled={api.busy || api.offline}
+            >
+              {api.busy ? "重开中…" : "重开：1000 HTC / " + formatAmount(shared.limits.restartUsdt) + " 信用点"}
+            </button>
+            {restartNote && <p className="coinSignNote">{restartNote}</p>}
+          </div>
         )}
       </section>
     );
@@ -869,6 +1440,9 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
     const canSell = canTrade && amountOk && user.todaySell < limits.sellPerDay;
     const estFee = amountOk ? amount * shared.market.price * limits.feeRate : 0;
     const estCost = amountOk ? amount * shared.market.price + estFee : 0;
+    const limitNum = Number(orderLimit);
+    const limitOk = Number.isFinite(limitNum) && limitNum > 0;
+    const canLimit = canTrade && amountOk && limitOk;
     return (
       <section className="coinCard coinTradeCard" aria-label="交易">
         <h2 className="coinCardTitle">交易</h2>
@@ -899,6 +1473,68 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
             卖出
           </button>
         </div>
+        <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid rgba(17,20,23,0.10)" }}>
+          <p className="coinSignMsg" style={{ fontWeight: 700 }}>限价单 · 条件单</p>
+          <p className="coinCardNote" style={{ marginTop: 4 }}>
+            双向：买单价 ≤ 限价、卖单价 ≥ 限价时触发，由系统按当时市价成交。没有对手方，也不是订单簿。
+          </p>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10 }}>
+            <button
+              type="button"
+              className={"coinBtn " + (orderSide === "buy" ? "coinBtnBuy" : "coinBtnSell")}
+              onClick={() => setOrderSide("buy")}
+              aria-pressed={orderSide === "buy"}
+            >
+              买
+            </button>
+            <button
+              type="button"
+              className={"coinBtn " + (orderSide === "sell" ? "coinBtnSell" : "coinBtnBuy")}
+              onClick={() => setOrderSide("sell")}
+              aria-pressed={orderSide === "sell"}
+            >
+              卖
+            </button>
+            <input
+              className="coinTradeInput"
+              type="number"
+              inputMode="decimal"
+              min={0.01}
+              step="0.01"
+              placeholder="限价"
+              value={orderLimit}
+              onChange={(e) => setOrderLimit(e.target.value.replace(/[^0-9.]/g, ""))}
+              aria-label="限价"
+              style={{ flex: 1, minWidth: 0 }}
+            />
+            <select
+              className="coinTradeInput"
+              value={orderTtl}
+              onChange={(e) => setOrderTtl(e.target.value as CoinOrderTtl)}
+              aria-label="有效期"
+              style={{ width: 92 }}
+            >
+              {limits.orderTtls.map((ttl) => (
+                <option key={ttl} value={ttl}>
+                  {ORDER_TTL_LABELS[ttl]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            type="button"
+            className="coinBtn coinBtnPrimary"
+            onClick={handleLimit}
+            disabled={!canLimit}
+            style={{ marginTop: 10, width: "100%" }}
+          >
+            {api.busy ? "提交中…" : "挂" + (orderSide === "buy" ? "买" : "卖") + "限价单"}
+          </button>
+          <p className="coinCardNote" style={{ marginTop: 8 }}>
+            有效期 {ORDER_TTL_LABELS[orderTtl]}，到期未触价自动作废；只在有人下单/成交时顺手撮合，不跑定时扫盘。
+          </p>
+          {orderNote && <p className="coinSignNote">{orderNote}</p>}
+        </div>
         {shared.market.status !== "trading" && (
           <p className="coinSignOffline">休市时间不能交易（工作日 09:30–11:30 / 13:00–15:00）</p>
         )}
@@ -907,23 +1543,257 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
     );
   };
 
+  const renderOrders = () => {
+    if (!shared) return null;
+    const orders = shared.orders;
+    return (
+      <section className="coinCard" aria-label="共享挂单表">
+        <h2 className="coinCardTitle">挂单表 · 全员可见</h2>
+        <p className="coinCardNote">
+          条件单，不是订单簿：没有对手方，价格触及后由系统按市价成交；到期作废。
+        </p>
+        {orders.length === 0 ? (
+          <p className="coinCardNote">现在没有挂单。你挂一张，别人也能看到。</p>
+        ) : (
+          <ul className="coinLeaderList">
+            {orders.map((order) => {
+              const d = new Date(order.expiresAt);
+              const pad = (n: number) => String(n).padStart(2, "0");
+              const until =
+                pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + pad(d.getHours()) + ":" + pad(d.getMinutes());
+              return (
+                <li key={order.id} className={order.user === identity ? "isMe" : undefined}>
+                  <span className={"coinLeaderRank " + (order.side === "buy" ? "up" : "down")}>
+                    {order.side === "buy" ? "买" : "卖"}
+                  </span>
+                  <span className="coinLeaderName">
+                    {order.user} · {formatHtc(order.amount)} HTC @ {formatPrice(order.limitPrice)}
+                  </span>
+                  <span className="coinLeaderValue">
+                    {ORDER_TTL_LABELS[order.ttl]} · {until}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <p className="coinCardNote">只在有人下单/成交时顺手撮合，不跑定时扫盘；过期单在下一次访问时清掉。</p>
+      </section>
+    );
+  };
+
+  const renderShort = () => {
+    if (!shared) return null;
+    const short = shared.user.short;
+    const px = shared.market.price;
+    const pnl = short ? shortPnl(short, px) : 0;
+    const dailyInterest = short ? short.notional * shared.limits.interestRateDaily : 0;
+    const canOpen =
+      shared.market.status === "trading" &&
+      !api.busy &&
+      !api.offline &&
+      shared.user.value > 0 &&
+      !short;
+    const amount = Number(shortAmount);
+    const amountOk = Number.isInteger(amount) && amount > 0;
+    return (
+      <section className="coinCard" aria-label="空头仓位">
+        <h2 className="coinCardTitle">空头 · 借币</h2>
+        {short ? (
+          <>
+            <dl className="coinPosGrid">
+              <div>
+                <dt>空头数量</dt>
+                <dd>{formatHtc(short.amount)} HTC</dd>
+              </div>
+              <div>
+                <dt>开仓价</dt>
+                <dd>{formatPrice(short.entryPrice)}</dd>
+              </div>
+              <div>
+                <dt>名义价值</dt>
+                <dd>{formatAmount(short.notional)} 信用点</dd>
+              </div>
+              <div>
+                <dt>当前杠杆</dt>
+                <dd>{shared.user.leverage.toFixed(2)}x</dd>
+              </div>
+              <div>
+                <dt>浮动盈亏</dt>
+                <dd className={toneOf(pnl)}>{signedAmount(pnl)} 信用点</dd>
+              </div>
+              <div>
+                <dt>每天利息</dt>
+                <dd>{formatAmount(dailyInterest)} 信用点</dd>
+              </div>
+            </dl>
+            <p className="coinCardNote">
+              借币日息 {(shared.limits.interestRateDaily * 100).toFixed(1)}% · 按开仓名义价值算 · 只计整天，零头保留。
+              平空按市价买回，信用点可能被扣成负数。
+            </p>
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <input
+                className="coinTradeInput"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={short.amount}
+                value={shortAmount}
+                onChange={(e) => setShortAmount(e.target.value.replace(/[^0-9]/g, ""))}
+                aria-label="平空数量"
+                style={{ flex: 1, minWidth: 0 }}
+              />
+              <button
+                type="button"
+                className="coinBtn coinBtnBuy"
+                onClick={() => handleCloseShort(amount)}
+                disabled={api.busy || api.offline || !amountOk || amount > short.amount}
+              >
+                {api.busy ? "平空中…" : "平空"}
+              </button>
+              <button
+                type="button"
+                className="coinBtn"
+                onClick={() => handleCloseShort(short.amount)}
+                disabled={api.busy || api.offline}
+              >
+                全平
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="coinCardNote">
+              借 HTC 卖出，等价格跌了再买回。开仓上限 = 净资产 × {shared.limits.shortMaxLeverage}；
+              净资产为负时只能平仓，不能开新仓。
+            </p>
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <input
+                className="coinTradeInput"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={shared.limits.maxOrder}
+                value={shortAmount}
+                onChange={(e) => setShortAmount(e.target.value.replace(/[^0-9]/g, ""))}
+                aria-label="开空数量"
+                style={{ flex: 1, minWidth: 0 }}
+              />
+              <button
+                type="button"
+                className="coinBtn coinBtnSell"
+                onClick={handleOpenShort}
+                disabled={!canOpen || !amountOk}
+              >
+                {api.busy ? "开空中…" : "开空"}
+              </button>
+            </div>
+            {shared.user.value <= 0 && (
+              <p className="coinSignOffline">净资产已为负，只能平仓，不能开新仓。</p>
+            )}
+          </>
+        )}
+        {shared.market.status !== "trading" && (
+          <p className="coinSignOffline">休市时间不能开平空（工作日 09:30–11:30 / 13:00–15:00）。</p>
+        )}
+        {shortNote && <p className="coinSignNote">{shortNote}</p>}
+      </section>
+    );
+  };
+
+  const renderShare = () => (
+    <section className="coinCard" aria-label="持仓分享卡">
+      <h2 className="coinCardTitle">持仓分享卡</h2>
+      <p className="coinCardNote">
+        纯图 1080×1440，不带昵称；按盈利 / 空仓 / 破产三态出图。先预览，再存相册或系统分享。
+      </p>
+      <button type="button" className="coinBtn coinBtnPrimary" onClick={handleMakeShare}>
+        生成分享卡
+      </button>
+      {shareImage && (
+        <div style={{ marginTop: 12 }}>
+          <img
+            src={shareImage}
+            alt="黑塔币持仓分享卡"
+            style={{ width: "100%", borderRadius: 12, border: "1px solid rgba(17,20,23,0.10)" }}
+          />
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button type="button" className="coinBtn coinBtnPrimary" onClick={handleSaveShare}>
+              保存 / 分享
+            </button>
+            <button type="button" className="coinBtn" onClick={() => setShareImage(null)}>
+              收起
+            </button>
+          </div>
+          <p className="coinCardNote">也可以长按图片，用系统菜单保存到相册或发给 Herta。</p>
+        </div>
+      )}
+      {shareNote && <p className="coinSignNote">{shareNote}</p>}
+    </section>
+  );
+
   const renderLeaderboard = () => (
     <section className="coinCard coinLeaderCard" aria-label="排行榜">
-      <h2 className="coinCardTitle">排行榜 · 净资产</h2>
+      <h2 className="coinCardTitle">排行榜</h2>
       {shared ? (
-        shared.leaderboard.length === 0 ? (
-          <p className="coinCardNote">还没有人上榜。</p>
-        ) : (
-          <ol className="coinLeaderList">
-            {shared.leaderboard.map((row) => (
-              <li key={row.name} className={row.name === identity ? "isMe" : undefined}>
-                <span className="coinLeaderRank">{row.rank}</span>
-                <span className="coinLeaderName">{row.name}</span>
-                <span className="coinLeaderValue">{formatAmount(row.value)} 信用点</span>
-              </li>
-            ))}
-          </ol>
-        )
+        <>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <button
+              type="button"
+              className={"coinBtn " + (boardTab === "value" ? "coinBtnPrimary" : "")}
+              onClick={() => setBoardTab("value")}
+              aria-pressed={boardTab === "value"}
+            >
+              净资产
+            </button>
+            <button
+              type="button"
+              className={"coinBtn " + (boardTab === "debt" ? "coinBtnPrimary" : "")}
+              onClick={() => setBoardTab("debt")}
+              aria-pressed={boardTab === "debt"}
+            >
+              欠款
+            </button>
+          </div>
+          {boardTab === "value" ? (
+            shared.leaderboard.length === 0 ? (
+              <p className="coinCardNote">还没有人上榜。</p>
+            ) : (
+              <ol className="coinLeaderList">
+                {shared.leaderboard.map((row) => (
+                  <li key={row.name} className={row.name === identity ? "isMe" : undefined}>
+                    <span className="coinLeaderRank">{row.rank}</span>
+                    <span className="coinLeaderName">{row.name}</span>
+                    <span
+                      className="coinLeaderValue"
+                      style={row.value < 0 ? { color: "#c2554f", fontWeight: 700 } : undefined}
+                    >
+                      {formatAmount(row.value)} 信用点
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            )
+          ) : shared.debtLeaderboard.length === 0 ? (
+            <p className="coinCardNote">没人欠钱。至少现在。</p>
+          ) : (
+            <ol className="coinLeaderList">
+              {shared.debtLeaderboard.map((row) => (
+                <li key={row.name} className={row.name === identity ? "isMe" : undefined}>
+                  <span className="coinLeaderRank" style={{ color: "#c2554f" }}>{row.rank}</span>
+                  <span className="coinLeaderName">
+                    {row.name}
+                    <em className="coinPosPct">负债 / 净资产 {row.ratio.toFixed(2)}</em>
+                  </span>
+                  <span className="coinLeaderValue" style={{ color: "#c2554f", fontWeight: 700 }}>
+                    {formatAmount(row.debt)} 信用点
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+          <p className="coinCardNote">净资产为负的排在最后并标红；欠款榜按负债绝对值倒序，副指标是 负债 / 净资产。</p>
+        </>
       ) : (
         <p className="coinCardNote">填昵称进入共享市场后才有排行榜。</p>
       )}
@@ -1042,10 +1912,13 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
         {daily && renderChart()}
         {daily && renderNews()}
         {renderPosition()}
+        {renderShort()}
         {renderSignin()}
         {renderAchievements()}
         {renderTrade()}
+        {renderOrders()}
         {renderLeaderboard()}
+        {renderShare()}
         {renderMerge()}
         {renderReminder()}
 
@@ -1053,6 +1926,41 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
           行情、快讯与全部数据均为程序生成的虚构内容，仅用于娱乐与演示，不构成任何投资建议。
         </p>
       </div>
+
+      {shareViewer && shareImage && (
+        <div
+          role="dialog"
+          aria-label="分享卡原图"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1000,
+            background: "#0b0d0f",
+            overflowY: "auto",
+            padding: "14px 14px 28px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", color: "#f4f1ea" }}>
+            <span style={{ fontSize: 15 }}>长按图片 → 保存图片 / 分享</span>
+            <button
+              type="button"
+              className="coinBtn"
+              onClick={() => setShareViewer(false)}
+              style={{ color: "#f4f1ea", borderColor: "rgba(244,241,234,0.35)" }}
+            >
+              关闭
+            </button>
+          </div>
+          <img
+            src={shareImage}
+            alt="黑塔币持仓分享卡原图"
+            style={{ width: "100%", maxWidth: 720, display: "block", margin: "12px auto", borderRadius: 8 }}
+          />
+          <p style={{ color: "#b9b3a8", fontSize: 13, textAlign: "center", margin: 0 }}>
+            这是 1080×1440 的纯图，不含昵称；系统菜单里可存相册或转发。
+          </p>
+        </div>
+      )}
     </div>
   );
 }

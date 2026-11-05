@@ -4,7 +4,8 @@
  * 路由：
  *   GET  /api/daily?user=昵称      行情（兼容 v1；user 可选）
  *   GET  /api/state?user=昵称      共享市场状态（价格 / 我的持仓 / 排行榜）
- *   POST /api/trade                 {"user":"昵称","side":"buy|sell","amount":1000}
+ *   POST /api/trade                 {"user":"昵称","action":"market|limit|open_short|close_short|restart",...}
+ *   POST /api/restart               {"user":"昵称"} 主动重开（等价 action=restart）
  *   GET  /api/leaderboard          排行榜
  *   其它：405 / 404；异常统一 JSON
  *
@@ -21,6 +22,7 @@ const {
   createState,
   buildStatePayload,
   executeTrade,
+  executeAction,
   normalizeName,
   effectivePrice,
   buildLeaderboard,
@@ -255,7 +257,7 @@ function createHandler(options) {
       }
 
       /* ---------- 交易 ---------- */
-      if (info.path === '/api/trade') {
+      if (info.path === '/api/trade' || info.path === '/api/restart') {
         if (info.method !== 'POST') {
           return jsonResponse(405, { error: 'method_not_allowed', message: '只支持 POST 请求' });
         }
@@ -268,7 +270,10 @@ function createHandler(options) {
         const result = await store.withLock(async function () {
           let state = await store.read();
           if (!state) state = createState(daily.market.sessionDate);
-          const r = executeTrade(daily, state, name, body.side, body.amount, nowMs);
+          const actionBody = info.path === '/api/restart'
+            ? Object.assign({}, body, { action: 'restart' })
+            : body;
+          const r = executeAction(daily, state, name, actionBody, nowMs);
           await store.write(state);
           return r;
         });
