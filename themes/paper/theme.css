@@ -1,0 +1,59 @@
+/* 纸面 · 官方示范主题
+ * 契约版本 1。只靠 :root 覆盖 + data-part 锚点，不依赖任何 class 名。
+ */
+
+:root[data-theme="light"] {
+  --ink: #1f2421;
+  --ink-soft: #4a524c;
+  --muted: #7c857e;
+  --line: rgba(31, 36, 33, 0.10);
+  --card: rgba(255, 253, 248, 0.72);
+  --mine: #ede8de;
+  --mine-ink: #1f2421;
+  --accent: #3e6b57;
+  --accent-ink: #ffffff;
+  --sheet-bg: rgba(250, 247, 241, 0.96);
+  --field: rgba(255, 255, 252, 0.78);
+  --shadow: 0 12px 32px rgba(60, 52, 40, 0.06);
+  --shadow-soft: 0 8px 24px rgba(60, 52, 40, 0.09);
+}
+
+:root[data-theme="dark"] {
+  --ink: #ede7da;
+  --ink-soft: #c3bcae;
+  --muted: #8e8779;
+  --line: rgba(237, 231, 218, 0.12);
+  --card: rgba(30, 28, 24, 0.74);
+  --mine: rgba(237, 231, 218, 0.08);
+  --mine-ink: #ede7da;
+  --accent: #8fbfa3;
+  --accent-ink: #0f1210;
+  --sheet-bg: rgba(24, 22, 19, 0.96);
+  --field: rgba(28, 26, 22, 0.82);
+  --shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  --shadow-soft: 0 8px 24px rgba(0, 0, 0, 0.32);
+}
+
+/* 纸面的一点质感：极淡的横纹，只在亮色下出现 */
+:root[data-theme="light"] [data-part="app"] {
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgba(31, 36, 33, 0.014) 0px,
+    rgba(31, 36, 33, 0.014) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+/* 气泡：改用纸页的直角与细描边，这是 token 层给不了的部分 */
+[data-part="message-bubble"] {
+  border-radius: 6px 14px 14px 14px;
+  border: 1px solid var(--line);
+  box-shadow: none;
+}
+
+/* 左轨：把常驻底色压薄，让纸纹透出来 */
+[data-part="rail"] {
+  background: transparent;
+  border-right: 1px solid var(--line);
+}

@@ -5,6 +5,10 @@ Herta 的手机端。**双模**：离线时她是自己（人格 / 叙述 / 记�
 外加一件事：**从 DeepSeek 官方把你说过的话搬进来**——没有官方导出接口，所以采集端在 PC 上（油猴脚本），手机只负责接收、归一、归档、消化。
 
 - **接手先读**：[`../Herta-手机端-交接.md`](../Herta-手机端-交接.md)（现状、环境、踩坑、已验证/未验证、欠债）
+- **每天开工看这个**：[docs/开工手册.md](docs/开工手册.md)（12 批，每批一段可直接粘的开工提示）
+- **流程重设计的全部结论**：[docs/设计-手机端流程重设计-2026-11.md](docs/设计-手机端流程重设计-2026-11.md)（19 条决策、分批表、验收清单）；领域词汇：[CONTEXT.md](CONTEXT.md)
+- 想做主题：[docs/规范-主题作者.md](docs/规范-主题作者.md)（契约 v1 · 草案）；示范主题：[themes/paper](themes/paper/)
+- 为什么这样定：[docs/adr](docs/adr/)（页面栈先于收拢 / 自建渠道 / 主题停在 CSS 层）
 - 设计决策与验收标准：[docs/设计-v1.md](docs/设计-v1.md)；黑塔币：[docs/设计-黑塔币-v1.md](docs/设计-黑塔币-v1.md)
 - 代码分五包：`protocol`（三端共用的类型与消息）/ `core`（人格、叙述、记忆、工具循环）/ `coin`（黑塔币纯逻辑）/ `apps/phone`（UI）/ `packages/gateway`（连 PC，未开工）/ `tools/userscript`（抓历史，已被分享链接取代）
 - 另有 `fc/coin-api`：阿里云 FC 的黑塔币行情接口（与网页同源），不属于 app 打包产物
@@ -13,7 +17,7 @@ Herta 的手机端。**双模**：离线时她是自己（人格 / 叙述 / 记�
 
 ```
 packages/protocol   Block / Session / ChatMessage / ToolSpec / ChatDelta
-packages/core       纯逻辑，Node 里能跑测试（128 项）
+packages/core       纯逻辑，Node 里能跑测试（133 项）
   persona 人格装配    narrative 想/说拆分   supervisor 复核
   dream 做梦          distill 消化长对话    memory 记忆库契约
   weights 权重衰减    consolidate 整理      voice 语气笔记
@@ -31,18 +35,25 @@ apps/phone
   MemoryGraph.tsx   实时物理星图（canvas）
   transport.ts      原生/浏览器通道        devtools.ts  六件工具
   storage.ts        会话落盘               memory-idb.ts 记忆落盘
+  styles/           模块页样式：设置套件 / 币 / 播报 / 记忆 / 会话 / 引导（颜色只走变量）
 runtime/            桌面版原文（196 个提示词函数），别动
-assets/             自传、话术、4 条 veto 原声、Noto Sans SC 字体（不含预装记忆）
+assets/             自传、话术、4 条 veto 原声、开屏 ASCII 段落、pdf.js CMaps（不含预装记忆；字体已改为跟随系统）
 tools/              打 APK、删种子、删素材字段、油猴脚本
+  prototypes/       原型生成脚本（图标 / 头像 / 开屏）；产物在 docs/prototypes-2026-11/
+  launcher-icons-backup-2026-11-04/  换成 A 图标之前的原立绘图标（android/ 不进 git，这是唯一回滚路径）
+themes/paper/       官方示范主题（**设计产物，尚未接进运行时**）
+docs/               设计文档；docs/adr/ 是难反悔的决策；docs/prototypes-2026-11/ 是原型图
 ```
 
 ```bash
 npm install
-npm test          # core + coin + FC 的纯 Node 测试（吃不依赖浏览器的真素材；FC 测试要跑无头 Edge 生成向量的话先 npm run test:vectors）
+npm test          # 五套测试共 190 项（core 133 / coin 26 / nms 7 / 播报 24）+ FC 向量比对
 npm run dev:phone # 浏览器里跑 UI
 ```
 
-## 现状（v0.29.0，2026-10-29）
+## 现状（v0.31.0，2026-11-04）
+
+> 0.29 → 0.31 之间落地了：NMS 记忆内核移植（Capacitor SQLite）、UI 壳按 D 选定稿重做（日常 A + 夜间 C）、星际和平播报、黑塔币共享市场、五步引导、自动语气、字体跟随系统、图标换成 A。
 
 | 能力 | 状态 |
 |---|---|
@@ -58,7 +69,7 @@ npm run dev:phone # 浏览器里跑 UI
 | 记忆库 | ✅ 空库启动，不预装；对话/做梦长出来的 NMS 记忆每轮挑 3 篇进系统提示词 |
 | 语气自画像 | ✅ 包里**不再带固定语气指南**；她的语气由自己写的笔记决定，每攒 3 篇记忆重写一次 |
 | 动作 | ✅ 「说」里带一到两处动作（转椅、推杯子、瞥屏幕…），用括号标注；念白前自动剥掉，不念旁白 |
-| 启动 | ✅ 图标换成她（自适应图标，5 档密度）；开屏是 dsh-herta 主题那套 ASCII 半调开场（她由几千个字符逐帧明暗而成，白底，播完淡出）。系统闪屏压成同色纯白，不再多出一页 |
+| 启动 | ✅ 图标是「半调 H」（自适应图标，5 档密度，下次打包生效；原立绘图标备份在 `tools/launcher-icons-backup-2026-11-04`）；开屏是 dsh-herta 主题那套 ASCII 半调开场（她由几千个字符逐帧明暗而成，白底，播完淡出）。系统闪屏压成同色纯白，不再多出一页 |
 | 设置 | ✅ 整屏一页、自己滚；顶栏吸顶带关闭。多行选项的勾选框左对齐（以前夹在两行字中间） |
 | 输入框 | ✅ 一条白胶囊：占位「给黑塔发消息…」、回形针抽出一层「拍照 / 选文件」（选文件不限类型，图片与文本文件各有各的走法）、圆形上箭头发送；她说话时圆钮变「打断」；撤回上一轮收成胶囊上方一行小字 |
 | 心情 | ✅ 八种语气基线 + 情绪惯性：平静档随语境微调（默认 ↔ 教学 ↔ 任务部署 ↔ 板砖代答），带情绪的档位（被烦 / 被戳穿 / 被顶嘴 / 倾听）要真踩到雷区或好感区才进得去；隔三小时重新起算 |
@@ -186,7 +197,7 @@ pwsh -File tools\build-apk.ps1 -CoinMock      # 开发期：指到电脑局域�
 
 导入的会话标着「导入」，**只是原文归档**；想让她记住，打开那一条点「让她做梦」。
 
-下一步：图片、8 种心情、云端 TTS、全文检索。
+下一步见流程重设计文档里的「落地批次」一节——那里按依赖排了 11 批。
 
 ### 打 APK
 
@@ -206,13 +217,31 @@ PDF.js 的中文 CID 字体要 Adobe CMaps（1.1MB），构建前由 `tools/copy
 产物在 `apps/phone/android/app/build/outputs/apk/debug/app-debug.apk`，
 也会拷一份到 `dist-apk/`。
 
-图标是用 `tools/make-android-art.py` 从 `design/herta.png` 生成的：
-开屏动画用的是 dsh-herta 主题那套 ASCII 半调开场，播放器与编码好的段落原样放在 `assets/opening/`（来自 `theme/dsh-theme-herta/lib/opening`），手机上按她的轮廓裁过一刀。
-Android 工程不进 git，换机器后跑一次这个脚本，图标和闪屏就都回来了（要 Pillow）。
+图标现在是「半调 H」：[tools/prototypes/gen-launcher-icons.py](tools/prototypes/gen-launcher-icons.py) 按参数生成五档密度（legacy 方/圆标 + 自适应前景层），改点阵密度或字重重跑即可。换成它之前的原立绘图标（由 `tools/make-android-art.py` 从 `design/herta.png` 生成）备份在 `tools/launcher-icons-backup-2026-11-04/`——**`android/` 不进 git，这是唯一回滚路径**。
+开屏动画用的是 dsh-herta 主题那套 ASCII 半调开场，播放器与编码好的段落原样放在 `assets/opening/`（来自 `theme/dsh-theme-herta/lib/opening`）。**改版方向已定**（满屏 ASCII 竖流、不画角色剪影、流完交叉淡入主页），见 [流程重设计](docs/设计-手机端流程重设计-2026-11.md)，尚未实现。
+Android 工程不进 git，换机器后跑一次脚本，图标和闪屏就都回来了（要 Pillow）。
 
 脚本会先把依赖缓存指到仓库内 `.gradle-home`，因为这个工作区的沙箱不让写
 gradle 默认的 `G:\gradle-home`（构建会死在 `.lck` 打开的权限上）。
 换台机器：`-GradleHome` 指向任意一份解压好的 gradle 9.2.x。
+
+### 主题（设计已定，尚未接进运行时）
+
+手机端现在**没有任何扩展机制**：配色只有 `apps/phone/src/styles.css` 开头那 15 个 CSS 变量，靠 `html[data-theme="light"|"dark"]` 翻转；没有主题包格式、没有动态加载样式。唯一的运行期外挂是开屏播放器（从 `assets/opening/` 动态 import）。
+
+主题的形态已经拍板，见 [ADR-0004](docs/adr/0004-theme-extension-stops-at-css.md)：
+
+| 层 | 能力 | 谁能填 |
+|---|---|---|
+| L0 token | 覆盖 CSS 变量（写 `--ink: #xxx` 与写 `.bubble{…}` 是同一件事） | 主题包 |
+| L1 CSS 全接管 | 自带 CSS，按 `data-part` 锚点覆盖任意样式，可用 grid/order 重排 | 主题包 |
+| L2 组件槽位 | 消息气泡与消息项 / 左轨+顶栏 / 输入条 / 开屏，整块替换 | **只有随包代码** |
+| L3 第三方代码 | — | **永不开放** |
+
+- 契约：[docs/规范-主题作者.md](docs/规范-主题作者.md)（v1 草案；16 个锚点等骨架那批铺进代码后转正）
+- 示范主题：[themes/paper](themes/paper/)（纸面：米白暖纸 + 墨绿）
+- 分发：一期链接导入 zip（`HertaHttpPlugin` 拉 → `fflate` 解压 → IndexedDB 存），二期做 GitHub 索引
+- ⚠️ 锚点还没进代码，`themes/` 目前只有设计价值，装了不生效
 
 ### 装到手机
 
@@ -222,6 +251,6 @@ gradle 默认的 `G:\gradle-home`（构建会死在 `.lck` 打开的权限上）
 
 ## 素材
 
-`assets/` 是从桌面版 Herta **原样搬来**的素材：自传、话术、4 条 veto .opus 原声、以及 `prompts-code.zh.mjs`（从 `app.asar` 按 AST 抽出的 196 个提示词/校验函数原文）；另有固定 UI 字体 `assets/fonts/NotoSansSC-VF.ttf`（SIL OFL，避免跟随手机系统主题字体）。**不含预装记忆**：`assets/memory` 为空；新装第一次打开记忆库为空，升级安装保留手机上已有的记忆。
+`assets/` 是从桌面版 Herta **原样搬来**的素材：自传、话术、4 条 veto .opus 原声、以及 `prompts-code.zh.mjs`（从 `app.asar` 按 AST 抽出的 196 个提示词/校验函数原文）。字体自 v0.31.0 起**跟随手机系统**（原先内置的 NotoSansSC-VF.ttf 有 17MB，已从包里移除）。**不含预装记忆**：`assets/memory` 为空；新装第一次打开记忆库为空，升级安装保留手机上已有的记忆。
 
 **算法重写，素材不改**——她是谁由这些字节决定，不由代码决定。素材的授权边界见 dsh-herta 仓库的 `NOTICE.md` / `THIRD-PARTY.md`，本仓库沿用。
