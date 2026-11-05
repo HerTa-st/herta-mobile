@@ -44,6 +44,8 @@ export interface BroadcastViewProps {
   onCacheItem(issueId: string, itemId: string, digest: BroadcastDigest): void | Promise<void>;
   onConfigChange(next: BroadcastConfig): void;
   onClearHistory(): void;
+  /** 未接通（没有可用 Key）：今天还没有的时候，只说「接上她才会说话」，不给生成按钮。 */
+  unconnected?: boolean;
 }
 
 type Permission = "granted" | "denied" | "prompt" | "unsupported";
@@ -188,7 +190,7 @@ function IssueBody(props: {
 }
 
 export function BroadcastView(props: BroadcastViewProps) {
-  const { issues, today, status, error, generating, config, onClose, onRetry, onMarkRead, onOpenLink, onDiscuss, onConfigChange, onClearHistory } = props;
+  const { issues, today, status, error, generating, config, onClose, onRetry, onMarkRead, onOpenLink, onDiscuss, onConfigChange, onClearHistory, unconnected } = props;
   const [showSettings, setShowSettings] = useState(false);
   const [permission, setPermission] = useState<Permission>("prompt");
   const [reminderNote, setReminderNote] = useState<string | null>(null);
@@ -273,6 +275,15 @@ export function BroadcastView(props: BroadcastViewProps) {
   };
 
   const renderState = () => {
+    // 未接通：今天还没有这一期时，别转圈、别让她「正在翻新闻」，明说接上才会有。
+    if (unconnected) {
+      return (
+        <div className="bcState">
+          <p className="bcStateTitle">今天还没有；接上她才会说话</p>
+          <p className="bcStateHint">在主界面点「她还没接上」填上 Key，她明天早上就会自己写一期。</p>
+        </div>
+      );
+    }
     if (status === "loading" || generating) {
       return (
         <div className="bcState" role="status">

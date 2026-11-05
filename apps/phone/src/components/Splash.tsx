@@ -16,6 +16,20 @@ import { cropSegmentToFigure } from "../opening/crop-segment.ts";
 const PLAYER_URL = "opening/opening-player.js";
 const SEGMENT_URL = "opening/segment-b-0.json";
 
+/** 开屏最短间隔：12 小时。 */
+export const SPLASH_INTERVAL_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * 这次冷启动该不该播开屏。
+ *
+ * 只按「上次开屏时间」算：0 / 非数 当作从没播过。
+ * 后台切回不算冷启动（那一条在 App 里收住），所以这里只回答时间够不够。
+ */
+export function shouldPlaySplash(lastSplashAt: number, now = Date.now()): boolean {
+  if (!Number.isFinite(lastSplashAt) || lastSplashAt <= 0) return true;
+  return now - lastSplashAt >= SPLASH_INTERVAL_MS;
+}
+
 
 interface OpeningPlayer {
   resize(width: number, height: number, dpr: number): void;
