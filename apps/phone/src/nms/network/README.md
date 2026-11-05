@@ -1,7 +1,7 @@
 # NMS 网络视图（apps/phone/src/nms/network）
 
-> 状态：网络视图内核 + 外壳完成，**尚未接进 App 入口**（本目录只新增文件，没有改
-> apps/phone 的现有文件）。数据源是手机端本地 store，不是桌面版的
+> 状态：已接进 App —— `nms/NmsScreen.tsx:12` import 本目录的 `NetworkView`、`:153` 渲染，
+> `App.tsx:1556` 挂 `NmsScreen`。数据源是手机端本地 store，不是桌面版的
 > `/nms/api/snapshot`。
 
 桌面参考实现：`dsh-neural-memory/src/client/index.js` 的 NetworkCanvas
@@ -173,7 +173,7 @@ const activation = useMemo(() => createActivationStore(), []);
   （strict + erasableSyntaxOnly + verbatimModuleSyntax）。
 - 纯函数已做过一次性脚本校验：tier 过滤/连续索引/边丢弃/links/nb/有效权重/布局
   确定性；激活 seq 去重、0.3^hop、0.6 边强截断、0.35 脉冲尾巴。
-- **未完成**：尚未挂进 App、未在 Android WebView 真机跑过，画布视觉与帧率需要真机
-  确认；没有提交测试文件（本任务只新增网络视图文件）。
+- **未完成**：未在 Android WebView 真机跑过，画布视觉与帧率需要真机确认；没有提交
+  测试文件。（已挂进 App 入口，2026-11-04 更正）
 - 后续若要在列表里也展示有效权重，直接复用 `normalize.ts` 的 `effectiveWeight` /
   `ageDays` / `countSnapshotTiers`，不要复制公式。

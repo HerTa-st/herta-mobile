@@ -1,0 +1,9 @@
+{
+  "id": "paper",
+  "name": "纸面",
+  "author": "HerTa",
+  "version": "1.0.0",
+  "minAppVersion": "0.32.0",
+  "description": "米白暖纸底 + 墨绿强调，白天像一本册子。",
+  "contract": 1
+}
