@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { tokenize, similarity, effectiveWeight, rankCandidates } from "../src/model.ts";
 import { LEGACY_MIGRATED_KEY, LEGACY_VOICE_KEY, migrateLegacyMemories, readFrozenVoice } from "../src/migrate.ts";
 import { createPendingWriter } from "../src/pending.ts";
+import { acquireConnection } from "../src/connection.ts";
 import {
   applyVoiceGeneration,
   applyVoiceParams,
@@ -260,4 +261,52 @@ test("自动语气：一行性子摘要带标签，名字档念真名", () => {
   assert.ok(named.includes("称呼方式：梦源"));
   const switched = renderVoiceParamsLine(schema, { ...params, address: "trailblazer" }, "梦源");
   assert.ok(switched.includes("称呼方式：开拓者"));
+});
+
+// ── 连接获取：页面重载后原生侧还挂着同名连接 ───────────────────────────────
+
+test("acquireConnection：原生侧已有旧连接时关掉再建", async () => {
+  const calls = [];
+  const handle = { name: "handle" };
+  let creates = 0;
+  const wrapper = {
+    async isConnection() { return { result: false }; },
+    async retrieveConnection() { throw new Error("Connection herta_nms does not exist"); },
+    async createConnection() {
+      creates += 1;
+      calls.push("create");
+      if (creates === 1) throw new Error("CreateConnection: Connection herta_nms already exists");
+      return handle;
+    },
+    async closeConnection() { calls.push("close"); },
+  };
+  const got = await acquireConnection(wrapper, "herta_nms", 3);
+  assert.equal(got, handle);
+  assert.deepEqual(calls, ["create", "close", "create"]);
+});
+
+test("acquireConnection：别的错误原样抛出、不关连接", async () => {
+  let closed = 0;
+  const wrapper = {
+    async isConnection() { return { result: false }; },
+    async retrieveConnection() { throw new Error("nope"); },
+    async createConnection() { throw new Error("磁盘满了"); },
+    async closeConnection() { closed += 1; },
+  };
+  await assert.rejects(() => acquireConnection(wrapper, "herta_nms", 3), /磁盘满了/);
+  assert.equal(closed, 0);
+});
+
+test("acquireConnection：JS 侧能取到旧句柄就直接复用", async () => {
+  const handle = { name: "old" };
+  let created = 0;
+  const wrapper = {
+    async isConnection() { return { result: true }; },
+    async retrieveConnection() { return handle; },
+    async createConnection() { created += 1; return { name: "new" }; },
+    async closeConnection() {},
+  };
+  const got = await acquireConnection(wrapper, "herta_nms", 3);
+  assert.equal(got, handle);
+  assert.equal(created, 0);
 });
