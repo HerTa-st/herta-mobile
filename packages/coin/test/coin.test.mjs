@@ -1,26 +1,37 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { createRequire } from "node:module";
 import {
+  ACHIEVEMENTS,
   COIN_API_VERSION,
   TOTAL_BARS,
   INITIAL_HOLDINGS,
   SIGNIN_OPEN_MINUTE,
+  achievementProgress,
+  applyLedger,
+  applySignin,
   coinApiUrl,
-  parseCoinDaily,
+  createWallet,
+  daysToStreakBonus,
+  emptyAchievementStats,
   fetchCoinDaily,
+  formatAmount,
+  formatHtc,
   formatPct,
   formatPrice,
-  formatAmount,
-  rewardForStreak,
   isTradingDay,
-  nextTradingDay,
-  signinCheck,
-  applySignin,
-  createWallet,
   marketValue,
+  mergeAchievementIds,
+  nextTradingDay,
+  parseCoinDaily,
+  rewardForStreak,
+  signinCheck,
+  signinReward,
+  snapshotFromWallet,
   todayPnl,
   todayPnlPct,
+  unlockedAchievementIds,
 } from "../src/index.ts";
 
 /* ------------------------------------------------------------- 测试数据 */
@@ -125,6 +136,47 @@ test("rewardForStreak 边界：0/负数按第 1 天，超长封顶 50", () => {
   assert.equal(rewardForStreak(99), 50);
 });
 
+test("连签加成：第 7 天起实际奖励 ×1.05，四舍五入到分", () => {
+  const got = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => signinReward(n));
+  assert.deepEqual(got, [10, 20, 25, 30, 35, 40, 47.25, 52.5, 52.5]);
+  assert.equal(daysToStreakBonus(0), 7);
+  assert.equal(daysToStreakBonus(6), 1);
+  assert.equal(daysToStreakBonus(7), 0);
+  assert.equal(daysToStreakBonus(99), 0);
+});
+
+test("签到卡：连签 6 天，下一次第 7 天 +5%", () => {
+  const w = signed("2026-11-04", 6); // 周三已签、连签 6
+  const check = signinCheck({
+    wallet: w,
+    sessionDate: "2026-11-05",
+    serverTime: "2026-11-05T10:00:00+08:00", // 周四
+  });
+  assert.equal(check.canSign, true);
+  assert.equal(check.currentStreak, 6);
+  assert.equal(check.nextStreak, 7);
+  assert.equal(check.rewardBase, 45);
+  assert.equal(check.reward, 47.25);
+  assert.equal(check.bonusPct, 5);
+  assert.equal(check.daysToBonus, 1);
+  assert.ok(check.message.includes("+47.25 HTC"));
+  assert.ok(check.message.includes("连签 +5%"));
+});
+
+test("断签：连续天数归零、broken 标记，奖励回到第 1 天", () => {
+  const w = signed("2026-10-28", 4); // 周三签过，周四周五断档
+  const check = signinCheck({
+    wallet: w,
+    sessionDate: "2026-10-30",
+    serverTime: "2026-10-30T10:15:30+08:00",
+  });
+  assert.equal(check.canSign, true);
+  assert.equal(check.currentStreak, 0);
+  assert.equal(check.nextStreak, 1);
+  assert.equal(check.reward, 10);
+  assert.equal(check.broken, true);
+});
+
 /* --------------------------------------------------------- 交易日历 */
 
 test("isTradingDay：周一到周五为交易日，周末与脏数据不是", () => {
@@ -159,7 +211,7 @@ test("周五签到后，周一续签：连签 3、奖励 25", () => {
   assert.equal(check.currentStreak, 2);
   assert.equal(check.nextStreak, 3);
   assert.equal(check.reward, 25);
-  assert.equal(check.message, "连续签到第 3 天，+25 HTC");
+  assert.equal(check.message, "连续签到第 3 天，+25 HTC · 还差 4 天 +5%");
 });
 
 test("周三断签后重置：连签从 1 重新算、奖励 10", () => {
@@ -343,6 +395,111 @@ test("签到入账：持仓 +奖励、lastSign 记录、成本价不变", () => 
   assert.deepEqual(after.history[0], { date: "2026-10-29", reward: 10, price: 89.87 });
   assert.equal(after.updatedAt, "2026-10-29T10:16:00+08:00");
   assert.equal(after.version, 1);
+  // B7：奖励走统一记账入口，来源打标；成就/计数器同步
+  assert.equal(after.ledger.length, 1);
+  assert.equal(after.ledger[0].source, "signin");
+  assert.equal(after.ledger[0].htc, 10);
+  assert.equal(after.stats.signins, 1);
+  assert.equal(after.stats.maxStreak, 1);
+  assert.equal(after.stats.totalReward, 10);
+  assert.deepEqual(after.achievements, ["first_signin"]);
+});
+
+test("applyLedger：统一记账、来源打标、交易计数器", () => {
+  const w = createWallet(100, "2026-01-05T10:00:00+08:00");
+  const signedUp = applyLedger(w, { htc: 10 }, "signin", {
+    nowISO: "2026-01-05T10:01:00+08:00",
+    streak: 1,
+  });
+  assert.equal(signedUp.holdings, 1010);
+  assert.equal(signedUp.ledger.at(-1).source, "signin");
+  assert.equal(signedUp.stats.signins, 1);
+
+  const bought = applyLedger(signedUp, { htc: 100, usdt: -900 }, "trade:buy", {
+    nowISO: "2026-01-05T10:02:00+08:00",
+    amount: 100,
+    fee: 2.7,
+  });
+  assert.equal(bought.holdings, 1110);
+  assert.equal(bought.ledger.at(-1).source, "trade:buy");
+  assert.equal(bought.ledger.at(-1).usdt, -900);
+  assert.equal(bought.stats.trades, 1);
+  assert.equal(bought.stats.buys, 1);
+  assert.equal(bought.stats.volume, 100);
+  assert.equal(bought.stats.fees, 2.7);
+});
+
+test("成就目录：20 条、id 唯一、与服务端同目录同阈值", () => {
+  assert.equal(ACHIEVEMENTS.length, 20);
+  assert.equal(new Set(ACHIEVEMENTS.map((a) => a.id)).size, 20);
+  const require = createRequire(import.meta.url);
+  const market = require("../../../fc/coin-api/market-v2.js");
+  assert.deepEqual(market.ACHIEVEMENTS.map((a) => a.id), ACHIEVEMENTS.map((a) => a.id));
+  assert.deepEqual(market.ACHIEVEMENTS.map((a) => a.target), ACHIEVEMENTS.map((a) => a.target));
+});
+
+test("成就判定：阈值、进度、去重合并", () => {
+  const base = {
+    ...emptyAchievementStats(),
+    netWorth: 0,
+    htc: 0,
+    usdt: 0,
+    merged: false,
+    bankruptCount: 0,
+  };
+  assert.deepEqual(unlockedAchievementIds(base), []);
+
+  const one = { ...base, signins: 1, maxStreak: 1 };
+  assert.deepEqual(unlockedAchievementIds(one), ["first_signin"]);
+
+  const rich = {
+    ...one,
+    signins: 50,
+    maxStreak: 7,
+    totalReward: 500,
+    trades: 10,
+    buys: 5,
+    sells: 5,
+    volume: 10000,
+    fees: 100,
+    netWorth: 250000,
+    htc: 5000,
+    usdt: 200000,
+    merged: true,
+  };
+  const ids = unlockedAchievementIds(rich);
+  for (const id of [
+    "signin_10",
+    "signin_50",
+    "streak_7",
+    "reward_500",
+    "trade_10",
+    "volume_10000",
+    "fee_100",
+    "networth_250k",
+    "htc_5000",
+    "usdt_200k",
+    "merged",
+  ]) {
+    assert.ok(ids.includes(id), "应当解锁 " + id);
+  }
+  assert.ok(!ids.includes("streak_30"));
+
+  const progress = achievementProgress("streak_30", rich);
+  assert.equal(progress.unlocked, false);
+  assert.equal(progress.value, 7);
+  assert.equal(progress.target, 30);
+
+  const wallet = { ...createWallet(100, "2026-01-05T10:00:00+08:00"), holdings: 2000 };
+  const merged = mergeAchievementIds(undefined, snapshotFromWallet(wallet, 100));
+  assert.ok(merged.includes("htc_2000"));
+  assert.ok(merged.includes("networth_250k") === false); // 2000 × 100 = 200,000，还差 50,000
+});
+
+test("本地与服务端签到奖励口径一致（含连签 +5%）", () => {
+  const require = createRequire(import.meta.url);
+  const market = require("../../../fc/coin-api/market-v2.js");
+  for (let n = 1; n <= 12; n++) assert.equal(market.signinReward(n), signinReward(n));
 });
 
 test("history 最多 60 条，只留最近 60 次签到", () => {
@@ -467,7 +624,38 @@ test("fetchCoinDaily：走注入的 getText、拼 url、解析结果", async () 
   );
 });
 
+test("parseCoinDaily：快讯随行情下发（可选字段，结构严格）", () => {
+  const feed = {
+    total: 3,
+    items: [
+      { bar: 45, time: "10:15", dir: "up", tag: "利好", strength: 3, text: "黑塔币获得大额买入" },
+      { bar: 12, time: "09:42", dir: "flat", tag: "中性", strength: 1, text: "黑塔币发布例行公告" },
+    ],
+  };
+  const withNews = parseCoinDaily(dailyJson("2026-10-29T10:15:30+08:00", {}, { news: feed }));
+  assert.deepEqual(withNews.news, feed);
+  assert.equal(parseCoinDaily(dailyJson()).news, undefined);
+
+  const badDir = dailyJson("2026-10-29T10:15:30+08:00", {}, {
+    news: { total: 1, items: [{ bar: 1, time: "09:31", dir: "sideways", tag: "利好", strength: 1, text: "x" }] },
+  });
+  assert.throws(() => parseCoinDaily(badDir), /news/);
+
+  const badBar = dailyJson("2026-10-29T10:15:30+08:00", {}, {
+    news: { total: 1, items: [{ bar: 240, time: "15:00", dir: "up", tag: "利好", strength: 1, text: "x" }] },
+  });
+  assert.throws(() => parseCoinDaily(badBar), /news/);
+});
+
 /* ------------------------------------------------------------ 格式化 */
+
+test("formatHtc：整数不带小数、非整数保留两位", () => {
+  assert.equal(formatHtc(1000), "1000");
+  assert.equal(formatHtc(47.25), "47.25");
+  assert.equal(formatHtc(47.2), "47.20");
+  assert.equal(formatHtc(47.256), "47.26");
+  assert.equal(formatHtc(Number.NaN), "—");
+});
 
 test("formatPct：正数带 +、负数带 -、零不带符号", () => {
   assert.equal(formatPct(1.002), "+1.00%");

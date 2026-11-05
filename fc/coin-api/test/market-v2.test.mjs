@@ -6,6 +6,7 @@
 
 import assert from 'node:assert';
 import { createRequire } from 'node:module';
+import { applyLedger as clientApplyLedger } from '../../../packages/coin/src/wallet.ts';
 
 const require = createRequire(import.meta.url);
 const { createHandler } = require('../index.js');
@@ -65,6 +66,9 @@ function check(name, fn) {
 }
 
 (async function main() {
+  const clientSignin = await import('../../../packages/coin/src/signin.ts');
+  const clientAchievements = await import('../../../packages/coin/src/achievements.ts');
+
   /* 1. 首次 state：自动建号 */
   const env1 = makeEnv(TRADE_ISO);
   const s1 = await env1.call('GET', '/api/state', { query: { user: '梦源' } });
@@ -76,6 +80,12 @@ function check(name, fn) {
     assert.equal(s1.json.market.status, 'trading');
     assert.equal(s1.json.market.netBuy, 0);
     assert.ok(s1.json.leaderboard.length >= 1);
+    // B7：连签 / 成就字段随 state 下发
+    assert.deepEqual(s1.json.user.achievements, []);
+    assert.equal(s1.json.user.achievementStats.signins, 0);
+    assert.equal(s1.json.user.bankruptCount, 0);
+    assert.equal(s1.json.user.signin.daysToBonus, 7);
+    assert.equal(s1.json.user.signin.broken, false);
   });
 
   const basePrice = s1.json.market.price;
@@ -118,6 +128,17 @@ function check(name, fn) {
     assert.ok(s2.json.trade.impactPct < b1.json.trade.impactPct, '卖出后冲击应回落');
   });
 
+  const s2state = await env1.call('GET', '/api/state', { query: { user: '梦源' } });
+  check('买卖都走 applyLedger（来源打标）并解锁首批成就', () => {
+    const u = s2state.json.user;
+    assert.ok(u.achievements.includes('first_trade'));
+    assert.ok(u.achievements.includes('first_buy'));
+    assert.ok(u.achievements.includes('first_sell'));
+    assert.equal(u.achievementStats.trades, 2);
+    assert.equal(u.achievementStats.volume, 1500);
+    assert.ok(u.achievementStats.fees > 0);
+  });
+
   /* 5. 单笔上限 */
   const over = await env1.call('POST', '/api/trade', {
     body: { user: '梦源', side: 'buy', amount: 10001 }
@@ -127,14 +148,16 @@ function check(name, fn) {
     assert.equal(over.json.error, 'amount_too_large');
   });
 
-  /* 6. USDT 不足 */
+  /* 6. 信用点不足 */
   env1.advance(6000);
   const broke = await env1.call('POST', '/api/trade', {
     body: { user: '梦源', side: 'buy', amount: 10000 }
   });
-  check('USDT 不足被拒', () => {
+  check('信用点不足被拒（界面文案不再出现 USDT）', () => {
     assert.equal(broke.status, 400);
     assert.equal(broke.json.error, 'insufficient_usdt');
+    assert.ok(broke.json.message.includes('信用点'));
+    assert.ok(!broke.json.message.includes('USDT'));
   });
 
   /* 7. 非法昵称 */
@@ -217,6 +240,8 @@ function check(name, fn) {
     assert.equal(cl1.json.mergedHtc, 500);
     assert.equal(cl1.json.user.htc, 1500);
     assert.equal(cl1.json.user.merged, true);
+    assert.ok(cl1.json.user.achievements.includes('merged'));
+    assert.ok(cl1.json.user.achievementStats.trades === 0);
     assert.equal(cl2.status, 400);
     assert.equal(cl2.json.error, 'already_merged');
   });
@@ -244,6 +269,61 @@ function check(name, fn) {
     assert.equal(sg4.json.streak, 1);
   });
 
+  /* 14b. 连签第 7 天 +5%：奖励曲线、state 字段、断签归零 */
+  const env7 = makeEnv('2026-10-29T10:00:00+08:00');
+  const signDays = [
+    '2026-10-29', // 周四，第 1 天
+    '2026-10-30', // 周五，第 2 天
+    '2026-11-02', // 周一，第 3 天
+    '2026-11-03', // 周二，第 4 天
+    '2026-11-04', // 周三，第 5 天
+    '2026-11-05', // 周四，第 6 天
+    '2026-11-06'  // 周五，第 7 天（+5%）
+  ];
+  const rewards = [];
+  let seventh;
+  for (let i = 0; i < signDays.length; i++) {
+    env7.ms = Date.parse(signDays[i] + 'T10:00:00+08:00');
+    if (i === 6) {
+      env7.ms = Date.parse('2026-11-06T09:00:00+08:00');
+      const before7 = await env7.call('GET', '/api/state', { query: { user: '七日签到' } });
+      check('连签第 6 天后：还差 1 天，下次奖励 47.25', () => {
+        assert.equal(before7.json.user.signin.streak, 6);
+        assert.equal(before7.json.user.signin.daysToBonus, 1);
+        assert.equal(before7.json.user.signin.nextRewardBase, 45);
+        assert.equal(before7.json.user.signin.nextReward, 47.25);
+        assert.equal(before7.json.user.signin.bonusPct, 5);
+      });
+      env7.ms = Date.parse(signDays[i] + 'T10:00:00+08:00');
+    }
+    seventh = await env7.call('POST', '/api/signin', { body: { user: '七日签到' } });
+    rewards.push(seventh.json.reward);
+  }
+  const st7 = await env7.call('GET', '/api/state', { query: { user: '七日签到' } });
+  check('连签 7 天：第 7 天 +5%（47.25），state 能看到连签与成就', () => {
+    assert.deepEqual(rewards, [10, 20, 25, 30, 35, 40, 47.25]);
+    assert.equal(st7.json.user.signin.streak, 7);
+    assert.equal(st7.json.user.signin.daysToBonus, 0);
+    assert.equal(st7.json.user.signin.bonusPct, 5);
+    assert.equal(st7.json.user.htc, 1207.25);
+    assert.ok(st7.json.user.achievements.includes('streak_7'));
+    assert.equal(st7.json.user.achievementStats.signins, 7);
+    assert.equal(st7.json.user.achievementStats.maxStreak, 7);
+    assert.equal(st7.json.user.achievementStats.totalReward, 207.25);
+  });
+
+  env7.ms = Date.parse('2026-11-10T10:00:00+08:00'); // 跳过周一
+  const brokenState = await env7.call('GET', '/api/state', { query: { user: '七日签到' } });
+  const resetSign = await env7.call('POST', '/api/signin', { body: { user: '七日签到' } });
+  check('断签后连续天数归零，界面字段说清楚', () => {
+    assert.equal(brokenState.json.user.signin.streak, 0);
+    assert.equal(brokenState.json.user.signin.broken, true);
+    assert.equal(brokenState.json.user.signin.daysToBonus, 7);
+    assert.equal(resetSign.status, 200);
+    assert.equal(resetSign.json.streak, 1);
+    assert.equal(resetSign.json.reward, 10);
+  });
+
   /* 15. 开盘前 / 周末不能签到 */
   const env6 = makeEnv('2026-10-29T08:00:00+08:00');
   const pre = await env6.call('POST', '/api/signin', { body: { user: '早起的人' } });
@@ -254,6 +334,68 @@ function check(name, fn) {
     assert.equal(pre.json.error, 'not_open');
     assert.equal(wk.status, 400);
     assert.equal(wk.json.error, 'market_closed');
+  });
+
+  /* 16. 快讯随 /api/daily 下发（服务端用 news-pool，不在客户端重算） */
+  const envN = makeEnv('2026-10-29T10:15:30+08:00');
+  const daily = await envN.call('GET', '/api/daily');
+  check('快讯随行情下发、按分钟倒序、不泄漏未来', () => {
+    assert.equal(daily.status, 200);
+    const feed = daily.json.news;
+    assert.ok(feed && feed.total >= 10, 'news.total=' + (feed && feed.total));
+    assert.ok(feed.items.length >= 1);
+    assert.ok(feed.items.length <= feed.total);
+    assert.ok(feed.items.every((i) => i.bar >= 0 && i.bar <= daily.json.market.revealed));
+    assert.ok(feed.items.every((i) => ['up', 'down', 'flat'].includes(i.dir)));
+    assert.ok(feed.items.every((i) => i.strength >= 1 && i.strength <= 3));
+    assert.ok(feed.items.every((i) => i.time.length === 5 && i.text.length > 0));
+    assert.ok(feed.items.every((i) => !i.text.includes('{') && !/%[a-z]%/.test(i.text)));
+    for (let i = 1; i < feed.items.length; i++) assert.ok(feed.items[i - 1].bar >= feed.items[i].bar);
+  });
+
+  /* 17. 客户端 / 服务端口径一致 + applyLedger 来源打标 */
+  check('本地与服务端签到 / 成就目录一致', () => {
+    const market = require('../market-v2.js');
+    for (let n = 1; n <= 12; n++) assert.equal(market.signinReward(n), clientSignin.signinReward(n));
+    assert.deepEqual(
+      market.ACHIEVEMENTS.map((a) => a.id),
+      clientAchievements.ACHIEVEMENTS.map((a) => a.id)
+    );
+    assert.deepEqual(
+      market.ACHIEVEMENTS.map((a) => a.target),
+      clientAchievements.ACHIEVEMENTS.map((a) => a.target)
+    );
+  });
+
+  check('applyLedger 来源打标：本地与服务端同形', () => {
+    const market = require('../market-v2.js');
+    const serverUser = {
+      name: '审计',
+      htc: 1000,
+      usdt: 1000,
+      achievements: [],
+      stats: market.ACHIEVEMENTS && {
+        signins: 0, maxStreak: 0, totalReward: 0,
+        trades: 0, buys: 0, sells: 0, volume: 0, fees: 0
+      },
+      ledger: []
+    };
+    market.applyLedger(serverUser, { htc: 10 }, 'signin', { nowIso: '2026-01-01T00:00:00.000Z', streak: 1 });
+    market.applyLedger(serverUser, { htc: 100, usdt: -900 }, 'trade:buy', {
+      nowIso: '2026-01-01T00:01:00.000Z', amount: 100, fee: 2.7
+    });
+    assert.deepEqual(serverUser.ledger.map((e) => e.source), ['signin', 'trade:buy']);
+    assert.equal(serverUser.ledger[0].htc, 10);
+    assert.equal(serverUser.ledger[1].usdt, -900);
+    assert.equal(serverUser.stats.trades, 1);
+
+    const wallet = {
+      version: 1, holdings: 1000, costPrice: 1, initialAt: '2026-01-01T00:00:00.000Z',
+      lastSign: null, history: [], achievements: [], updatedAt: '2026-01-01T00:00:00.000Z'
+    };
+    const after = clientApplyLedger(wallet, { htc: 10 }, 'signin', { nowISO: '2026-01-01T00:00:00.000Z', streak: 1 });
+    assert.equal(after.ledger.at(-1).source, 'signin');
+    assert.equal(after.holdings, 1010);
   });
 
   console.log('\n结果：' + pass + ' 通过，' + fail + ' 失败');

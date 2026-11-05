@@ -16,7 +16,7 @@
  */
 'use strict';
 
-const { buildDailyResponse } = require('./coin-core');
+const { buildDailyResponse, buildPlan, makeRng, COIN } = require('./coin-core');
 const {
   createState,
   buildStatePayload,
@@ -51,6 +51,71 @@ function jsonResponse(statusCode, payload) {
 }
 
 /* 兼容 FC 3.0（rawPath/requestContext）与 FC 2.0（httpMethod/path）两种 event 形态 */
+/* ---------------- 快讯（B7：服务端随行情下发，复用 news-pool） ---------------- */
+
+/** 与网页 app.js 的 EXCHANGES 同列表（只用于把 {ex} 渲染成人话）。 */
+const NEWS_EXCHANGES = ['模拟宇宙交易所', '星际所', '深空所', '奇物所', '空间站 OTC'];
+
+/**
+ * 新闻文案占位符替换：逐字对齐网页 app.js 的 renderNewsText。
+ * 随机数种子是 plan.key + bar，和网页一样——快讯文字与它冲击的那根 K 天然对齐。
+ */
+function renderNewsText(tpl, rng) {
+  return String(tpl).replace(/\{name\}|\{code\}|\{ex\}|%a%|%b%|%c%|%n%/g, function (token) {
+    switch (token) {
+      case '{name}': return COIN.name;
+      case '{code}': return COIN.code;
+      case '{ex}': return rng.pick(NEWS_EXCHANGES);
+      case '%a%': return String(rng.int(1, 99));
+      case '%b%': return String(rng.int(1, 98) * 100);
+      case '%c%': return String(rng.int(5, 300));
+      case '%n%': return String(rng.int(1, 99));
+      default: return token;
+    }
+  });
+}
+
+/** 分钟下标 -> HH:MM（与 App 图表同一口径：t<120 是上午，其余是下午）。 */
+function newsTimeLabel(bar) {
+  const i = Math.max(0, Math.min(239, Math.floor(bar)));
+  const minutes = i < 120 ? 9 * 60 + 30 + i : 13 * 60 + (i - 120);
+  const hh = String(Math.floor(minutes / 60)).padStart(2, '0');
+  const mm = String(minutes % 60).padStart(2, '0');
+  return hh + ':' + mm;
+}
+
+/**
+ * 把当日计划里已经到点的新闻抽出来；未解锁的不下发，只给 total。
+ * 交易中：revealed 是已走完的根数，当前分钟的部分 K 也算“已到点”（与网页一致）。
+ */
+function ymdToUtcDate(ymd) {
+  const p = String(ymd).split('-');
+  return new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2])));
+}
+
+function buildNews(daily) {
+  // buildPlan 吃 Date（内部 ds() 用 UTC 字段）；HTTP 层拿到的是 YYYY-MM-DD 字符串
+  const plan = buildPlan(ymdToUtcDate(daily.market.sessionDate));
+  const maxBar = daily.market.status === 'trading' ? daily.market.revealed : daily.market.revealed - 1;
+  const items = plan.events
+    .filter(function (e) { return e.bar <= maxBar; })
+    .sort(function (a, b) { return b.bar - a.bar; })
+    .map(function (e) {
+      const rng = makeRng(plan.key + '|news|' + e.bar);
+      const dir = e.dir > 0 ? 'up' : (e.dir < 0 ? 'down' : 'flat');
+      const tag = e.dir > 0 ? '利好' : (e.dir < 0 ? '利空' : '中性');
+      return {
+        bar: e.bar,
+        time: newsTimeLabel(e.bar),
+        dir: dir,
+        tag: tag,
+        strength: e.strength,
+        text: renderNewsText(e.tpl, rng)
+      };
+    });
+  return { total: plan.events.length, items: items };
+}
+
 function normalizeEvent(event) {
   if (!event) return {};
   if (typeof event === 'string') {
@@ -157,7 +222,9 @@ function createHandler(options) {
           return jsonResponse(405, { error: 'method_not_allowed', message: '只支持 GET 请求' });
         }
         const nowMs = nowFn();
-        return jsonResponse(200, buildDailyResponse(nowMs));
+        const daily = buildDailyResponse(nowMs);
+        // 快讯只加在 HTTP 外壳上：coin-core 的纯算法与测试向量保持原样
+        return jsonResponse(200, Object.assign({}, daily, { news: buildNews(daily) }));
       }
 
       /* ---------- 共享市场状态 ---------- */
@@ -223,7 +290,7 @@ function createHandler(options) {
         const result = await store.withLock(async function () {
           let state = await store.read();
           if (!state) state = createState(daily.market.sessionDate);
-          const r = signIn(daily, state, name);
+          const r = signIn(daily, state, name, nowMs);
           await store.write(state);
           const price = effectivePrice(daily, state).price;
           return {
@@ -252,7 +319,7 @@ function createHandler(options) {
         const result = await store.withLock(async function () {
           let state = await store.read();
           if (!state) state = createState(daily.market.sessionDate);
-          const r = claimLocalWallet(daily, state, name, body.amount);
+          const r = claimLocalWallet(daily, state, name, body.amount, nowMs);
           await store.write(state);
           const price = effectivePrice(daily, state).price;
           return {

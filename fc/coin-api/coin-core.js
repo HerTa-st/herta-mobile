@@ -554,6 +554,7 @@ module.exports = {
   fingerprint,
   ds,
   formatServerTime,
+  makeRng,
   COIN,
   TOTAL_BARS,
   API_VERSION,

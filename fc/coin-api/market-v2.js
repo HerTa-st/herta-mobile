@@ -39,6 +39,52 @@ const RULES = {
   mergeCapHtc: 100000
 };
 
+/** B7：连签从第 7 天起 +5%（与 packages/coin/src/signin.ts 同一口径）。 */
+const STREAK_BONUS_FROM = 7;
+const STREAK_BONUS_RATE = 0.05;
+/** 每个账户最多留多少条收支审计。 */
+const LEDGER_MAX = 200;
+
+/**
+ * 成就目录（20 条）。与 packages/coin/src/achievements.ts 的 id / target 一一对应；
+ * 服务端只存已解锁 id，判定用的是计数器 + 当前资产。
+ */
+const ACHIEVEMENTS = [
+  { id: 'first_signin', target: 1, value: function (s) { return s.signins; } },
+  { id: 'signin_10', target: 10, value: function (s) { return s.signins; } },
+  { id: 'signin_50', target: 50, value: function (s) { return s.signins; } },
+  { id: 'streak_3', target: 3, value: function (s) { return s.maxStreak; } },
+  { id: 'streak_7', target: 7, value: function (s) { return s.maxStreak; } },
+  { id: 'streak_30', target: 30, value: function (s) { return s.maxStreak; } },
+  { id: 'reward_500', target: 500, value: function (s) { return s.totalReward; } },
+  { id: 'first_trade', target: 1, value: function (s) { return s.trades; } },
+  { id: 'first_buy', target: 1, value: function (s) { return s.buys; } },
+  { id: 'first_sell', target: 1, value: function (s) { return s.sells; } },
+  { id: 'trade_10', target: 10, value: function (s) { return s.trades; } },
+  { id: 'trade_50', target: 50, value: function (s) { return s.trades; } },
+  { id: 'volume_10000', target: 10000, value: function (s) { return s.volume; } },
+  { id: 'fee_100', target: 100, value: function (s) { return s.fees; } },
+  { id: 'networth_250k', target: 250000, value: function (s) { return s.netWorth; } },
+  { id: 'htc_2000', target: 2000, value: function (s) { return s.htc; } },
+  { id: 'htc_5000', target: 5000, value: function (s) { return s.htc; } },
+  { id: 'usdt_200k', target: 200000, value: function (s) { return s.usdt; } },
+  { id: 'merged', target: 1, value: function (s) { return s.merged ? 1 : 0; } },
+  { id: 'first_bankrupt', target: 1, value: function (s) { return s.bankruptCount; } }
+];
+
+function emptyStats() {
+  return {
+    signins: 0,
+    maxStreak: 0,
+    totalReward: 0,
+    trades: 0,
+    buys: 0,
+    sells: 0,
+    volume: 0,
+    fees: 0
+  };
+}
+
 const NAME_RE = /^[\u4e00-\u9fa5A-Za-z0-9_\-]{1,20}$/;
 
 function httpError(status, code, message) {
@@ -88,9 +134,22 @@ function resetIfNewDay(state, day) {
   return true;
 }
 
+/** 老数据兼容：B7 新字段读时兜底、写时补全（设计文档「老数据」一条）。 */
+function ensureUserDefaults(user) {
+  if (!Array.isArray(user.achievements)) user.achievements = [];
+  if (!Array.isArray(user.ledger)) user.ledger = [];
+  if (!user.stats || typeof user.stats !== 'object') user.stats = emptyStats();
+  const defaults = emptyStats();
+  for (const key of Object.keys(defaults)) {
+    if (!Number.isFinite(user.stats[key])) user.stats[key] = defaults[key];
+  }
+  if (!Number.isFinite(user.bankruptCount)) user.bankruptCount = 0;
+  return user;
+}
+
 function ensureUser(state, name, basePrice, nowIso) {
   let user = state.users[name];
-  if (user) return { user: user, created: false };
+  if (user) return { user: ensureUserDefaults(user), created: false };
   user = {
     name: name,
     htc: RULES.initialHtc,
@@ -102,6 +161,10 @@ function ensureUser(state, name, basePrice, nowIso) {
     merged: false,
     streak: 0,
     lastSignDay: '',
+    achievements: [],
+    stats: emptyStats(),
+    ledger: [],
+    bankruptCount: 0,
     updatedAt: nowIso
   };
   state.users[name] = user;
@@ -134,6 +197,82 @@ function buildLeaderboard(state, price, limit) {
   });
 }
 
+/* ---------------- 统一记账 / 成就 ---------------- */
+
+/**
+ * 统一记账入口（验收：所有收入与支出都走它）。
+ * change = { htc, usdt } 的净变动；source 打标；同时维护成就计数器。
+ */
+function applyLedger(user, change, source, meta) {
+  ensureUserDefaults(user);
+  const htc = (change && Number(change.htc)) || 0;
+  const usdt = (change && Number(change.usdt)) || 0;
+  const nowIso = (meta && meta.nowIso) || new Date().toISOString();
+
+  user.htc = round2(user.htc + htc);
+  user.usdt = round2(user.usdt + usdt);
+  user.ledger = user.ledger.concat({
+    at: nowIso,
+    source: source,
+    htc: round2(htc),
+    usdt: round2(usdt)
+  }).slice(-LEDGER_MAX);
+
+  const stats = user.stats;
+  if (source === 'signin') {
+    stats.signins += 1;
+    stats.totalReward = round2(stats.totalReward + htc);
+    stats.maxStreak = Math.max(stats.maxStreak, Math.floor((meta && meta.streak) || 0));
+  } else if (source === 'trade:buy' || source === 'trade:sell') {
+    stats.trades += 1;
+    if (source === 'trade:buy') stats.buys += 1;
+    else stats.sells += 1;
+    stats.volume = round2(stats.volume + ((meta && meta.amount) || 0));
+    stats.fees = round2(stats.fees + ((meta && meta.fee) || 0));
+  }
+  return user;
+}
+
+function achievementSnapshot(user, price) {
+  const stats = user.stats || emptyStats();
+  return {
+    signins: stats.signins,
+    maxStreak: stats.maxStreak,
+    totalReward: stats.totalReward,
+    trades: stats.trades,
+    buys: stats.buys,
+    sells: stats.sells,
+    volume: stats.volume,
+    fees: stats.fees,
+    netWorth: user.htc * price + user.usdt,
+    htc: user.htc,
+    usdt: user.usdt,
+    merged: !!user.merged,
+    bankruptCount: user.bankruptCount || 0
+  };
+}
+
+function unlockedAchievementIds(snapshot) {
+  const out = [];
+  for (const item of ACHIEVEMENTS) {
+    if (item.value(snapshot) >= item.target) out.push(item.id);
+  }
+  return out;
+}
+
+/** 按当前状态判定一次成就；返回新解锁的 id（调用方负责标 dirty / 写回）。 */
+function refreshAchievements(user, price) {
+  ensureUserDefaults(user);
+  const have = new Set(user.achievements);
+  const now = unlockedAchievementIds(achievementSnapshot(user, price));
+  const added = now.filter(function (id) { return !have.has(id); });
+  if (added.length) {
+    for (const id of added) have.add(id);
+    user.achievements = ACHIEVEMENTS.filter(function (a) { return have.has(a.id); }).map(function (a) { return a.id; });
+  }
+  return added;
+}
+
 /* ---------------- 签到 / 本地钱包合并 ---------------- */
 
 function parseDay(day) {
@@ -152,7 +291,7 @@ function prevWeekday(day) {
   return formatDay(d);
 }
 
-/** 连签奖励：1→10, 2→20, 3→25 ... 7→45, 8+→50 */
+/** 连签**基础**奖励：1→10, 2→20, 3→25 ... 7→45, 8+→50（不含连签加成）。 */
 function rewardForStreak(streak) {
   const n = Math.max(1, Math.floor(streak));
   if (n === 1) return 10;
@@ -160,23 +299,44 @@ function rewardForStreak(streak) {
   return Math.min(50, 20 + (n - 2) * 5);
 }
 
+function streakBonusRate(streak) {
+  return Math.floor(streak) >= STREAK_BONUS_FROM ? STREAK_BONUS_RATE : 0;
+}
+
+/** 实际签到奖励 = 基础 ×（1 + 连签加成），四舍五入到分（与客户端同口径）。 */
+function signinReward(streak) {
+  const base = rewardForStreak(streak);
+  return Math.round(base * (1 + streakBonusRate(streak)) * 100) / 100;
+}
+
+function daysToBonus(streak) {
+  const n = Math.max(0, Math.floor(streak) || 0);
+  return Math.max(0, STREAK_BONUS_FROM - n);
+}
+
 function signinInfo(daily, user) {
   const sessionDate = daily.market.sessionDate;
   const signedToday = user.lastSignDay === sessionDate;
   const continued = !!user.lastSignDay && user.lastSignDay === prevWeekday(sessionDate);
-  const nextStreak = signedToday ? (user.streak || 0) + 1 : (continued ? (user.streak || 0) + 1 : 1);
+  // 断签后对外显示 0，别把旧 streak 继续摆在界面上
+  const streak = signedToday || continued ? (user.streak || 0) : 0;
+  const nextStreak = streak + 1;
   return {
-    streak: user.streak || 0,
+    streak: streak,
     lastSignDay: user.lastSignDay || '',
     signedToday: signedToday,
     canSign: !signedToday && daily.market.status !== 'preopen' && daily.market.status !== 'weekend',
     nextStreak: nextStreak,
-    nextReward: rewardForStreak(nextStreak)
+    nextReward: signinReward(nextStreak),
+    nextRewardBase: rewardForStreak(nextStreak),
+    bonusPct: Math.round(streakBonusRate(nextStreak) * 100),
+    daysToBonus: daysToBonus(streak),
+    broken: !!user.lastSignDay && !signedToday && !continued
   };
 }
 
 /** POST /api/signin：服务端签到（改手机时间无效） */
-function signIn(daily, state, rawName) {
+function signIn(daily, state, rawName, nowMs) {
   const name = normalizeName(rawName);
   if (daily.market.status === 'preopen') {
     throw httpError(400, 'not_open', '09:30 开盘后才能签到');
@@ -184,37 +344,44 @@ function signIn(daily, state, rawName) {
   if (daily.market.status === 'weekend') {
     throw httpError(400, 'market_closed', '周末休市，无法签到');
   }
+  const nowIso = new Date(Number.isFinite(nowMs) ? nowMs : Date.now()).toISOString();
   resetIfNewDay(state, daily.market.sessionDate);
-  const ensured = ensureUser(state, name, daily.market.close, new Date().toISOString());
+  const ensured = ensureUser(state, name, daily.market.close, nowIso);
   const user = ensured.user;
   if (user.lastSignDay === daily.market.sessionDate) {
     throw httpError(400, 'already_signed', '今天已经签过了，明天再来');
   }
   const continued = !!user.lastSignDay && user.lastSignDay === prevWeekday(daily.market.sessionDate);
   user.streak = continued ? (user.streak || 0) + 1 : 1;
-  const reward = rewardForStreak(user.streak);
-  user.htc += reward;
+  const reward = signinReward(user.streak);
+  applyLedger(user, { htc: reward }, 'signin', {
+    nowIso: nowIso,
+    streak: user.streak
+  });
   user.lastSignDay = daily.market.sessionDate;
-  user.updatedAt = new Date().toISOString();
+  user.updatedAt = nowIso;
+  refreshAchievements(user, effectivePrice(daily, state).price);
   return { reward: reward, streak: user.streak, user: user };
 }
 
 /** POST /api/claim：把单机钱包的 HTC 一次性并入共享账户 */
-function claimLocalWallet(daily, state, rawName, rawAmount) {
+function claimLocalWallet(daily, state, rawName, rawAmount, nowMs) {
   const name = normalizeName(rawName);
   const amount = Number(rawAmount);
   if (!Number.isFinite(amount) || !Number.isInteger(amount) || amount < 0 || amount > RULES.mergeCapHtc) {
     throw httpError(400, 'invalid_amount', '本地余额必须是 0~' + RULES.mergeCapHtc + ' 的整数');
   }
+  const nowIso = new Date(Number.isFinite(nowMs) ? nowMs : Date.now()).toISOString();
   resetIfNewDay(state, daily.market.sessionDate);
-  const ensured = ensureUser(state, name, daily.market.close, new Date().toISOString());
+  const ensured = ensureUser(state, name, daily.market.close, nowIso);
   const user = ensured.user;
   if (user.merged) {
     throw httpError(400, 'already_merged', '本地钱包已经合并过了，不能重复合并');
   }
-  user.htc += amount;
+  applyLedger(user, { htc: amount }, 'claim', { nowIso: nowIso });
   user.merged = true;
-  user.updatedAt = new Date().toISOString();
+  user.updatedAt = nowIso;
+  refreshAchievements(user, effectivePrice(daily, state).price);
   return { mergedHtc: amount, user: user };
 }
 
@@ -232,7 +399,10 @@ function publicUser(user, price) {
     merged: !!user.merged,
     streak: user.streak || 0,
     lastSignDay: user.lastSignDay || '',
-    value: round2(userValue(user, price))
+    value: round2(userValue(user, price)),
+    achievements: (user.achievements || []).slice(),
+    achievementStats: Object.assign(emptyStats(), user.stats || {}),
+    bankruptCount: user.bankruptCount || 0
   };
 }
 
@@ -256,6 +426,10 @@ function buildStatePayload(daily, state, name, nowMs) {
   const prevClose = daily.market.prevClose;
   const price = priceInfo.price;
   const changePct = (price / prevClose - 1) * 100;
+
+  // 持仓/资产会随行情变化：每次出 state 都判一次成就，解锁了就标 dirty 落库
+  const unlocked = refreshAchievements(user, price);
+  if (unlocked.length) dirty = true;
 
   const payload = {
     version: 2,
@@ -336,13 +510,16 @@ function executeTrade(daily, state, rawName, side, rawAmount, nowMs) {
   if (tSide === 'buy') {
     const cost = amount * price * (1 + RULES.feeRate);
     if (user.usdt + 1e-9 < cost) {
-      throw httpError(400, 'insufficient_usdt', 'USDT 不足（需要 ' + round2(cost) + '）');
+      throw httpError(400, 'insufficient_usdt', '信用点不足（需要 ' + round2(cost) + '）');
     }
     fee = amount * price * RULES.feeRate;
-    user.usdt -= amount * price + fee;
     const newHtc = user.htc + amount;
     user.cost = (user.htc * user.cost + amount * price) / newHtc;
-    user.htc = newHtc;
+    applyLedger(user, { htc: amount, usdt: -(amount * price + fee) }, 'trade:buy', {
+      nowIso: nowIso,
+      amount: amount,
+      fee: fee
+    });
     user.todayBuy += 1;
     state.market.netBuy += amount;
     state.market.buyVol += amount;
@@ -352,8 +529,11 @@ function executeTrade(daily, state, rawName, side, rawAmount, nowMs) {
     }
     const gross = amount * price;
     fee = gross * RULES.feeRate;
-    user.htc -= amount;
-    user.usdt += gross - fee;
+    applyLedger(user, { htc: -amount, usdt: gross - fee }, 'trade:sell', {
+      nowIso: nowIso,
+      amount: amount,
+      fee: fee
+    });
     user.todaySell += 1;
     state.market.netBuy -= amount;
     state.market.sellVol += amount;
@@ -364,6 +544,7 @@ function executeTrade(daily, state, rawName, side, rawAmount, nowMs) {
   state.market.updatedAt = nowMs;
 
   const after = effectivePrice(daily, state);
+  refreshAchievements(user, after.price);
   return {
     trade: {
       side: tSide,
@@ -395,5 +576,10 @@ module.exports = {
   claimLocalWallet: claimLocalWallet,
   signinInfo: signinInfo,
   rewardForStreak: rewardForStreak,
+  signinReward: signinReward,
+  daysToBonus: daysToBonus,
+  applyLedger: applyLedger,
+  refreshAchievements: refreshAchievements,
+  ACHIEVEMENTS: ACHIEVEMENTS,
   publicUser: publicUser
 };
