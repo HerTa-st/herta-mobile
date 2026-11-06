@@ -1,5 +1,5 @@
 import { CHEAP_LIMITS } from "@herta/core";
-import type { Settings } from "../settings.ts";
+import { faceSrc, type Settings } from "../settings.ts";
 import type { StickerRecord } from "../storage.ts";
 import "../styles/settings-suite.css";
 
@@ -62,6 +62,7 @@ export function SettingsSheet({
   onOpenBackup,
   onReplayOnboarding,
   onOpenDesignSystem,
+  onOpenAppearance,
 }: {
   settings: Settings;
   onChange(patch: Partial<Settings>): void;
@@ -76,6 +77,7 @@ export function SettingsSheet({
   onOpenBackup(): void;
   onReplayOnboarding(): void;
   onOpenDesignSystem(): void;
+  onOpenAppearance(): void;
 }) {
   const capCount = CAP_KEYS.filter((key) => settings[key]).length;
   const capHint = capCount > 0 ? capCount + " 项开着" : "全关着";
@@ -101,7 +103,7 @@ export function SettingsSheet({
 
       <div className="ss-body">
         <section className="ss-card ss-profileCard">
-          <img className="ss-avatar" src="/herta.png" alt="黑塔" />
+          <img className="ss-avatar" src={faceSrc(settings)} alt="她现在的样子" />
           <div className="ss-profileMain">
             <b>黑塔</b>
             <span>herta · 单人格 · 单记忆分区</span>
@@ -147,6 +149,16 @@ export function SettingsSheet({
               ))}
             </div>
           </div>
+          {/* 外观只有这一个入口：头像 / 聊天背景 / 作用域都在那一页，别把设置页撑回去 */}
+          <button type="button" className="ss-row ss-rowTap" onClick={onOpenAppearance}>
+            <span className="ss-rowMain">
+              <b>她的样子</b>
+              <small>头像与聊天背景 · 预设像 / 相册自选 · 全局或按会话</small>
+            </span>
+            <span className="ss-rowValue">
+              <Icon d={ICON.chevron} size={13} />
+            </span>
+          </button>
         </section>
 
         <section className="ss-card">

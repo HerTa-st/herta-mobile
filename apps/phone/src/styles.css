@@ -2900,3 +2900,100 @@ button.moodChip:active { background: rgba(17, 20, 23, 0.05); }
   font-style: italic;
   line-height: 1.55;
 }
+
+/* ==========================================================================
+   聊天背景（B6 · 外观）
+   一层底图 + 一层光罩，都在这层里；rail / workspace 抬到它上面。
+   预设是程序画的（点阵 / 渐变 / 网格），不占包体；相册图走 inline background-image。
+   ========================================================================== */
+
+.appBg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-color: transparent;
+  background-position: 50% 50%;
+  background-size: cover;
+  background-repeat: no-repeat;
+}
+.appBg[data-bg="none"] { display: none; }
+/* 光罩：浅色下压亮、别抢字；相册图再多压一档 */
+.appBg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(248, 251, 253, 0.18);
+}
+.appBg[data-bg="custom"] { background-color: #0b141d; }
+.appBg[data-bg="custom"]::after { background: rgba(248, 251, 253, 0.42); }
+
+/* 底图在内容下面：rail / workspace 本来就在文档流里，这里显式抬一层 */
+.rail { position: relative; z-index: 1; }
+.workspace { z-index: 1; }
+
+/* ---- 预设 1：半调点阵 ---- */
+[data-bg="dots"] {
+  background-color: #f3faf9;
+  background-image:
+    radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.92) 0 26%, transparent 62%),
+    radial-gradient(rgba(47, 125, 146, 0.30) 1.05px, transparent 1.45px);
+  background-size: cover, 16px 16px;
+  background-position: 50% 50%, 0 0;
+  background-repeat: no-repeat, repeat;
+}
+
+/* ---- 预设 2：暮色 ---- */
+[data-bg="dusk"] {
+  background-color: #eef7f8;
+  background-image:
+    radial-gradient(120% 80% at 14% 0%, rgba(255, 210, 190, 0.55), transparent 56%),
+    radial-gradient(90% 62% at 86% 12%, rgba(160, 238, 250, 0.55), transparent 60%),
+    linear-gradient(160deg, #f7fbfa 0%, #e8f4f4 56%, #ddefF2 100%);
+}
+
+/* ---- 预设 3：坐标纸 ---- */
+[data-bg="grid"] {
+  background-color: #f6faf9;
+  background-image:
+    linear-gradient(rgba(47, 125, 146, 0.10) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(47, 125, 146, 0.10) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+/* 深色：同一套预设换到 C 的深空底，点阵 / 线改成青色微光 */
+:root[data-theme="dark"] .appBg::after { background: rgba(6, 16, 24, 0.26); }
+:root[data-theme="dark"] .appBg[data-bg="custom"]::after { background: rgba(6, 16, 24, 0.58); }
+:root[data-theme="dark"] [data-bg="dots"] {
+  background-color: #08131b;
+  background-image:
+    radial-gradient(circle at 50% 40%, rgba(110, 231, 255, 0.10) 0 24%, transparent 58%),
+    radial-gradient(rgba(110, 231, 255, 0.16) 1.05px, transparent 1.45px);
+}
+:root[data-theme="dark"] [data-bg="dusk"] {
+  background-color: #07121a;
+  background-image:
+    radial-gradient(120% 80% at 14% 0%, rgba(255, 138, 110, 0.16), transparent 56%),
+    radial-gradient(90% 62% at 86% 12%, rgba(38, 168, 200, 0.22), transparent 60%),
+    linear-gradient(160deg, #08141d 0%, #061119 58%, #040b12 100%);
+}
+:root[data-theme="dark"] [data-bg="grid"] {
+  background-color: #08131b;
+  background-image:
+    linear-gradient(rgba(110, 231, 255, 0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(110, 231, 255, 0.09) 1px, transparent 1px);
+}
+
+/* 有背景时把气泡 / 输入条 / 顶栏提一档不透明度：底图不能把字压翻 */
+.app.has-bg .bubble { background: rgba(255, 255, 255, 0.88); }
+.app.has-bg .bubble.user { background: rgba(236, 238, 240, 0.92); }
+.app.has-bg .composerBar { background: rgba(255, 255, 255, 0.9); }
+.app.has-bg .bar { background: rgba(255, 255, 255, 0.8); }
+.app.has-bg .chatContext { background: rgba(255, 255, 255, 0.52); }
+
+:root[data-theme="dark"] .app.has-bg .bubble { background: rgba(8, 21, 31, 0.9); }
+:root[data-theme="dark"] .app.has-bg .bubble.user { background: rgba(18, 40, 55, 0.92); }
+:root[data-theme="dark"] .app.has-bg .composerBar { background: rgba(8, 21, 31, 0.92); }
+:root[data-theme="dark"] .app.has-bg .bar { background: rgba(6, 16, 24, 0.84); }
+:root[data-theme="dark"] .app.has-bg .chatContext { background: rgba(6, 16, 24, 0.5); }
+

@@ -35,6 +35,7 @@ import { BroadcastNotice } from "./components/BroadcastNotice.tsx";
 import { CoinView } from "./components/CoinView.tsx";
 import { MemoryViewer } from "./components/MemoryViewer.tsx";
 import { SettingsSheet } from "./components/SettingsSheet.tsx";
+import { AppearanceScreen } from "./components/AppearanceScreen.tsx";
 import { CapabilitiesSheet } from "./components/CapabilitiesSheet.tsx";
 import { Onboarding } from "./components/Onboarding.tsx";
 import { ToolLogSheet } from "./components/ToolLogSheet.tsx";
@@ -80,7 +81,16 @@ import {
   type StickerRecord,
 } from "./storage.ts";
 import { clearReadableFiles, loadReadableFiles, removeReadableFile, saveReadableFile } from "./readable-files.ts";
-import { budgetOf, loadSettings, saveSettings, type Settings } from "./settings.ts";
+import {
+  SESSION_BACKGROUND_KEY,
+  backgroundKind,
+  backgroundOf,
+  budgetOf,
+  faceSrc,
+  loadSettings,
+  saveSettings,
+  type Settings,
+} from "./settings.ts";
 import { pickTransport } from "./transport.ts";
 import { loadPromptCode } from "./prompts.ts";
 import { resolveCoinApiBase } from "./coin/config.ts";
@@ -122,6 +132,17 @@ const DOC_LABEL: Record<DocumentFormat, string> = { pdf: "PDF", docx: "Word", pp
 
 export function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings);
+  /**
+   * 「按会话」的背景覆盖：sessionId → 背景值。
+   *
+   * 存在 kv 里（和置顶同一套做法），不往 Session 协议、备份包里加字段；
+   * 新会话查不到条目，就继承 settings.chatBackground。
+   */
+  const [sessionBgs, setSessionBgs] = useState<Record<string, string>>({});
+  /** 外观页在等哪一张图：相册/拍照回来时要知道塞给头像还是背景。 */
+  const [appearancePick, setAppearancePick] = useState<"avatar" | "background" | null>(null);
+  /** 外观页的一句话回执（读图失败 / 这张太大）。 */
+  const [appearanceNote, setAppearanceNote] = useState<string | null>(null);
   /** 系统是不是深色。theme=system 时用它决定解析结果。 */
   const [systemDark, setSystemDark] = useState(() =>
     typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -256,6 +277,15 @@ export function App() {
   const [atBottom, setAtBottom] = useState(true);
 
   useEffect(() => saveSettings(settings), [settings]);
+
+  // 按会话的背景覆盖（kv）。读不到就当没有，全部走全局。
+  useEffect(() => {
+    void getKV<Record<string, string>>(SESSION_BACKGROUND_KEY)
+      .then((stored) => {
+        if (stored && typeof stored === "object" && !Array.isArray(stored)) setSessionBgs(stored);
+      })
+      .catch(() => undefined);
+  }, []);
 
   /** 上一次的页面栈顶：从聊天页离开一次就加一，「想」回来时重新挂载成收起。 */
   const prevTopRef = useRef<string | null>(null);
@@ -1243,6 +1273,8 @@ export function App() {
    */
   const takeFromAlbum = useCallback(async () => {
     setShowAttach(false);
+    // 聊天这条永远发图：外观页点过「相册自选」又取消时，别把待发状态留在这儿
+    setAppearancePick(null);
     if (!isNative()) {
       albumInputRef.current?.click();
       return;
@@ -1279,6 +1311,96 @@ export function App() {
       setImageBusy(false);
     }
   }, [ingestImage, reportError]);
+
+  /* ------------------------------------------------------------ 外观 · 她的样子 */
+
+  /** 选背景：作用域是全局就改全局，是按会话就写当前这一条（新会话没有条目 → 继承全局）。 */
+  const applyBackground = useCallback(
+    (value: string) => {
+      if (settings.backgroundScope === "session" && session) {
+        const next = { ...sessionBgs, [session.id]: value };
+        setSessionBgs(next);
+        void setKV(SESSION_BACKGROUND_KEY, next);
+        return;
+      }
+      setSettings((s) => ({ ...s, chatBackground: value }));
+    },
+    [session, sessionBgs, settings.backgroundScope]
+  );
+
+  /**
+   * 相册/相机来的一张图收成「当前的脸」或聊天背景。
+   *
+   * 图片先压再存：头像 320、背景 1080——设置是 localStorage，写爆了会静默丢。
+   * 压完仍然过大就直说换一张，不做无提示的降级。
+   */
+  const applyAppearancePhoto = useCallback(
+    async (blob: Blob, target: "avatar" | "background") => {
+      const maxSide = target === "avatar" ? 320 : 1080;
+      const quality = target === "avatar" ? 0.82 : 0.72;
+      try {
+        const file = new File([blob], target === "avatar" ? "face.jpg" : "background.jpg", {
+          type: blob.type || "image/jpeg",
+        });
+        const { dataUrl } = await compressImage(file, maxSide, quality);
+        const limit = target === "avatar" ? 400_000 : 1_400_000;
+        if (dataUrl.length > limit) {
+          setAppearanceNote(
+            "这张压到 " + maxSide + " 像素还有 " + Math.round(dataUrl.length / 1024) + "KB，换一张小点的吧。"
+          );
+          return;
+        }
+        setAppearanceNote(null);
+        if (target === "avatar") setSettings((s) => ({ ...s, avatar: dataUrl }));
+        else applyBackground(dataUrl);
+      } catch (err) {
+        setAppearanceNote("这张没读进来：" + (err instanceof Error ? err.message : String(err)));
+      }
+    },
+    [applyBackground]
+  );
+
+  /**
+   * 外观页要一张图。
+   *
+   * 复用聊天那条相册管线：原生走 Camera 的 Photos 源，浏览器里点已有那个
+   * albumInput（不在这里再开一个 file input）。回来时按 appearancePick 分流。
+   */
+  const pickAppearancePhoto = useCallback(
+    async (target: "avatar" | "background") => {
+      setAppearanceNote(null);
+      setAppearancePick(target);
+      if (!isNative()) {
+        albumInputRef.current?.click();
+        return;
+      }
+      try {
+        let shot: { dataUrl?: string };
+        try {
+          shot = await Camera.getPhoto({
+            quality: 90,
+            resultType: CameraResultType.DataUrl,
+            source: CameraSource.Photos,
+            saveToGallery: false,
+          });
+        } catch (err) {
+          const message = cameraFailureText(err);
+          if (message) setAppearanceNote(message.replace(/相机/g, "相册"));
+          return;
+        }
+        if (!shot.dataUrl) {
+          setAppearanceNote("选了照片，但没读到图。");
+          return;
+        }
+        await applyAppearancePhoto(dataUrlToBlob(shot.dataUrl), target);
+      } catch (err) {
+        setAppearanceNote("这张没读进来：" + (err instanceof Error ? err.message : String(err)));
+      } finally {
+        setAppearancePick(null);
+      }
+    },
+    [applyAppearancePhoto]
+  );
 
   /**
    * 文字进「她能读的文件」：落盘、聊天里留提示、toast。
@@ -1560,6 +1682,12 @@ export function App() {
   const memHits = useMemo(() => searchMemories(memories, filter), [memories, filter]);
   const sessHits = useMemo(() => searchSessions(allSessions, filter), [allSessions, filter]);
   const themeIsDark = settings.theme === "dark" || (settings.theme === "system" && systemDark);
+  /** 这条会话自己设过的背景（null = 没设过，继承全局）。 */
+  const sessionBackground =
+    session && Object.prototype.hasOwnProperty.call(sessionBgs, session.id) ? sessionBgs[session.id] : null;
+  /** 现在该画哪张背景：会话覆盖 ?? 全局。"" = 不设。 */
+  const chatBackground = backgroundOf(settings, sessionBackground);
+  const chatBackgroundKind = backgroundKind(chatBackground);
 
   /* 从搜索结果跳到某一条消息：开对应会话，然后滚到那一块。 */
   useEffect(() => {
@@ -1790,7 +1918,7 @@ export function App() {
     return (
       <div key={i} data-idx={i} data-part="message">
         <div className={"turn " + b.kind + (b.kind === "herta" ? " " + b.surface : "")}>
-          {avatar && <img className="turnAvatar" src="/herta.png" alt="" />}
+          {avatar && <img className="turnAvatar" src={faceSrc(settings)} alt="" />}
           <article
             className={"bubble " + b.kind + (b.kind === "herta" ? " " + b.surface : "")}
             data-part="message-bubble"
@@ -1890,8 +2018,21 @@ export function App() {
   };
 
   return (
-    <div className="app" data-part="app" data-rail={settings.railCollapsed ? "collapsed" : "expanded"}>
+    <div
+      className={"app" + (chatBackgroundKind === "none" ? "" : " has-bg")}
+      data-part="app"
+      data-rail={settings.railCollapsed ? "collapsed" : "expanded"}
+    >
       {!splashGone && <Splash onDone={hideSplash} />}
+
+      {/* 聊天背景：一层底图 + 一层光罩（光罩在 CSS 里），消息永远在它上面 */}
+      <div
+        className="appBg"
+        data-part="app-bg"
+        data-bg={chatBackgroundKind}
+        aria-hidden="true"
+        style={chatBackgroundKind === "custom" ? { backgroundImage: 'url("' + chatBackground + '")' } : undefined}
+      />
 
       {/* 桌面端那条侧栏的窄版：会话常驻，入口在底部 */}
       <aside className="rail" data-part="rail" aria-label="侧栏">
@@ -1993,7 +2134,7 @@ export function App() {
           {themeIsDark ? "日" : "夜"}
         </button>
         <button className="topAvatarBtn" type="button" onClick={() => pages.push("settings")} aria-label="设置">
-          <img src="/herta.png" alt="" />
+          <img src={faceSrc(settings)} alt="" />
         </button>
       </header>
 
@@ -2176,6 +2317,26 @@ export function App() {
                   pages.push("onboarding");
                 }}
                 onOpenDesignSystem={() => pages.push("designSystem")}
+                onOpenAppearance={() => pages.push("appearance")}
+              />
+            );
+          case "appearance":
+            return (
+              <AppearanceScreen
+                key={key}
+                settings={settings}
+                onChange={(patch) => setSettings((s) => ({ ...s, ...patch }))}
+                onClose={() => {
+                  setAppearanceNote(null);
+                  setAppearancePick(null);
+                  pages.close("appearance");
+                }}
+                sessionId={session?.id ?? null}
+                sessionBackground={sessionBackground}
+                onBackground={applyBackground}
+                onPickPhoto={(target) => void pickAppearancePhoto(target)}
+                picking={appearancePick}
+                note={appearanceNote}
               />
             );
           case "onboarding":
@@ -2454,7 +2615,14 @@ export function App() {
           onChange={(e) => {
             const file = e.target.files?.[0];
             e.target.value = "";
+            // 外观页借着同一个相册入口选头像/背景：选了就是换样子，不进聊天
+            const target = appearancePick;
+            setAppearancePick(null);
             if (!file) return;
+            if (target) {
+              void applyAppearancePhoto(file, target);
+              return;
+            }
             void ingestImage(file, file.name || "相册照片");
           }}
         />
