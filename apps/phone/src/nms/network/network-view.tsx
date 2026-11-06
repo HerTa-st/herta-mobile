@@ -46,6 +46,16 @@ export interface NetworkViewProps {
    */
   safeArea?: boolean;
   title?: string;
+  /** chips 形态：multi = 三档开关（小窗）；single = 全部 / ep / sem / note 四选一（全屏页）。 */
+  tierMode?: "multi" | "single";
+  /** 详情卡形态：compact = 要点两行；full = 全文 + 它连着的几条（全屏页）。 */
+  detailMode?: "compact" | "full";
+  /** full 详情卡的正文：snapshot 不带 body，由外部从 store 取好后传进来。 */
+  detailBody?: string | null;
+  /** full 详情卡最多列几条邻接，默认 5。 */
+  neighborLimit?: number;
+  /** 小窗里的「看全图」入口。 */
+  onExpand?: () => void;
 }
 
 const EMPTY_TIER_FILTER: Record<NmsTier, boolean> = { ep: true, sem: true, note: true };
@@ -299,6 +309,51 @@ const NETWORK_CSS = `
   color: var(--ink-soft, #55636f);
 }
 .nmsnet-detail-links b { color: var(--ink, #2f3a45); font-weight: 600; }
+.nmsnet-detail.full {
+  max-height: 56%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+.nmsnet-detail-text {
+  margin: 8px 0 2px;
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--ink, #2f3a45);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.nmsnet-detail-nb {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line, #dde7ea);
+}
+.nmsnet-detail-nb > span { font-size: 10px; color: var(--muted, #8a97a3); }
+.nmsnet-detail-nb button {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid rgba(111, 168, 173, 0.3);
+  border-radius: 9px;
+  background: rgba(111, 168, 173, 0.08);
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ink, #2f3a45);
+}
+.nmsnet-detail-nb button em {
+  margin-left: auto;
+  flex: none;
+  font-style: normal;
+  font-size: 9.5px;
+  color: var(--muted, #8a97a3);
+}
 .nmsnet-detail-body {
   flex-basis: 100%;
   display: -webkit-box;
@@ -339,10 +394,17 @@ export function NetworkView({
   compact = false,
   safeArea = true,
   title = "记忆网络",
+  tierMode = "multi",
+  detailMode = "compact",
+  detailBody = null,
+  neighborLimit = 5,
+  onExpand,
 }: NetworkViewProps) {
   const [tierFilter, setTierFilter] = useState<Record<NmsTier, boolean>>(() => ({
     ...EMPTY_TIER_FILTER,
   }));
+  /** 四选一档位：全屏页一次只看一层，「全部」= 三层。 */
+  const [singleTier, setSingleTier] = useState<NmsTier | "all">("all");
   const [internalSelectedKey, setInternalSelectedKey] = useState<string | null>(null);
   const [storeSnapshot, setStoreSnapshot] = useState<NmsActivationSnapshot | null>(() =>
     activationStore ? activationStore.getSnapshot() : null,
@@ -365,9 +427,14 @@ export function NetworkView({
   const snapshotEdges = snapshot?.edges;
   const snapshotStats = snapshot?.stats;
 
+  const activeTierFilter = useMemo<Partial<Record<NmsTier, boolean>>>(() => {
+    if (tierMode !== "single" || singleTier === "all") return tierFilter;
+    return { ep: singleTier === "ep", sem: singleTier === "sem", note: singleTier === "note" };
+  }, [tierMode, singleTier, tierFilter]);
+
   const data = useMemo(
-    () => normalizeSnapshot(snapshot, { tierFilter }),
-    [snapshotNodes, snapshotEdges, snapshotStats, tierFilter],
+    () => normalizeSnapshot(snapshot, { tierFilter: activeTierFilter }),
+    [snapshotNodes, snapshotEdges, snapshotStats, activeTierFilter],
   );
 
   const counts = useMemo(() => countSnapshotTiers(snapshotNodes ?? []), [snapshotNodes]);
@@ -375,7 +442,7 @@ export function NetworkView({
   const totalEdges = snapshotEdges?.length ?? 0;
   const visibleCount = data.nodes.length;
   const lod = visibleCount > NETWORK_CANVAS_LIMITS.lodNodeThreshold;
-  const allTiersOn = TIER_ORDER.every((tier) => tierFilter[tier]);
+  const allTiersOn = TIER_ORDER.every((tier) => activeTierFilter[tier] !== false);
 
   const model = useMemo<NmsActivationModel | null>(() => {
     if (activationModel) return activationModel;
@@ -389,6 +456,25 @@ export function NetworkView({
     return data.nodes.find((node) => node.key === selectedKey) ?? null;
   }, [data, selectedKey]);
   const selectedAge = selectedNode ? ageDays(selectedNode.createdAt, Date.now()) : null;
+  const detailText = selectedNode
+    ? detailBody && detailBody.length > 0
+      ? detailBody
+      : selectedNode.body || selectedNode.gist
+    : "";
+  /** 它连着的几条：按有效权重排序，重复边只出现一次。 */
+  const neighbors = useMemo(() => {
+    if (!selectedNode) return [] as NmsCanvasNode[];
+    const seen = new Set<number>();
+    const out: NmsCanvasNode[] = [];
+    for (const index of selectedNode.links) {
+      if (seen.has(index)) continue;
+      seen.add(index);
+      const node = data.nodes[index];
+      if (node) out.push(node);
+    }
+    out.sort((a, b) => b.effectiveWeight - a.effectiveWeight);
+    return out.slice(0, neighborLimit);
+  }, [selectedNode, data, neighborLimit]);
 
   function handleSelect(node: NmsCanvasNode | null): void {
     if (controlledSelectedKey === undefined) setInternalSelectedKey(node ? node.key : null);
@@ -428,7 +514,9 @@ export function NetworkView({
         ? "读取失败"
         : "记忆库还是空的";
   const emptyDesc = hasData
-    ? "点上方情景 / 语义 / 语气 chips 重新打开层级。"
+    ? tierMode === "single"
+      ? "点上方「全部」或别的层级再看看。"
+      : "点上方情景 / 语义 / 语气 chips 重新打开层级。"
     : loading
       ? "本地 store 打开后就会显示。"
       : error
@@ -456,6 +544,11 @@ export function NetworkView({
               {"精简视图 · " + visibleCount}
             </span>
           ) : null}
+          {onExpand ? (
+            <button type="button" className="nmsnet-btn" onClick={onExpand}>
+              看全图
+            </button>
+          ) : null}
           {onRefresh ? (
             <button type="button" className="nmsnet-btn" onClick={onRefresh} disabled={loading}>
               {loading ? "读取中…" : "刷新"}
@@ -469,27 +562,60 @@ export function NetworkView({
         </div>
       </header>
 
-      <div className="nmsnet-chips" role="group" aria-label="记忆层级过滤">
-        {TIER_ORDER.map((tier) => {
-          const theme = NMS_TIER_THEME[tier];
-          const on = tierFilter[tier];
-          return (
+      <div className="nmsnet-chips" role="group" aria-label="记忆层级筛选">
+        {tierMode === "single" ? (
+          <>
             <button
-              key={tier}
               type="button"
-              className={"nmsnet-chip" + (on ? " on" : "")}
-              aria-pressed={on}
-              title={
-                (on ? "隐藏" : "显示") + theme.name + "记忆（共 " + String(counts[tier]) + " 条）"
-              }
-              onClick={() => toggleTier(tier)}
+              className={"nmsnet-chip" + (singleTier === "all" ? " on" : "")}
+              aria-pressed={singleTier === "all"}
+              title={"显示全部记忆（共 " + String(totalNodes) + " 条）"}
+              onClick={() => setSingleTier("all")}
             >
-              <i style={{ background: theme.color }} aria-hidden="true" />
-              {theme.name}
-              <b>{counts[tier]}</b>
+              全部
+              <b>{totalNodes}</b>
             </button>
-          );
-        })}
+            {TIER_ORDER.map((tier) => {
+              const theme = NMS_TIER_THEME[tier];
+              const on = singleTier === tier;
+              return (
+                <button
+                  key={tier}
+                  type="button"
+                  className={"nmsnet-chip" + (on ? " on" : "")}
+                  aria-pressed={on}
+                  title={"只看" + theme.name + "记忆（共 " + String(counts[tier]) + " 条）"}
+                  onClick={() => setSingleTier(tier)}
+                >
+                  <i style={{ background: theme.color }} aria-hidden="true" />
+                  {theme.name}
+                  <b>{counts[tier]}</b>
+                </button>
+              );
+            })}
+          </>
+        ) : (
+          TIER_ORDER.map((tier) => {
+            const theme = NMS_TIER_THEME[tier];
+            const on = tierFilter[tier];
+            return (
+              <button
+                key={tier}
+                type="button"
+                className={"nmsnet-chip" + (on ? " on" : "")}
+                aria-pressed={on}
+                title={
+                  (on ? "隐藏" : "显示") + theme.name + "记忆（共 " + String(counts[tier]) + " 条）"
+                }
+                onClick={() => toggleTier(tier)}
+              >
+                <i style={{ background: theme.color }} aria-hidden="true" />
+                {theme.name}
+                <b>{counts[tier]}</b>
+              </button>
+            );
+          })
+        )}
       </div>
 
       <div className="nmsnet-stage">
@@ -527,7 +653,11 @@ export function NetworkView({
               </div>
             )}
             {selectedNode ? (
-              <div className="nmsnet-detail" role="dialog" aria-label="记忆节点详情">
+              <div
+                className={"nmsnet-detail" + (detailMode === "full" ? " full" : "")}
+                role="dialog"
+                aria-label="记忆节点详情"
+              >
                 <div className="nmsnet-detail-head">
                   <span className="nmsnet-detail-title" title={selectedNode.title}>
                     {selectedNode.title}
@@ -551,17 +681,47 @@ export function NetworkView({
                 <div className="nmsnet-bar">
                   <i style={{ width: Math.round(selectedNode.effectiveWeight * 100) + "%" }} />
                 </div>
-                <div className="nmsnet-detail-links">
-                  <span>
-                    关联 <b>{selectedNode.links.length}</b> 条
-                  </span>
-                  <span>
-                    被想起 <b>{selectedNode.recalls}</b> 次
-                  </span>
-                  {selectedNode.body && selectedNode.body !== selectedNode.gist ? (
-                    <span className="nmsnet-detail-body">{selectedNode.body}</span>
-                  ) : null}
-                </div>
+                {detailMode === "full" ? (
+                  <>
+                    <p className="nmsnet-detail-text">{detailText}</p>
+                    <div className="nmsnet-detail-links">
+                      <span>
+                        关联 <b>{selectedNode.links.length}</b> 条
+                      </span>
+                      <span>
+                        被想起 <b>{selectedNode.recalls}</b> 次
+                      </span>
+                    </div>
+                    {neighbors.length > 0 ? (
+                      <div className="nmsnet-detail-nb" aria-label="它连着的记忆">
+                        <span>它连着的几条</span>
+                        {neighbors.map((node) => (
+                          <button
+                            key={node.key}
+                            type="button"
+                            onClick={() => handleSelect(node)}
+                            title={node.title}
+                          >
+                            {node.title}
+                            <em>{NMS_TIER_THEME[node.tier].name}</em>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <div className="nmsnet-detail-links">
+                    <span>
+                      关联 <b>{selectedNode.links.length}</b> 条
+                    </span>
+                    <span>
+                      被想起 <b>{selectedNode.recalls}</b> 次
+                    </span>
+                    {selectedNode.body && selectedNode.body !== selectedNode.gist ? (
+                      <span className="nmsnet-detail-body">{selectedNode.body}</span>
+                    ) : null}
+                  </div>
+                )}
               </div>
             ) : null}
           </NetworkCanvas>

@@ -28,6 +28,7 @@ import {
 import { BrowserAssetSource } from "./assets-browser.ts";
 import { Drawer } from "./components/Drawer.tsx";
 import { NmsScreen } from "./nms/NmsScreen.tsx";
+import { GraphScreen } from "./nms/GraphScreen.tsx";
 import { createActivationStore } from "./nms/network/activation.ts";
 import { BroadcastView } from "./components/BroadcastView.tsx";
 import { BroadcastNotice } from "./components/BroadcastNotice.tsx";
@@ -2128,7 +2129,18 @@ export function App() {
                 dreaming={dreaming}
                 distilling={distilling}
                 distillNote={distillNote}
+                onOpenGraph={() => pages.push("memoryGraph")}
                 onClose={() => pages.close("memory")}
+              />
+            );
+          case "memoryGraph":
+            return (
+              <GraphScreen
+                key={key}
+                snapshot={nmsSnapshot}
+                activationStore={nmsActivation}
+                onRefresh={() => void refreshMemories()}
+                onClose={() => pages.close("memoryGraph")}
               />
             );
           case "memoryDetail": {

@@ -37,6 +37,8 @@ export interface NmsScreenProps {
   dreaming: boolean;
   distilling: boolean;
   distillNote: string | null;
+  /** 小窗里的「看全图」：压到全屏记忆网络页（B5）。 */
+  onOpenGraph(): void;
   onClose(): void;
 }
 
@@ -66,6 +68,7 @@ export function NmsScreen({
   dreaming,
   distilling,
   distillNote,
+  onOpenGraph,
   onClose,
 }: NmsScreenProps) {
   const [tab, setTab] = useState<Tab>("network");
@@ -169,7 +172,13 @@ export function NmsScreen({
           <>
             <section className="nmsNetCard">
               <div className="nmsNetWrap">
-                <NetworkView snapshot={snapshot} activationStore={activationStore} onRefresh={onRefresh} safeArea={false} />
+                <NetworkView
+                  snapshot={snapshot}
+                  activationStore={activationStore}
+                  onRefresh={onRefresh}
+                  onExpand={onOpenGraph}
+                  safeArea={false}
+                />
               </div>
               <div className="nmsStats">
                 <div><b>{stats?.nodes.active ?? 0}</b><span>活跃</span></div>
