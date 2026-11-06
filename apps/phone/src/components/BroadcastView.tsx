@@ -316,7 +316,7 @@ export function BroadcastView(props: BroadcastViewProps) {
       );
     }
     return (
-      <div className="bcState">
+      <div className="bcState" data-part="empty-state">
         <p className="bcStateTitle">还没有播报。</p>
         <p className="bcStateHint">现在做一期，还是等明天早上她自己写？</p>
         <button type="button" className="bcRetry" onClick={onRetry} disabled={generating}>
@@ -389,7 +389,7 @@ export function BroadcastView(props: BroadcastViewProps) {
   );
 
   return (
-    <div className="broadcastView" role="dialog" aria-label="星际和平播报">
+    <div className="broadcastView" data-part="panel" role="dialog" aria-label="星际和平播报">
       <header className="bcHead">
         <button type="button" className="bcBack" onClick={onClose} aria-label="返回聊天">
           ←

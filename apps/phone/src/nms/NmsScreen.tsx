@@ -122,7 +122,7 @@ export function NmsScreen({
     : "--";
 
   return (
-    <div className="nmsPage">
+    <div className="nmsPage" data-part="panel">
       <header className="nmsHead">
         <div className="nmsTitle">
           <b>记忆</b>
@@ -241,7 +241,7 @@ export function NmsScreen({
                 </section>
               );
             })}
-            {filtered.length === 0 ? <p className="nmsEmpty">还没有记忆。睡一觉之后，新的情景会出现在这里。</p> : null}
+            {filtered.length === 0 ? <p className="nmsEmpty" data-part="empty-state">还没有记忆。睡一觉之后，新的情景会出现在这里。</p> : null}
           </div>
         ) : null}
 

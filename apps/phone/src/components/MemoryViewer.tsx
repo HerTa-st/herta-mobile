@@ -12,7 +12,7 @@ export function MemoryViewer({
   onDelete(name: string): void;
 }) {
   return (
-    <div className="viewer" role="dialog" aria-label="记忆全文">
+    <div className="viewer" data-part="panel" role="dialog" aria-label="记忆全文">
       <header className="vh">
         <span className="vt">{memoryTitle(record)}</span>
         <button className="vx" onClick={onClose}>

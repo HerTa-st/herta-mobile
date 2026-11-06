@@ -60,7 +60,7 @@ export function Shot({
 /** 点开之后：整摞按屏宽铺开、上下滚。长图的内容在这里才看得见。 */
 export function ShotViewer({ pieces, name, onClose }: { pieces: string[]; name?: string; onClose(): void }) {
   return (
-    <div className="shotView" onClick={onClose} role="dialog" aria-modal="true" aria-label={name ?? "看图"}>
+    <div className="shotView" data-part="panel" onClick={onClose} role="dialog" aria-modal="true" aria-label={name ?? "看图"}>
       <div className="shotStack">
         {pieces.map((src, i) => (
           <img key={i} src={src} alt={name ?? "图"} />

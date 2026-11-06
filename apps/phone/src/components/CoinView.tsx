@@ -1837,7 +1837,7 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
   );
 
   return (
-    <div className="coinView" role="dialog" aria-label="黑塔币行情">
+    <div className="coinView" data-part="panel" role="dialog" aria-label="黑塔币行情">
       <header className="coinHead">
         <button className="coinBack" type="button" onClick={onClose} aria-label="返回聊天">
           ←

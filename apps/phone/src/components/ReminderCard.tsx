@@ -60,7 +60,7 @@ export interface ReminderCardProps {
 
 export function ReminderCard({ index, title, text, at, meta }: ReminderCardProps) {
   return (
-    <article className="reminderCard" data-idx={index} aria-label="提醒">
+    <article className="reminderCard" data-idx={index} data-part="message-card" aria-label="提醒">
       <div className="reminderCardHead">
         <span className="reminderCardBadge">⏰ 提醒</span>
         {meta && <span className="reminderCardMeta">{meta}</span>}

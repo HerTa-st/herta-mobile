@@ -61,3 +61,28 @@ export function saveReadableFile(record: ReadableFileRecord): Promise<SavedReada
   chain = run.catch(() => undefined);
   return run;
 }
+
+/**
+ * 删一份（按名字）。返回删完的全量，界面直接拿它同步，
+ * 不再自己维护第二份名单——两份名单迟早对不上。
+ */
+export function removeReadableFile(name: string): Promise<ReadableFileRecord[]> {
+  const run = chain.then(async (): Promise<ReadableFileRecord[]> => {
+    const list = await loadReadableFiles();
+    const kept = list.filter((file) => file.name !== name);
+    await setKV(KEY, kept);
+    return kept;
+  });
+  chain = run.catch(() => undefined);
+  return run;
+}
+
+/** 全清：她读过的文件不该只能增不能减，这是一条死路。 */
+export function clearReadableFiles(): Promise<ReadableFileRecord[]> {
+  const run = chain.then(async (): Promise<ReadableFileRecord[]> => {
+    await setKV(KEY, []);
+    return [];
+  });
+  chain = run.catch(() => undefined);
+  return run;
+}
