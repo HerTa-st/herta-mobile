@@ -41,6 +41,7 @@ import { appendToolLog, loadMoodState, saveMoodState, type StickerRecord } from 
 import { loadPromptCode } from "../prompts.ts";
 import { budgetOf, type Settings } from "../settings.ts";
 import { collectDetailed } from "../stream.ts";
+import { recordUsageFrom } from "../usage-ledger.ts";
 import { pickTransport } from "../transport.ts";
 
 const assets = new BrowserAssetSource();
@@ -272,6 +273,8 @@ export function useChatTurn(opts: {
               })
             );
             spent = addUsage(spent, seen.usage);
+            // B14：判心情也是独立一次请求，单独记一条链路
+            recordUsageFrom("mood", seen.usage);
             const decision = decideMood(previous, parseMoodVerdict(seen.text, pack.moods), Date.now(), {
               volatile: pack.volatile,
             });
@@ -459,6 +462,8 @@ export function useChatTurn(opts: {
       }
       raw = loop.text;
       spent = addUsage(spent, loop.usage);
+      // B14：主对话这一轮（含工具轮）的用量
+      recordUsageFrom("chat", loop.usage);
 
       const parsed = parseNarrative(raw);
       let thought = parsed.thought;
@@ -487,6 +492,7 @@ export function useChatTurn(opts: {
           })
         );
         spent = addUsage(spent, verdictSeen.usage);
+        recordUsageFrom("review", verdictSeen.usage);
         const verdict = parseSupervisorVerdict(verdictSeen.text);
         if (decideReview(verdict, attempt, speech) === "pass") break;
 
@@ -507,6 +513,7 @@ export function useChatTurn(opts: {
           })
         );
         spent = addUsage(spent, redoSeen.usage);
+        recordUsageFrom("redo", redoSeen.usage);
         const again = parseNarrative(redoSeen.text);
         thought = again.thought || thought;
         // 重说没给出完整的「说」就别拿旧的顶上去——那正是被打回的那句。

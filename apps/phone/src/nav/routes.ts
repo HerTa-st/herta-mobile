@@ -23,6 +23,7 @@ export type RouteName =
   | "sponsors"
   | "devs"
   | "issues"
+  | "usage"
   | "shot";
 
 export interface RouteDef {
@@ -51,6 +52,8 @@ export const ROUTES: Record<RouteName, RouteDef> = {
   sponsors: { label: "赞助名单", fullscreen: true },
   devs: { label: "开发人员", fullscreen: true },
   issues: { label: "已知问题", fullscreen: true },
+  // B14 今日用量：从设置的「连接」组压栈，和用量明细是同一件事（就地）。
+  usage: { label: "今日用量", fullscreen: true },
   shot: { label: "看图", fullscreen: true },
 };
 

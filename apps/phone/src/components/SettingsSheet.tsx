@@ -1,7 +1,8 @@
-import { CHEAP_LIMITS } from "@herta/core";
+import { CHEAP_LIMITS, formatTokens } from "@herta/core";
 import { faceSrc, type Settings } from "../settings.ts";
 import type { StickerRecord } from "../storage.ts";
 import { APP_VERSION } from "../theme/version.ts";
+import { useUsageToday } from "../hooks/useUsageToday.ts";
 import "../styles/settings-suite.css";
 
 /**
@@ -65,6 +66,7 @@ export function SettingsSheet({
   onOpenDesignSystem,
   onOpenAppearance,
   onOpenTheme,
+  onOpenUsage,
   onOpenSponsors,
   onOpenDevs,
   onOpenIssues,
@@ -86,6 +88,8 @@ export function SettingsSheet({
   onOpenDesignSystem(): void;
   onOpenAppearance(): void;
   onOpenTheme(): void;
+  /** B14：用量明细整屏页（就地——用量属于「连接」这件事）。 */
+  onOpenUsage(): void;
   /** B13：关于三页各自压栈，返回键回到这一层设置。 */
   onOpenSponsors(): void;
   onOpenDevs(): void;
@@ -95,6 +99,7 @@ export function SettingsSheet({
   /** 当前生效的主题名（"内置" 或已安装主题的显示名）。 */
   themeName: string;
 }) {
+  const usage = useUsageToday();
   const capCount = CAP_KEYS.filter((key) => settings[key]).length;
   const capHint = capCount > 0 ? capCount + " 项开着" : "全关着";
 
@@ -271,6 +276,19 @@ export function SettingsSheet({
               每轮少两次请求（判心情、复核），上下文与长图也压小了。代价：她更容易跑题、记性更短，复核也拦不住她吹牛。
             </p>
           )}
+          {/* B14：今日用量。数字来自接口回执，不涉及这次发出去的请求怎么写——只读。 */}
+          <button type="button" className="ss-row ss-rowTap" onClick={onOpenUsage}>
+            <span className="ss-rowMain">
+              <b>今日用量</b>
+              <small>输入 / 输出分开 · 含后台那些你看不见的调用 · 过零点清零</small>
+            </span>
+            <span className="ss-rowValue">
+              {usage.calls > 0
+                ? "入 " + formatTokens(usage.prompt) + " · 出 " + formatTokens(usage.completion)
+                : "还没调用"}
+              <Icon d={ICON.chevron} size={13} />
+            </span>
+          </button>
           <label className="ss-rowStack">
             <span className="ss-rowMain">
               <b>黑塔币接口地址</b>

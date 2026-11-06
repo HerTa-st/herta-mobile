@@ -19,7 +19,8 @@ import {
   rollbackVoiceState,
   writeVoiceState,
 } from "@herta/nms";
-import { collect } from "../stream.ts";
+import { collectDetailed } from "../stream.ts";
+import { recordUsageFrom } from "../usage-ledger.ts";
 import type { Settings } from "../settings.ts";
 import { pickTransport } from "../transport.ts";
 import { getNmsStore } from "./controller.ts";
@@ -87,7 +88,7 @@ export async function runVoiceGenerate(options: {
       schema,
       userName: settings.userName,
     });
-    const raw = await collect(
+    const seen = await collectDetailed(
       transport.stream({
         apiKey: settings.apiKey,
         baseUrl: settings.baseUrl,
@@ -99,6 +100,9 @@ export async function runVoiceGenerate(options: {
         maxTokens: 1200,
       })
     );
+    // B14：自动语气是一次后台重请求（带样本与画像），单独记
+    recordUsageFrom("voice", seen.usage);
+    const raw = seen.text;
     const parsed = parseVoiceReply(raw, schema, params);
     if (!parsed) return { ok: false, error: "bad_reply", state: previous };
     const next = applyVoiceGeneration(previous, {

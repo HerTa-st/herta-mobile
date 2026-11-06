@@ -6,7 +6,8 @@
 import { Capacitor } from "@capacitor/core";
 import { runDeepSleep, DEEP_SLEEP_DEFAULTS } from "@herta/nms";
 import type { DeepSleepStats, NmsStore } from "@herta/nms";
-import { collect } from "../stream.ts";
+import { collectDetailed } from "../stream.ts";
+import { recordUsageFrom } from "../usage-ledger.ts";
 import type { Settings } from "../settings.ts";
 import { getNmsStore } from "./controller.ts";
 import { maybeAutoGenerateVoice } from "./voice-runner.ts";
@@ -52,7 +53,10 @@ export async function runMobileDeepSleep(options: {
     const timer = setTimeout(() => controller?.abort(), Math.max(1000, args.timeoutMs));
     try {
       const stream = transportStream(settings, args, controller?.signal);
-      return await collect(stream);
+      const seen = await collectDetailed(stream);
+      // B14：深睡六阶段各算一次，夜里跑的那些也记进来
+      recordUsageFrom("deepSleep", seen.usage);
+      return seen.text;
     } catch (error) {
       console.log("[nms] 深睡调用失败（" + args.stage + "）：" + String(error instanceof Error ? error.message : error));
       return null;
