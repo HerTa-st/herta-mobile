@@ -16,7 +16,7 @@ import type { CoinDailyResponse, CoinWallet, SigninCheck } from "@herta/coin";
 import { applySignin, createWallet, signinCheck } from "@herta/coin";
 import { pickTransport } from "../transport.ts";
 import { loadCoinQuote, loadCoinWallet, saveCoinQuote, saveCoinWallet } from "./coin-storage.ts";
-import { buildLocalQuote, hasTodaySeed, syncSeeds } from "./local-quote.ts";
+import { buildLocalQuote, hasSessionSeed, syncSeeds } from "./local-quote.ts";
 import { readSeedCache, type SeedMap } from "./seeds.ts";
 
 /** 行情轮询间隔：契约写死 30s。 */
@@ -155,15 +155,16 @@ export function useCoin(opts: UseCoinOptions): UseCoinResult {
     const nowMs = Date.now();
 
     try {
-      // 密钥一天一把：没有就向服务端要；已经有了就地重算，不再拉 K 线数据。
+      // 密钥一场一把（周末/盘前要的是上一个交易日的）：没有就向服务端要；
+      // 已经有了就地重算，不再拉 K 线数据。
       let seeds = seedsRef.current;
-      if (!hasTodaySeed(seeds, nowMs)) {
+      if (!hasSessionSeed(nowMs, seeds)) {
         const synced = await syncSeeds(currentBase, (url) => pickTransport().getText(url), seedStorage());
         seeds = synced.seeds;
         seedsRef.current = seeds;
       }
       const fresh = buildLocalQuote(nowMs, seeds);
-      if (!fresh) throw new Error("今天还没拿到密钥，连上就有了");
+      if (!fresh) throw new Error("还没拿到这一场的价格密钥，连上就有了");
       quoteRef.current = fresh;
       setQuote(fresh);
       cachedRef.current = false;

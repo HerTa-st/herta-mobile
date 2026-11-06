@@ -31,7 +31,7 @@ export interface CoinBar {
   partial?: boolean;
 }
 
-/** 服务端随行情下发的快讯（与网页同一套 news-pool 种子；不在客户端重算）。 */
+/** 随行情的快讯（与网页同一套 news-pool 种子）。服务端下发的用这个形状；手机端自算的也是同一形状，见 core/news.ts。 */
 export interface CoinNewsItem {
   /** 冲击的那根分钟 K 的下标 0..239；点条目就定位到它。 */
   bar: number;

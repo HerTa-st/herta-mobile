@@ -9,3 +9,4 @@
  */
 
 export * from "./core.ts";
+export * from "./news.ts";

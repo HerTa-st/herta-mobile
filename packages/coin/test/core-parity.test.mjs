@@ -396,3 +396,73 @@ test("makeRng / fingerprint 与服务端同流", () => {
   assert.equal(fp.length, 8);
   assert.equal(fp, fp.toUpperCase());
 });
+
+/* ------------------------------------------- 快讯排点：客户端 ↔ 服务端 /api/daily 真比对 */
+
+const { createHandler } = require(join(FC_DIR, "index.js"));
+const serverSeeds = require(join(FC_DIR, "seeds.js"));
+
+function createMemoryStore() {
+  let state = null;
+  return {
+    async read() { return state ? JSON.parse(JSON.stringify(state)) : null; },
+    async write(next) { state = JSON.parse(JSON.stringify(next)); },
+    async withLock(fn) { return fn(); },
+  };
+}
+
+/** 用服务端 handler 跑一次 /api/daily（内存账本，会顺手生成当日密钥）。 */
+async function serverDaily(nowMs) {
+  // seeds.js 的密钥备忘是进程级的：每个用例换一份内存账本前先清掉，
+  // 否则上一个用例生成的密钥会「看起来还在」，新账本里其实没有。
+  serverSeeds._resetMemoForTest();
+  const store = createMemoryStore();
+  const handler = createHandler({ now: () => nowMs, storeFactory: () => store });
+  const call = (path, query) => {
+    const u = new URL(path + (query ? "?" + query : ""), "http://parity");
+    return handler(
+      {
+        version: "v1",
+        rawPath: u.pathname,
+        rawQueryString: u.searchParams.toString(),
+        headers: { host: "parity" },
+        queryParameters: Object.fromEntries(u.searchParams),
+        requestContext: { http: { method: "GET", path: u.pathname, protocol: "HTTP/1.1" } },
+        body: "",
+        isBase64Encoded: false,
+      },
+      { requestId: "parity-" + Math.random().toString(16).slice(2, 8) }
+    );
+  };
+  // 先按客户端的方式要密钥（周末/盘前要的是上一场，历史每根也都要），再要行情
+  const seedsRes = await call("/api/seeds", "from=" + CUTOVER);
+  assert.equal(seedsRes.statusCode, 200, "服务端 /api/seeds 应 200，实际 " + seedsRes.statusCode + "：" + String(seedsRes.body).slice(0, 300));
+  const res = await call("/api/daily");
+  assert.equal(res.statusCode, 200, "服务端 /api/daily 应 200，实际 " + res.statusCode + "：" + String(res.body).slice(0, 300));
+  const body = JSON.parse(res.body);
+  const state = (await store.read()) || {};
+  const seeds = state.seeds || {};
+  const getSecret = (d) => (d >= CUTOVER ? seeds[d] || null : null);
+  const local = client.buildDailyResponse(nowMs, getSecret);
+  const localNews = client.buildNews(local, getSecret);
+  return { body, localNews, getSecret };
+}
+
+for (const [label, iso] of [
+  ["切换前的工作日", "2026-11-06T10:15:30+08:00"],
+  ["切换后的上午", "2026-11-09T10:15:30+08:00"],
+  ["切换后的午休", "2026-11-09T12:00:00+08:00"],
+  ["切换后的周末", "2026-11-14T10:00:00+08:00"],
+]) {
+  test("快讯排点（" + label + "）：每一条与服务端逐字一致", async () => {
+    const nowMs = Date.parse(iso);
+    const { body, localNews } = await serverDaily(nowMs);
+    const remote = body.news;
+    assert.ok(remote, "服务端 /api/daily 应带 news");
+    assert.equal(localNews.total, remote.total, "总数不一致");
+    assert.equal(localNews.items.length, remote.items.length, "已解锁条数不一致");
+    for (let i = 0; i < localNews.items.length; i++) {
+      assert.deepEqual(localNews.items[i], remote.items[i], "第 " + i + " 条快讯不一致");
+    }
+  });
+}
