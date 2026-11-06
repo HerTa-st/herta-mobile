@@ -13,6 +13,7 @@ export type RouteName =
   | "memoryDetail"
   | "memoryGraph"
   | "settings"
+  | "appearance"
   | "capabilities"
   | "onboarding"
   | "toolLog"
@@ -35,6 +36,7 @@ export const ROUTES: Record<RouteName, RouteDef> = {
   memoryDetail: { label: "记忆全文", fullscreen: true },
   memoryGraph: { label: "记忆网络全屏", fullscreen: true },
   settings: { label: "设置", fullscreen: true },
+  appearance: { label: "外观 · 她的样子", fullscreen: true },
   capabilities: { label: "她能做什么", fullscreen: true },
   onboarding: { label: "首次引导", fullscreen: true },
   toolLog: { label: "工具调用记录", fullscreen: true },

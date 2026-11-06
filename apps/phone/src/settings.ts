@@ -100,6 +100,30 @@ export interface Settings {
    */
   theme: "system" | "light" | "dark";
   /**
+   * 当前的脸。
+   *
+   * - `"preset"` = 随包带来的预设像（半调 H，和启动图标同一套）；
+   * - `"data:image/..."` = 从相册选的那张（压缩后的 data URL，只在本机）。
+   *
+   * 全应用唯一：头像不进消息、不进会话，每条消息渲染时读这一个值——
+   * 所以换完之后历史消息里的头像也跟着换。见 CONTEXT 的「当前的脸」。
+   */
+  avatar: string;
+  /**
+   * 聊天背景（全局那张）。
+   *
+   * `""` = 不设；预设 id 见 BACKGROUND_PRESETS；`"data:image/..."` = 从相册选的那张。
+   * 作用域是「按会话」时，这条只是没单独设过的会话的兜底（新会话继承它）。
+   */
+  chatBackground: string;
+  /**
+   * 背景作用域。
+   *
+   * global = 一张背景管全部会话；session = 当前会话可以单独覆盖，
+   * 没覆盖过的会话（包括新会话）继续用全局那张。
+   */
+  backgroundScope: "global" | "session";
+  /**
    * 上次开屏的时间（ms，0 = 从没播过）。
    *
    * 只用于开屏频次：距上次 ≥12 小时才播一次，而且只算冷启动。
@@ -162,6 +186,9 @@ export const DEFAULT_SETTINGS: Settings = {
   userName: "",
   railCollapsed: false,
   theme: "system",
+  avatar: "preset",
+  chatBackground: "",
+  backgroundScope: "global",
   lastSplashAt: 0,
 };
 
@@ -178,8 +205,59 @@ export function loadSettings(): Settings {
 }
 
 export function saveSettings(s: Settings): void {
-  localStorage.setItem(KEY, JSON.stringify(s));
+  try {
+    localStorage.setItem(KEY, JSON.stringify(s));
+  } catch (err) {
+    // 相册背景把 localStorage 撑爆时别让整个 App 挂掉：这一轮没落盘，界面还在
+    console.warn("设置没存下来（本地存储满了）", err);
+  }
 }
+
+/* ------------------------------------------------------------ 外观 · 她的样子 */
+
+/** 预设像：随包带来的半调 H（和启动图标同一套），不依赖任何立绘素材。 */
+export const PRESET_FACE_SRC = "/avatars/halftone-h.png";
+
+/**
+ * 背景预设。
+ *
+ * id 同时是 CSS 里 `[data-bg="…"]` 的名字——预览块和真正那层背景用的是同一套声明，
+ * 所以这里改一个名字，两处一起变。都是程序画的，不加图片素材。
+ */
+export const BACKGROUND_PRESETS = [
+  { id: "dots", label: "半调" },
+  { id: "dusk", label: "暮色" },
+  { id: "grid", label: "坐标纸" },
+] as const;
+
+/** 相册选的那张是 data URL；预设像 / 预设背景是短 id。 */
+export function isCustomImage(value: string): boolean {
+  return value.startsWith("data:image/");
+}
+
+/** 当前的脸的地址（4 处头像渲染只认这一个函数）。 */
+export function faceSrc(s: Settings): string {
+  return isCustomImage(s.avatar) ? s.avatar : PRESET_FACE_SRC;
+}
+
+/**
+ * 当前该画哪张背景。
+ *
+ * 按会话时：这条会话单独设过就用它的（`""` 也算设过 = 这条不设），
+ * 没设过（null）就落到全局——新会话天然继承全局。
+ */
+export function backgroundOf(s: Settings, sessionBackground: string | null): string {
+  return s.backgroundScope === "session" && sessionBackground !== null ? sessionBackground : s.chatBackground;
+}
+
+/** 背景值 → CSS 的 data-bg（none / custom / 预设 id）。 */
+export function backgroundKind(value: string): string {
+  if (!value) return "none";
+  return isCustomImage(value) ? "custom" : value;
+}
+
+/** 「按会话」的覆盖表：sessionId → 背景值。存在 kv，不往 Session 协议里加字段。 */
+export const SESSION_BACKGROUND_KEY = "sessions.background";
 
 /** 这一轮实际用的预算（心情 / 复核 / 上下文 / 种子 / 工具轮 / 长图分段）。 */
 export function budgetOf(s: Settings) {
