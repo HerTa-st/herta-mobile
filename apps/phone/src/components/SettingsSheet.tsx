@@ -2,7 +2,10 @@ import { CHEAP_LIMITS, formatTokens } from "@herta/core";
 import { faceSrc, type Settings } from "../settings.ts";
 import type { StickerRecord } from "../storage.ts";
 import { APP_VERSION } from "../theme/version.ts";
+import { useEffect } from "react";
 import { useUsageToday } from "../hooks/useUsageToday.ts";
+import { useUpdate } from "../hooks/useUpdate.ts";
+import { ensureUpdateChecked } from "../update/store.ts";
 import "../styles/settings-suite.css";
 
 /**
@@ -67,6 +70,7 @@ export function SettingsSheet({
   onOpenAppearance,
   onOpenTheme,
   onOpenUsage,
+  onOpenUpdate,
   onOpenSponsors,
   onOpenDevs,
   onOpenIssues,
@@ -90,6 +94,7 @@ export function SettingsSheet({
   onOpenTheme(): void;
   /** B14：用量明细整屏页（就地——用量属于「连接」这件事）。 */
   onOpenUsage(): void;
+  onOpenUpdate(): void;
   /** B13：关于三页各自压栈，返回键回到这一层设置。 */
   onOpenSponsors(): void;
   onOpenDevs(): void;
@@ -100,6 +105,11 @@ export function SettingsSheet({
   themeName: string;
 }) {
   const usage = useUsageToday();
+  const update = useUpdate();
+  /** 进设置时顺手看一眼——六小时内不会再发请求（启动那一次已经强制拉过了）。 */
+  useEffect(() => {
+    void ensureUpdateChecked();
+  }, []);
   const capCount = CAP_KEYS.filter((key) => settings[key]).length;
   const capHint = capCount > 0 ? capCount + " 项开着" : "全关着";
 
@@ -382,13 +392,25 @@ export function SettingsSheet({
               <Icon d={ICON.chevron} size={13} />
             </span>
           </button>
-          <div className="ss-row">
+          <button type="button" className="ss-row ss-rowTap" onClick={onOpenUpdate} data-part="version-row">
             <span className="ss-rowMain">
-              <b>版本号</b>
-              <small>打包时从 version.json 注入，不另存一份</small>
+              <b>
+                版本号
+                {update.verdict && <i className="ss-dot" aria-label="有新版本" role="img" />}
+              </b>
+              <small>
+                {update.verdict
+                  ? update.verdict.must
+                    ? "这版不能再往后拖了，点开看"
+                    : "有新版本了 · " + update.verdict.manifest.latest + "，点开看"
+                  : "打包时从 version.json 注入，不另存一份"}
+              </small>
             </span>
-            <span className="ss-rowValue">{APP_VERSION}</span>
-          </div>
+            <span className="ss-rowValue">
+              {APP_VERSION}
+              <Icon d={ICON.chevron} size={13} />
+            </span>
+          </button>
         </section>
 
         <p className="ss-hint">

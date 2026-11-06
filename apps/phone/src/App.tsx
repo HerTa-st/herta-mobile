@@ -45,6 +45,9 @@ import { SponsorsScreen } from "./components/SponsorsScreen.tsx";
 import { DevsScreen } from "./components/DevsScreen.tsx";
 import { IssuesScreen } from "./components/IssuesScreen.tsx";
 import { UsageScreen } from "./components/UsageScreen.tsx";
+import { UpdateSheet } from "./components/UpdateSheet.tsx";
+import { useUpdate } from "./hooks/useUpdate.ts";
+import { ensureUpdateChecked } from "./update/store.ts";
 import { FEEDBACK_FORM_URL } from "./credits.ts";
 import { StickerTray } from "./components/StickerTray.tsx";
 import { AttachTray } from "./components/AttachTray.tsx";
@@ -233,6 +236,23 @@ export function App() {
    * 页面只认 route 名；返回键、通知深链、主题都从这一处走。
    */
   const pages = usePageStack();
+  /** B16：版本检查的状态放在模块里，设置页和更新页共用这一份。 */
+  const updateCheck = useUpdate();
+  /**
+   * 启动两秒后静默问一次「有没有新版」。
+   *
+   * 刻意延后：启动那一秒里要跑主题、载入会话、接 NMS，多一个网络请求就是多一份
+   * 首屏抖动。拉不到也不留痕——这个检查从头到尾不该被看见。
+   *
+   * 启动这一次**绕开缓存**（force）：不然六小时内发的版，用户重开 App 也看不到红点，
+   * 那这个功能就等于没做。翻设置再拉才吃缓存（SettingsSheet 挂载时走缓存那条）。
+   */
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void ensureUpdateChecked({ force: true });
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, []);
   const [moodOpen, setMoodOpen] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -2411,6 +2431,7 @@ export function App() {
                 onOpenDevs={() => pages.push("devs")}
                 onOpenIssues={() => pages.push("issues")}
                 onOpenUsage={() => pages.push("usage")}
+                onOpenUpdate={() => pages.push("update")}
                 onOpenFeedback={openFeedback}
                 themeName={themes.find((theme) => theme.id === activeTheme)?.name ?? "内置"}
               />
@@ -2486,6 +2507,21 @@ export function App() {
             );
           case "usage":
             return <UsageScreen key={key} onClose={() => pages.close("usage")} />;
+          case "update":
+            return (
+              <UpdateSheet
+                key={key}
+                current={APP_VERSION}
+                update={updateCheck}
+                onDownload={(url) => {
+                  void openLink(url).catch((openError) => {
+                    setError(openError instanceof Error ? openError.message : String(openError));
+                  });
+                }}
+                onRecheck={() => void ensureUpdateChecked({ force: true })}
+                onClose={() => pages.close("update")}
+              />
+            );
           case "backup":
             return (
               <BackupSheet

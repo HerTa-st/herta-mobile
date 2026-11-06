@@ -1,0 +1,6 @@
+{
+  "latest": "0.41.0",
+  "min": "0.38.0",
+  "url": "https://github.com/HerTa-st/herta-mobile/releases/latest/download/Herta.apk",
+  "note": "开发用的假清单：min 抬到 0.38.0，只为看「必须更新」那条分支。"
+}

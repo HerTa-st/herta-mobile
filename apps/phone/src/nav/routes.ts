@@ -24,6 +24,7 @@ export type RouteName =
   | "devs"
   | "issues"
   | "usage"
+  | "update"
   | "shot";
 
 export interface RouteDef {
@@ -54,6 +55,8 @@ export const ROUTES: Record<RouteName, RouteDef> = {
   issues: { label: "已知问题", fullscreen: true },
   // B14 今日用量：从设置的「连接」组压栈，和用量明细是同一件事（就地）。
   usage: { label: "今日用量", fullscreen: true },
+  // B16 版本更新：从设置「关于」组压栈，红点点进来就是这一页。
+  update: { label: "版本更新", fullscreen: true },
   shot: { label: "看图", fullscreen: true },
 };
 
