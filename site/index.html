@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Herta · 一个住在你手机里的她</title>
+<meta name="description" content="一个住在你手机里的她：会记事、会做梦、有自己的语气。Android 自建分发，会话与记忆都存在本机。">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Herta">
+<meta property="og:title" content="Herta · 一个住在你手机里的她">
+<meta property="og:description" content="一个住在你手机里的她：会记事、会做梦、有自己的语气。Android 自建分发，会话与记忆都存在本机。">
+<meta property="og:image" content="https://www.herta-st-gp.top/assets/og.png">
+<meta property="og:url" content="https://www.herta-st-gp.top/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Herta · 一个住在你手机里的她">
+<meta name="twitter:description" content="会记事、会做梦、有自己的语气。Android 自建分发，会话与记忆都存在本机。">
+<meta name="twitter:image" content="https://www.herta-st-gp.top/assets/og.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Herta 手机端：一个住在你手机里的她">
+<meta property="og:locale" content="zh_CN">
+<meta name="theme-color" content="#f7fafa">
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<div class="nav"><span class="brand"><span class="mark">H</span>HERTA</span><span class="spacer"></span><a href="index.html" style="color:var(--ink)">首页</a><a href="dsh/index.html">插件</a><a href="devs.html">开发人员</a><a href="sponsors.html">赞助</a><a href="issues.html">已知问题</a><a href="#" data-feedback data-fallback="/issues.html">反馈</a><a href="#" data-repo>GitHub</a></div>
+<div class="hero"><canvas id="flow"></canvas><div class="hero-inner">
+  <div class="eyebrow">Herta / Mobile</div>
+  <h1>HERTA</h1>
+  <p class="sub">一个住在你手机里的她。会记事、会做梦、会有自己的语气——不是套壳聊天框。</p>
+  <div class="cta">
+    <a class="btn primary" href="#" data-download>下载 APK</a>
+    <a class="btn" href="#" data-repo>看源代码</a>
+  </div>
+  <p class="hint">Android · 19.7 MB · v0.36.0 · 需要自备 DeepSeek API Key</p>
+</div></div>
+<section>
+  <h2>她不只是会回话</h2>
+  <p class="lead">左轨上是四个地方——对话、记忆、市场、播报。下面一个一个说。</p>
+  <div class="grid3">
+    <div class="card"><h3>记得住</h3><p>ep / sem / note 三层记忆 + 带权联想图。会衰减、会合并，也会被重新想起。</p></div>
+    <div class="card"><h3>睡一觉</h3><p>零成本浅睡做衰减去重；有空时深睡六个阶段把对话熬成记忆，还会重写「我说话的样子」。</p></div>
+    <div class="card"><h3>主动找你</h3><p>按自己的行踪与时机开口，一天最多两次，夜里不吵。</p></div>
+  </div>
+</section>
+<section>
+  <h2>四个模块</h2>
+  <p class="lead">四张界面：对话、记忆网络、黑塔币、播报。</p>
+<div class="mod">
+  <div class="feature">
+    <div class="f-fig"><img class="shot" src="assets/screens/app-chat.png" alt="Herta 对话界面：她说的话与页边的「想」" width="780" height="1688" loading="lazy" decoding="async"></div>
+    <div class="f-txt">
+      <span class="tag">01 / CONVERSATION</span>
+      <h3>对话 · 想与说是两件事</h3>
+      <p class="lead2">她说的话在你的屏幕上只占两种形态</p>
+      <p>「想」是页边批注，默认收成一行，点开才读；「说」才是正文。</p>
+      <p>聊天流里只有两种东西：你说的话、她说过的话。工具调用和过程全都不占正文，只在设置里留记录。</p>
+      <ul class="u">
+        <li>每句话下面一枚用量徽章，点开看这一轮花了多少、花在哪</li>
+        <li>长按消息可以复制、引用、单独重生成</li>
+        <li>她换头像之后，历史消息里的头像也跟着换</li>
+      </ul>
+    </div>
+  </div>
+</div>
+<div class="mod">
+  <div class="feature rev">
+    <div class="f-fig"><img class="shot" src="assets/screens/app-memory.png" alt="Herta 记忆网络：三层记忆与带权联想图" width="780" height="1688" loading="lazy" decoding="async"></div>
+    <div class="f-txt">
+      <span class="tag">02 / MEMORY</span>
+      <h3>记忆 · NMS</h3>
+      <p class="lead2">三层记忆，一张会衰减的网</p>
+      <p>记忆分 ep 情景 / sem 语义 / note 语气 三层，互相之间连成带权的联想图。用得多的会变重，放着不动的会衰减。</p>
+      <p>网络图铺满整屏，按层筛选；点一个节点，从底部浮起卡片读那一条——图不会消失，所以你还看得见它跟谁连着。</p>
+      <ul class="u">
+        <li>浅睡零成本：本地衰减、同标题去重、剪掉弱边</li>
+        <li>深睡六个阶段把待处理的对话熬成记忆（有网、有空、你不在的时候）</li>
+        <li>「我说话的样子」是她自己写的，你只能看</li>
+      </ul>
+    </div>
+  </div>
+</div>
+<div class="mod">
+  <div class="feature">
+    <div class="f-fig"><img class="shot" src="assets/screens/app-coin.png" alt="Herta 黑塔币行情、K 线与本地持仓" width="780" height="1688" loading="lazy" decoding="async"></div>
+    <div class="f-txt">
+      <span class="tag">03 / MARKET</span>
+      <h3>黑塔币 · 信用点</h3>
+      <p class="lead2">一个小市场，会亏，也会欠</p>
+      <p>HTC / 信用点，工作日开盘。行情是程序生成的虚构内容，别当真。</p>
+      <p>能做多也能做空，开仓上限是净资产的 3 倍。余额可以是负的——这里没有强平，但会被市场慢慢吃掉。</p>
+      <ul class="u">
+        <li>快讯挂在 K 线上：每条都对得上某一根分钟 K，点开就知道那根为什么放量</li>
+        <li>没有强平；爆了是你自己点「重开」，重开会留一条破产记录</li>
+        <li>排行榜有净资产榜，也有一张欠款榜</li>
+      </ul>
+    </div>
+  </div>
+</div>
+<div class="mod">
+  <div class="feature rev">
+    <div class="f-fig"><img class="shot" src="assets/screens/app-broadcast.png" alt="Herta 星际和平播报第 17 期" width="780" height="1688" loading="lazy" decoding="async"></div>
+    <div class="f-txt">
+      <span class="tag">04 / BROADCAST</span>
+      <h3>星际和平播报</h3>
+      <p class="lead2">一天一期，她自己写的评</p>
+      <p>每天一期，真新闻、能点回原文。每条后面跟一句她的判断或吐槽——不是摘要。</p>
+      <p>搜不到就明说，宁可少发。她不编新闻；偶尔出现的彩蛋会标清楚那是编的。</p>
+      <ul class="u">
+        <li>期号、历史期都在，往期可以翻</li>
+        <li>关注标签由你维护，她只建议不自动改</li>
+        <li>提醒时间到了会推一条，点进去就是当天那期</li>
+      </ul>
+    </div>
+  </div>
+</div>
+</section>
+<section id="server-stats" hidden>
+  <h2>全服行情</h2>
+  <p class="lead">真实接口，30 秒刷新。只读行情，不包含个人交易记录；接口不通时这段不出现。</p>
+  <div class="grid3">
+    <div class="card board-card"><div class="sub2">HTC / 信用点</div><div class="big" id="stat-price">—</div><div class="sub2" id="stat-change">—</div></div>
+    <div class="card board-card"><div class="sub2">今日成交量</div><div class="big" id="stat-volume">—</div><div class="sub2" id="stat-session">—</div></div>
+    <div class="card board-card"><div class="sub2">持仓榜前三</div><div class="sub2" style="margin-bottom:4px">按持仓市值</div><div id="stat-top"></div></div>
+  </div>
+  <p class="hint" id="stat-note">正在读共享市场接口…</p>
+</section>
+<section style="text-align:center">
+  <h2>装一个试试</h2>
+  <p class="lead" style="margin-left:auto;margin-right:auto">自建分发，不走应用商店。装完第一次打开会让你填一个 DeepSeek API Key——会话与记忆都存在本机；只有调用模型时，这一次请求的内容会发给 DeepSeek。</p>
+  <p><a class="btn primary" href="#" data-download>下载 APK</a> <a class="btn" href="dsh/index.html">装进 DSH 插件</a></p>
+  <p class="hint" style="word-break:break-all;max-width:640px;margin-left:auto;margin-right:auto">SHA256 ced91d5b2045a4247aafa9b9d8188953b7bd3b0009797cafe3329b156d610fa0</p>
+  <p class="hint">下载慢？走网盘备用：<span data-mirrors></span> · 同一个包，校验值相同</p>
+</section>
+<footer><span>Herta 手机端 · 自建分发</span><span class="spacer"></span><a href="devs.html">开发人员</a><a href="sponsors.html">赞助</a><span>本地优先</span><a href="issues.html">已知问题</a><a href="#" data-feedback data-fallback="/issues.html">反馈</a><a href="#" data-query>查询反馈</a></footer>
+<script src="assets/config.js"></script>
+<script src="assets/feedback.js"></script>
+<script src="assets/stats.js"></script>
+<script src="assets/flow.js"></script>
+</body>
+</html>

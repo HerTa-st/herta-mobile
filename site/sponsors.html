@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>赞助 · Herta</title>
+<meta name="description" content="Herta 的赞助名单与赞助方式。赞助是为了让她能继续更新下去。">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Herta">
+<meta property="og:title" content="赞助 · Herta">
+<meta property="og:description" content="Herta 的赞助名单与赞助方式。赞助是为了让她能继续更新下去。">
+<meta property="og:image" content="https://www.herta-st-gp.top/assets/og.png">
+<meta property="og:url" content="https://www.herta-st-gp.top/sponsors.html">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<div class="nav"><span class="brand"><span class="mark">H</span>HERTA</span><span class="spacer"></span><a href="index.html">首页</a><a href="dsh/index.html">插件</a><a href="devs.html">开发人员</a><a href="sponsors.html" style="color:var(--ink)">赞助</a><a href="issues.html">已知问题</a><a href="#" data-feedback data-fallback="/issues.html">反馈</a><a href="#" data-repo>GitHub</a></div>
+<section>
+  <h2>赞助名单</h2>
+  <p class="lead">她是你手机里一个不联网记账、不上报数据的小东西。想让她继续长下去，你可以在这里留一点钱——不留也没关系，给个 Star、提一条反馈，同样算。</p>
+  <p><button class="btn primary" id="open-sponsor">我要赞助</button> <span class="hint" style="margin-left:12px">微信 / 支付宝 · 赞助群</span></p>
+  <div class="month">2026 / 10</div>
+  <div class="names"><span class="name">还没有赞助名单</span></div>
+  <div class="month">2026 / 09</div>
+  <div class="names"><span class="name">更早的名单会按月归档</span></div>
+</section>
+<section>
+  <h2>怎么支持她</h2>
+  <div class="grid3">
+    <div class="card"><h3>留一点钱</h3><p>上面那个按钮。钱进不了她的记忆，但能让下一个月还有更新。</p></div>
+    <div class="card"><h3>给个 Star</h3><p>仓库地址在 GitHub。Star 是最便宜的投票。</p></div>
+    <div class="card"><h3>提一条反馈</h3><p>哪一步卡住了、哪里不像她，都算有效信息。</p></div>
+  </div>
+</section>
+
+<div class="modal" id="sponsor-modal" hidden>
+  <div class="modal-backdrop" data-close></div>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="m-title">
+    <button class="modal-x" data-close aria-label="关闭">×</button>
+    <h3 id="m-title">赞助她</h3>
+    <p class="modal-lead">两块也是钱，她记得。</p>
+    <div class="qr-row">
+      <figure><img src="assets/screens/qr-wechat.webp" alt="微信收款码"><figcaption>微信</figcaption></figure>
+      <figure><img src="assets/screens/qr-alipay.jpg" alt="支付宝收款码"><figcaption>支付宝</figcaption></figure>
+    </div>
+    <div class="group">
+      <span class="group-label">赞助群（QQ）</span>
+      <code class="mono" id="qq">1134762673</code>
+      <button class="btn small" id="copy-qq">复制群号</button>
+    </div>
+    <p class="modal-foot">赞助是为了让她能继续更新下去。赞助不等于任何授权，也不代表与版权方的任何关联。</p>
+  </div>
+</div>
+
+<footer><span>Herta 手机端 · 自建分发</span><span class="spacer"></span><a href="devs.html">开发人员</a><a href="sponsors.html">赞助</a><span>本地优先</span><a href="issues.html">已知问题</a><a href="#" data-feedback data-fallback="/issues.html">反馈</a><a href="#" data-query>查询反馈</a></footer>
+<script>
+(function () {
+  var modal = document.getElementById('sponsor-modal');
+  var openBtn = document.getElementById('open-sponsor');
+  var copyBtn = document.getElementById('copy-qq');
+  var qq = document.getElementById('qq');
+  function open() { modal.hidden = false; document.body.style.overflow = 'hidden'; copyBtn.focus(); }
+  function close() { modal.hidden = true; document.body.style.overflow = ''; openBtn.focus(); }
+  function toast(txt) { var old = copyBtn.textContent; copyBtn.textContent = txt; setTimeout(function () { copyBtn.textContent = old; }, 1400); }
+  function fallbackCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); toast('已复制'); } catch (e) { toast('复制失败'); }
+    document.body.removeChild(ta);
+  }
+  openBtn.addEventListener('click', open);
+  modal.addEventListener('click', function (e) { if (e.target.hasAttribute('data-close')) close(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !modal.hidden) close(); });
+  copyBtn.addEventListener('click', function () {
+    var text = qq.textContent.replace(/\s/g, '');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { toast('已复制'); }, function () { fallbackCopy(text); });
+    } else { fallbackCopy(text); }
+  });
+})();
+</script>
+<script src="assets/config.js"></script>
+<script src="assets/feedback.js"></script>
+</body>
+</html>

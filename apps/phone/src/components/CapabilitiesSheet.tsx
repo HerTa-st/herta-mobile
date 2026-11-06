@@ -402,10 +402,10 @@ export function CapabilitiesSheet({
             />
           </label>
           {fileNames.length > 0 ? (
-            <div className="ss-fileList" style={{ display: "flex", flexDirection: "column", gap: 4, margin: "2px 0 6px" }}>
+            <div className="ss-fileList">
               {fileNames.map((name) => (
-                <span className="ss-fileRow" key={name} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11 }}>
-                  <span className="ss-fileName" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={name}>
+                <span className="ss-fileRow" key={name}>
+                  <span className="ss-fileName" title={name}>
                     {name}
                   </span>
                   <button

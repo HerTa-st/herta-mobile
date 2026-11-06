@@ -1,0 +1,23 @@
+/* 插件站：安装命令块 */
+.cmd {
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  background: #0f1316; color: #e8eef1; border-radius: 14px;
+  padding: 14px 16px; margin: 0 0 10px; font-family: var(--mono); font-size: 13.5px;
+  box-shadow: var(--shadow-soft); overflow-x: auto;
+}
+.cmd .prompt { color: #6ee7ff; }
+.cmd .copy {
+  margin-left: auto; border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.06);
+  color: #e8eef1; border-radius: 999px; padding: 6px 13px; font-size: 12px; cursor: pointer;
+}
+.cmd .copy:hover { background: rgba(255,255,255,.12); }
+.alt { font-size: 13px; color: var(--muted); }
+.note {
+  border-left: 3px solid var(--accent); background: rgba(47,125,146,.06);
+  padding: 12px 16px; border-radius: 0 12px 12px 0; font-size: 13.5px; color: var(--ink-soft);
+}
+.warn {
+  border-left: 3px solid #b4763a; background: rgba(180,118,58,.07);
+  padding: 12px 16px; border-radius: 0 12px 12px 0; font-size: 13.5px; color: var(--ink-soft);
+}
+.legal { font-size: 12.5px; color: var(--muted); line-height: 1.75; }

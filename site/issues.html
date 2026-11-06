@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>已知问题 · Herta</title>
+<meta name="description" content="Herta 手机端的已知问题清单：扫描件 PDF 无 OCR、老格式读不了、旧 WebView 抽不出字等，以及反馈入口。">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Herta">
+<meta property="og:title" content="已知问题 · Herta">
+<meta property="og:description" content="Herta 手机端的已知问题清单：扫描件 PDF 无 OCR、老格式读不了、旧 WebView 抽不出字等，以及反馈入口。">
+<meta property="og:image" content="https://www.herta-st-gp.top/assets/og.png">
+<meta property="og:url" content="https://www.herta-st-gp.top/issues.html">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<div class="nav"><span class="brand"><span class="mark">H</span>HERTA</span><span class="spacer"></span><a href="index.html">首页</a><a href="dsh/index.html">插件</a><a href="devs.html">开发人员</a><a href="sponsors.html">赞助</a><a href="issues.html" style="color:var(--ink)">已知问题</a><a href="#" data-feedback data-fallback="/issues.html">反馈</a><a href="#" data-repo>GitHub</a></div>
+<section>
+  <h2>已知问题</h2>
+  <p class="lead">这些是<b>还没修</b>的，不是你操作错了。反馈之前先看一眼，能省你我时间。</p>
+  <div class="card" style="padding:8px 24px">
+    <table class="layers">
+      <tr><th>现象</th><th>原因 / 现状</th></tr>
+      <tr><td><b>扫描件 PDF 抽不出字</b></td><td>只抽文字层，没做 OCR。扫描件里没有文字，出来就是空的——这不是 bug，是没做的功能。</td></tr>
+      <tr><td><b>老版 .doc / .xls / .ppt、压缩包读不了</b></td><td>只支持 .docx / .xlsx / .pptx；二进制老格式与压缩包会明确说读不了。</td></tr>
+      <tr><td><b>PDF 抽字在旧手机上失败</b></td><td>pdf.js 要求较新的 Android System WebView（约 Chrome 119 以上）。提示更新 WebView 即可，不影响图片与文本。</td></tr>
+      <tr><td><b>低端机上开屏 / 记忆网络掉帧</b></td><td>还没在低端机上实测过帧率。真机卡顿请告诉我机型。</td></tr>
+      <tr><td><b>切后台久了，深睡没跑</b></td><td>深睡依赖 WebView 活着。系统杀进程或关掉常驻服务时不保证——这是 Android 的限制，不是遗漏。</td></tr>
+      <tr><td><b>备份包恢复后「她能读的文件」没了</b></td><td>备份不带能读的文件，只带会话、记忆、表情、设置。</td></tr>
+      <tr><td><b>历史消息里的表情变成「（表情已删）」</b></td><td>表情块存的是引用不是图，删了库里的原图就会这样。</td></tr>
+      <tr><td><b>没有 iOS 版</b></td><td>只有 Android。</td></tr>
+      <tr><td><b>没填 API Key 就什么都聊不了</b></td><td>她跑在你自己的 Key 上。没填时界面会显示「她还没接上」，记忆、币、备份仍然能用。</td></tr>
+    </table>
+  </div>
+  <p style="margin-top:26px"><a class="btn primary" href="#" data-feedback data-fallback="/issues.html">还是没解决，去反馈</a> <a class="btn" href="#" data-query>查我提交过的</a></p>
+  <p class="hint">反馈时请带上：手机型号、Android 版本、App 版本号，以及你做了什么才出现的。</p>
+</section>
+<footer><span>Herta 手机端 · 自建分发</span><span class="spacer"></span><a href="issues.html">已知问题</a><a href="#" data-feedback data-fallback="/issues.html">反馈</a><a href="#" data-query>查询反馈</a><a href="devs.html">开发人员</a><a href="sponsors.html">赞助</a></footer>
+<script src="assets/config.js"></script>
+<script src="assets/feedback.js"></script>
+</body>
+</html>

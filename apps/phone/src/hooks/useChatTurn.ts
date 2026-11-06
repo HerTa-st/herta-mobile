@@ -75,6 +75,16 @@ const TOOL_LABEL: Record<string, string> = {
   tap: "点了一下",
 };
 
+/**
+ * 交给复核的「这一轮查到的回执」：就是 toolNotes 里那几行（"看了时间：…"）。
+ *
+ * 复核在工具循环之后调，所以到那时 toolNotes 已经是这一轮的全部；
+ * 每审一遍都现取一次，重说之后再审也还是照当时手上的回执来。
+ * 长度上限不在这里裁——core 的 clipToolReceipts 管（每条 500、合计 2000）。
+ */
+const receiptLines = (notes: readonly Block[]): string[] =>
+  notes.flatMap((note) => (note.kind === "system" ? [note.body] : []));
+
 type TurnAttachment = { mediaType: string; data: string; name?: string };
 
 /**
@@ -482,6 +492,9 @@ export function useChatTurn(opts: {
                 feianFewShots: [],
                 lang: "zh",
                 currentState: thisMood,
+                // 复核以前只看回合开始前的历史，本轮查到的结果它看不见——
+                // 于是"查了时间又说错"抓不到。把截至此刻的工具回执一并交给它。
+                toolReceipts: receiptLines(toolNotes),
                 recentRecord: trimForContext(history.blocks, 12),
                 currentTurnThought: thought,
                 candidateSpeech: speech,

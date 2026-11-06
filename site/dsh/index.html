@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dsh-herta · 把 Herta 装进 DeepSeek Harness</title>
+<meta name="description" content="把 Herta 装进 DeepSeek Harness：人格、记忆、语音、界面四层，一条命令装完。">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Herta">
+<meta property="og:title" content="dsh-herta · 把 Herta 装进 DeepSeek Harness">
+<meta property="og:description" content="把 Herta 装进 DeepSeek Harness：人格、记忆、语音、界面四层，一条命令装完。">
+<meta property="og:image" content="https://www.herta-st-gp.top/assets/og.png">
+<meta property="og:url" content="https://www.herta-st-gp.top/dsh/">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" href="../assets/favicon.png">
+<link rel="stylesheet" href="../assets/styles.css">
+<link rel="stylesheet" href="dsh.css">
+</head>
+<body>
+<div class="nav"><span class="brand"><span class="mark">H</span>HERTA</span><span class="spacer"></span><a href="../index.html">手机端</a><a href="index.html" style="color:var(--ink)">插件</a><a href="devs.html">开发人员</a><a href="../issues.html">已知问题</a><a href="#" data-feedback data-fallback="/issues.html">反馈</a><a href="#" data-repo>GitHub</a></div>
+<div class="hero" style="min-height:74vh"><canvas id="flow"></canvas><div class="hero-inner">
+  <div class="eyebrow">dsh-herta / DSH Plugin</div>
+  <h1 style="font-size:clamp(30px,6vw,56px);letter-spacing:-.01em">把 Herta 装进<br>DeepSeek Harness</h1>
+  <p class="sub">她的人格、记忆、声音、界面——四层都装进你的 DSH。一条命令，或者在市场里搜 <b>herta</b>。</p>
+  <div style="max-width:560px;margin:0 auto">
+    <div class="cmd"><span class="prompt">$</span><span id="cmd-text">dsh plugin --profile desktop add dsh-herta</span><button class="copy" id="copy-cmd">复制</button></div>
+    <p class="alt" style="text-align:left">装完要<b>关窗重开</b>——bundle 是启动期挂载的。独立安装用 <span class="mono">--profile web</span>。</p>
+  </div>
+</div></div>
+<section>
+  <h2>四层，各自独立可验</h2>
+  <p class="lead">不是「换了个 prompt」。四层分开做、分开能验证。</p>
+  <div class="card" style="padding:6px 22px">
+    <table class="layers">
+      <tr><th>层</th><th>内容</th><th>落在哪</th></tr>
+      <tr><td><b>A 身份</b></td><td>HertaBio 逐字作人格前缀，外加重写的处境与纪律</td><td>agent preset</td></tr>
+      <tr><td><b>B 记忆</b></td><td>记忆货架作动态提示词段；记忆与做梦的工具</td><td>preset 行</td></tr>
+      <tr><td><b>C 语音</b></td><td>80 条她本人的语音（开场白 / 语气词 / 自我收回 / 彩蛋）</td><td>静态路由 + client</td></tr>
+      <tr><td><b>D 界面</b></td><td>用她的组件渲染 DSH 会话；配色与 ASCII 开场来自主题包</td><td>conversation.view</td></tr>
+    </table>
+  </div>
+</section>
+<section>
+  <h2>装之前先看兼容</h2>
+  <div class="warn">面向 DSH <b>0.1.7-rc.1 ~ 0.3.0</b>（0.2.1-rc.2 实测）。DSH 的 agent preset、设置域、会话格式在 0.1.5→0.1.7 之间都是破坏性变更，低版本装不上是正常的。</div>
+</section>
+<section>
+  <h2>装它的另外两条路</h2>
+  <div class="grid3">
+    <div class="card"><h3>插件市场</h3><p>已收录进上游精选目录（PR #5946）。DSH 里搜 <b>herta</b> 就能一键装。</p></div>
+    <div class="card"><h3>npm</h3><p>包名 <span class="mono">dsh-herta</span>。目录里那个 install 字段是模板生成的，桌面应用要换成 <span class="mono">desktop</span>。</p></div>
+    <div class="card"><h3>本地目录</h3><p>开发者用 <span class="mono">file:</span> 装本仓库；桌面应用走内置的 plugin_manager。</p></div>
+  </div>
+</section>
+<section>
+  <h2>关于这个项目，先说清楚</h2>
+  <p class="legal">本项目是<b>基于原作者项目所做的第三方改造</b>，不是原创作品。原作者项目「Herta」见 <a href="https://www.herta-ai.com/#research" target="_blank" rel="noreferrer">herta-ai.com</a>。本项目由第三方独立开发，<b>与原作者无任何隶属、合作或背书关系</b>。</p>
+  <p class="legal">「Herta / 黑塔」是 HoYoverse《崩坏：星穹铁道》中的角色；上游项目本身即为非官方同人作品，本项目同样是非官方同人作品，与 HoYoverse / miHoYo / Cognosphere <b>无关联、未获其背书或赞助</b>。</p>
+  <p class="legal">插件代码（<span class="mono">src/</span>、<span class="mono">lib/</span>、<span class="mono">scripts/</span>、Cordis 配置）采用 MIT。<b>语音资产与人设语料不在 MIT 范围内</b>，权利归米哈游及各自所有者；已按《崩坏：星穹铁道》同人衍生作品创作指引 V2.0 第三条放置法律声明后收录，<b>仅限非商业使用，且不得作为独立素材包再分发</b>。</p>
+</section>
+<section>
+  <h2>赞助</h2>
+  <p class="lead">赞助是为了让这个项目能持续更新下去：修兼容、跟版本、补文档，都要时间。</p>
+  <div class="note"><b>赞助不等于授权。</b>它不购买任何素材使用权，不构成商业许可，也不代表与原作者或版权方的任何关联或背书。素材的授权边界始终以上面的声明为准。</div>
+  <p style="margin-top:18px"><a class="btn primary" href="../sponsors.html">去赞助页</a></p>
+</section>
+<footer><span>dsh-herta · 第三方改造 · 非官方同人</span><span class="spacer"></span><a href="../index.html">手机端</a><a href="devs.html">开发人员</a><a href="../sponsors.html">赞助</a><a href="../issues.html">已知问题</a><a href="#" data-feedback data-fallback="/issues.html">反馈</a><a href="#" data-query>查询反馈</a></footer>
+<script src="../assets/config.js"></script>
+<script src="../assets/feedback.js"></script>
+<script src="../assets/flow.js"></script>
+<script>
+(function () {
+  var btn = document.getElementById('copy-cmd');
+  var txt = document.getElementById('cmd-text');
+  function toast(t) { var o = btn.textContent; btn.textContent = t; setTimeout(function () { btn.textContent = o; }, 1400); }
+  btn.addEventListener('click', function () {
+    var s = txt.textContent.trim();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(s).then(function () { toast('已复制'); }, fb);
+    } else { fb(); }
+    function fb() {
+      var ta = document.createElement('textarea');
+      ta.value = s; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); toast('已复制'); } catch (e) { toast('复制失败'); }
+      document.body.removeChild(ta);
+    }
+  });
+})();
+</script>
+</body>
+</html>

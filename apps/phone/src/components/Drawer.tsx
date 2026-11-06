@@ -205,7 +205,6 @@ export function Drawer(props: DrawerProps) {
                     <input
                       type="checkbox"
                       className="pick"
-                      style={{ width: 14, height: 14, margin: "0 2px 0 6px", flex: "none" }}
                       checked={isSelected}
                       onChange={() => toggleSelected(s.id)}
                       aria-label={"选中「" + s.title + "」"}
@@ -241,16 +240,15 @@ export function Drawer(props: DrawerProps) {
                     aria-expanded={isMenu}
                   >
                     <span className="st">
-                      {pinned && <span className="pin" aria-label="已置顶" style={{ color: "var(--accent)" }}>◇ </span>}
+                      {pinned && (
+                        <span className="pin" aria-label="已置顶">
+                          ◇{" "}
+                        </span>
+                      )}
                       {s.title}
                     </span>
-                    {sought.has(s.id) && (
-                      <span
-                        role="img"
-                        aria-label="她找过你"
-                        style={{ flex: "none", width: 7, height: 7, borderRadius: "50%", background: "#d96a7a" }}
-                      />
-                    )}
+                    {/* 她找过我：同一个红点，抽屉里也用它（样式在 styles.css） */}
+                    {sought.has(s.id) && <span role="img" className="broadcastEntryDot" aria-label="她找过你" />}
                     <span className="sm">{s.origin === "import" ? "导入" : s.blocks + " 块"}</span>
                   </button>
                   {!selecting && (
@@ -265,12 +263,11 @@ export function Drawer(props: DrawerProps) {
                     )}
 
                   {isMenu && (
-                    <div className="sessionMenu" role="menu" style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "4px 8px 6px 26px" }} aria-label={"「" + s.title + "」的操作"}>
+                    <div className="sessionMenu" role="menu" aria-label={"「" + s.title + "」的操作"}>
                       {renaming ? (
-                        <div className="renameRow" style={{ display: "flex", gap: 6, width: "100%" }}>
+                        <div className="renameRow">
                           <input
                             className="renameInput"
-                            style={{ flex: 1, minWidth: 0, fontSize: 11 }}
                             value={draftTitle}
                             autoFocus
                             onChange={(e) => setDraftTitle(e.target.value)}
@@ -308,7 +305,7 @@ export function Drawer(props: DrawerProps) {
           </ul>
 
           {selecting && (
-            <div className="multiBar" role="toolbar" style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", fontSize: 11, color: "var(--muted)" }} aria-label="多选删除">
+            <div className="multiBar" role="toolbar" aria-label="多选删除">
               <span>已选 {selected.length}</span>
               <button type="button" className="danger" disabled={selected.length === 0} onClick={() => { actions.removeSessions(selected); setSelecting(false); setSelected([]); }}>
                 删除选中

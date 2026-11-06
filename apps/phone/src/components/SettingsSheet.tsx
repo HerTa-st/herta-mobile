@@ -262,10 +262,9 @@ export function SettingsSheet({
                 {CHEAP_LIMITS.imagePieces} 段、工具 ≤ {CHEAP_LIMITS.toolRounds} 轮
               </small>
             </span>
-            <span style={{ display: "flex", alignItems: "center", gap: 6, flex: "none" }}>
+            <span className="ss-tokenCtl">
               <input
-                className="ss-input"
-                style={{ width: 54 }}
+                className="ss-input ss-inputNum"
                 type="number"
                 aria-label="每轮带多少块历史"
                 title="每轮带多少块历史"
@@ -335,16 +334,16 @@ export function SettingsSheet({
               </small>
             </span>
           </div>
-          <p className="ss-links" style={{ display: "flex", gap: 8, alignItems: "center", margin: "6px 2px 0", fontSize: 11, color: "var(--muted)" }}>
-            <button type="button" className="ss-linkBtn" style={{ border: 0, background: "none", padding: 0, font: "inherit", color: "var(--accent)", cursor: "pointer" }} onClick={onOpenToolLog}>
+          <p className="ss-links">
+            <button type="button" className="ss-linkBtn" onClick={onOpenToolLog}>
               工具调用记录
             </button>
             <i>·</i>
-            <button type="button" className="ss-linkBtn" style={{ border: 0, background: "none", padding: 0, font: "inherit", color: "var(--accent)", cursor: "pointer" }} onClick={onReplayOnboarding}>
+            <button type="button" className="ss-linkBtn" onClick={onReplayOnboarding}>
               开屏与引导
             </button>
             <i>·</i>
-            <button type="button" className="ss-linkBtn" style={{ border: 0, background: "none", padding: 0, font: "inherit", color: "var(--accent)", cursor: "pointer" }} onClick={onOpenDesignSystem}>
+            <button type="button" className="ss-linkBtn" onClick={onOpenDesignSystem}>
               设计系统
             </button>
           </p>

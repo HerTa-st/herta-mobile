@@ -1,0 +1,24 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "oss:PutObject"
+      ],
+      "Resource": [
+        "acs:oss:*:*:herta-st-gp/*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "oss:GetBucketWebsite",
+        "oss:PutBucketWebsite"
+      ],
+      "Resource": [
+        "acs:oss:*:*:herta-st-gp"
+      ]
+    }
+  ]
+}
