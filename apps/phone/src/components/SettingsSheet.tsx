@@ -34,6 +34,7 @@ const ICON = {
   chevron: "M9 6l6 6-6 6",
   caps: "M12 3l7 3v5c0 4.5-2.8 7.8-7 10-4.2-2.2-7-5.5-7-10V6zM9 12l2 2 4-4",
   backup: "M4 7l8-3 8 3v10l-8 3-8-3zM4 7l8 3 8-3M12 10v10",
+  usage: "M7 20V10M12 20V4M17 20v-7",
 } as const;
 
 function Icon({ d, size = 16 }: { d: string; size?: number }) {
@@ -150,6 +151,16 @@ export function SettingsSheet({
             <Icon d={ICON.caps} size={16} />
             <b>她能做什么</b>
             <small>{capHint}</small>
+          </button>
+          <button type="button" className="ss-shortcut" onClick={onOpenBackup}>
+            <Icon d={ICON.backup} size={16} />
+            <b>备份与迁移</b>
+            <small>打包带走</small>
+          </button>
+          <button type="button" className="ss-shortcut" onClick={onOpenUsage}>
+            <Icon d={ICON.usage} size={16} />
+            <b>今日用量</b>
+            <small>{usage.calls > 0 ? formatTokens(usage.prompt + usage.completion) : "还没调用"}</small>
           </button>
         </div>
 

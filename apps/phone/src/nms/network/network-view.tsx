@@ -237,6 +237,28 @@ const NETWORK_CSS = `
   pointer-events: none;
   z-index: 2;
 }
+/* 嵌在记忆页卡片里：图例走画布下面一行，不压在节点标签上。 */
+.nmsnet-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 2px 0;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--muted, #8a97a3);
+}
+.nmsnet-foot-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; min-width: 0; }
+.nmsnet-foot-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.nmsnet-foot-item i { width: 6px; height: 6px; border-radius: 50%; display: block; flex: none; }
+.nmsnet-foot-line {
+  width: 14px;
+  height: 1px;
+  flex: none;
+  background: linear-gradient(90deg, rgba(111, 168, 173, 0.12), rgba(111, 168, 173, 0.7));
+}
+.nmsnet-foot-hint { flex: none; white-space: nowrap; }
 .nmsnet-detail {
   position: absolute;
   left: 10px;
@@ -628,7 +650,7 @@ export function NetworkView({
             visible
             compact={compact}
           >
-            {compact ? null : (
+            {compact || !safeArea ? null : (
               <div className="nmsnet-legend" aria-hidden="true">
                 {TIER_ORDER.map((tier) => {
                   const theme = NMS_TIER_THEME[tier];
@@ -645,7 +667,7 @@ export function NetworkView({
                 </div>
               </div>
             )}
-            {compact ? null : (
+            {compact || !safeArea ? null : (
               <div className="nmsnet-hint" aria-hidden="true">
                 {lod ? "精简视图" : "单指旋转 · 双指缩放"}
                 <br />
@@ -736,6 +758,26 @@ export function NetworkView({
             ) : null}
           </div>
         )}
+        {/* 嵌在记忆页卡片里时，图例和提示放到画布下面的一条里：叠在点阵上会和节点标签打架。 */}
+        {showCanvas && !compact && !safeArea ? (
+          <div className="nmsnet-foot">
+            <div className="nmsnet-foot-legend" aria-hidden="true">
+              {TIER_ORDER.map((tier) => (
+                <span className="nmsnet-foot-item" key={"foot-" + tier}>
+                  <i style={{ background: NMS_TIER_THEME[tier].color }} />
+                  {NMS_TIER_THEME[tier].name}
+                </span>
+              ))}
+              <span className="nmsnet-foot-item">
+                <em className="nmsnet-foot-line" />
+                关联强度
+              </span>
+            </div>
+            <span className="nmsnet-foot-hint" aria-hidden="true">
+              {lod ? "精简视图 · 点节点看详情" : "点节点看详情"}
+            </span>
+          </div>
+        ) : null}
       </div>
     </div>
   );

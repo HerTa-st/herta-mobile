@@ -576,12 +576,24 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
   const dragging = useRef(false);
   const hoverBar = hover !== null && hover >= 0 && hover < bars.length ? bars[hover] : null;
 
+  /** 挂载那一帧画布可能还是 0 高（页面刚压栈、flex 还没算完）；0 尺寸画一笔等于没画，
+      而之后不会再有依赖变化把画布叫醒——于是「不点一下图不出来」。这里排一帧重试。 */
+  const zeroSizeRetry = useRef(0);
+
   const paint = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const width = canvas.clientWidth;
     const height = canvas.clientHeight;
-    if (width <= 0 || height <= 0) return;
+    if (width <= 0 || height <= 0) {
+      if (!zeroSizeRetry.current) {
+        zeroSizeRetry.current = requestAnimationFrame(() => {
+          zeroSizeRetry.current = 0;
+          paintRef.current();
+        });
+      }
+      return;
+    }
     const dpr = Math.min(window.devicePixelRatio || 1, 3);
     const pixelWidth = Math.round(width * dpr);
     const pixelHeight = Math.round(height * dpr);
@@ -605,16 +617,25 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
 
   useEffect(() => {
     paintRef.current();
+    // 布局在挂载后一两帧才定：再排两帧补画，别指望用户点一下才出来。
+    const raf1 = requestAnimationFrame(() => paintRef.current());
+    const raf2 = requestAnimationFrame(() => requestAnimationFrame(() => paintRef.current()));
     const wrap = wrapRef.current;
+    const canvas = canvasRef.current;
     let observer: ResizeObserver | null = null;
-    if (wrap && typeof ResizeObserver === "function") {
+    if (typeof ResizeObserver === "function") {
       observer = new ResizeObserver(() => paintRef.current());
-      observer.observe(wrap);
+      if (wrap) observer.observe(wrap);
+      // 画布自己从 0 变出尺寸时也重画（包着它的容器尺寸可能一直没变过）。
+      if (canvas) observer.observe(canvas);
     }
     const onResize = () => paintRef.current();
     window.addEventListener("resize", onResize);
     window.addEventListener("orientationchange", onResize);
     return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      if (zeroSizeRetry.current) cancelAnimationFrame(zeroSizeRetry.current);
       observer?.disconnect();
       window.removeEventListener("resize", onResize);
       window.removeEventListener("orientationchange", onResize);
