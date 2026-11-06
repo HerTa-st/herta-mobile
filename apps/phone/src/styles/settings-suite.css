@@ -595,6 +595,39 @@
 .bk-pending .ss-kicker { display: block; }
 .bk-pending p { margin: 6px 0 10px; font-size: 9.5px; line-height: 1.65; color: var(--muted); }
 
+/* B15：恢复方式二选一 + 恢复报告。 */
+.bk-mode { display: grid; gap: 6px; margin: 4px 0 8px; }
+.bk-modeBtn {
+  display: grid;
+  gap: 2px;
+  padding: 9px 11px;
+  text-align: left;
+  border: 1px solid var(--ss-line, rgba(127, 127, 127, 0.22));
+  border-radius: 10px;
+  background: var(--ss-soft2, rgba(127, 127, 127, 0.06));
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.bk-modeBtn b { font-size: 10.5px; font-weight: 650; }
+.bk-modeBtn small { font-size: 9px; line-height: 1.5; color: var(--muted); }
+.bk-modeBtn.on { border-color: var(--accent, #7c5cff); box-shadow: inset 0 0 0 1px var(--accent, #7c5cff); }
+.bk-modeBtn.danger.on { border-color: #d9534f; box-shadow: inset 0 0 0 1px #d9534f; }
+.bk-modeBtn.danger.on b { color: #d9534f; }
+.bk-report { display: grid; gap: 2px; margin: 6px 0 10px; }
+.bk-reportRow {
+  display: grid;
+  grid-template-columns: 48px 1fr auto;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px dashed var(--ss-line, rgba(127, 127, 127, 0.18));
+  font-size: 10px;
+}
+.bk-reportRow:last-child { border-bottom: 0; }
+.bk-reportRow b { font-weight: 650; font-variant-numeric: tabular-nums; }
+.bk-reportRow small { font-size: 8.5px; color: var(--muted); text-align: right; }
+
 /* ---------------------------------------------------------------- 工具调用记录 */
 
 .tl-count { margin-top: 5px; font-size: 11px; color: var(--ink-soft); }

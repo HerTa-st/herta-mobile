@@ -10,7 +10,7 @@ import { buildReviewMessages, decideReview, vetoHints } from "../src/supervisor.
 import { EMPTY_TITLE, appendBlocks, createSession, deriveTitle, retractLastTurn, trimForContext } from "../src/session.ts";
 import { isUserTurn } from "../src/sticker.ts";
 import { bondLevel, daysSince, decideReply } from "../src/reply.ts";
-import { buildBackupBundle, formatSize, parseBackupBundle, planRestore } from "../src/backup.ts";
+import { BACKUP_VERSION, buildBackupBundle, formatSize, parseBackupBundle, planRestore } from "../src/backup.ts";
 import { MemoryInMemory, memoryFileName, memoryTitle, nextMemoryIndex } from "../src/memory.ts";
 import { extractJson, runDreamPass } from "../src/dream.ts";
 import { importSessionId, parseImportBundle, planImport, sessionFromImport } from "../src/import.ts";
@@ -1786,6 +1786,105 @@ test("备份：导入只加不覆盖，重复的跳过", () => {
   assert.equal(fresh.sessions.length, 1);
   assert.equal(fresh.memories.length, 1);
   assert.equal(fresh.stickers.length, 1);
+});
+
+test("备份 v3：文件跟着走，恢复时按名字去重", () => {
+  const files = [
+    { name: "设定.md", text: "她是黑塔。", at: "2026-11-01T00:00:00Z" },
+    { name: "旧案.txt", text: "第一份", at: "2026-11-02T00:00:00Z" },
+    { name: "旧案.txt", text: "第二份（同名只留这份）", at: "2026-11-03T00:00:00Z" },
+  ];
+  const { bundle, stats } = buildBackupBundle({ sessions: [sampleSession()], memories: [], files });
+  assert.equal(BACKUP_VERSION, 3, "加了文件块，版本要跟着抬");
+  assert.equal(stats.files, 2, "同名在包里就该只剩一份");
+
+  const parsed = parseBackupBundle(JSON.stringify(bundle));
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.bundle.files?.length, 2);
+  assert.equal(parsed.bundle.files?.find((f) => f.name === "旧案.txt")?.text, "第二份（同名只留这份）");
+  assert.equal(parsed.stats.files, 2);
+
+  const fresh = planRestore(parsed.bundle, { sessionIds: new Set(), memoryNames: new Set(), stickerIds: new Set() });
+  assert.equal(fresh.files.length, 2, "空机器上两份都进来");
+  const again = planRestore(parsed.bundle, {
+    sessionIds: new Set(),
+    memoryNames: new Set(),
+    stickerIds: new Set(),
+    fileNames: new Set(["设定.md"]),
+  });
+  assert.equal(again.files.length, 1, "同名的跳过");
+  assert.equal(again.skipped.files, 1);
+});
+
+test("备份 v3：老包（v1 / v2）照样读得进", () => {
+  const v1 = {
+    format: "herta-backup",
+    version: 1,
+    exportedAt: "2026-10-28T00:00:00Z",
+    sessions: [{ id: "s1", title: "旧", origin: "phone", createdAt: "", updatedAt: "", blocks: [{ kind: "user", text: "在吗", at: "2026-10-28T00:00:00Z" }] }],
+    memories: [],
+  };
+  const parsed1 = parseBackupBundle(JSON.stringify(v1));
+  assert.equal(parsed1.ok, true, "v1 包不能因为版本抬了就拒");
+  assert.equal(parsed1.bundle.files, undefined, "v1 没有文件块");
+
+  const v2 = {
+    ...v1,
+    version: 2,
+    nms: { nodes: [], edges: [] },
+    stickers: [],
+  };
+  const parsed2 = parseBackupBundle(JSON.stringify(v2));
+  assert.equal(parsed2.ok, true);
+  assert.notEqual(parsed2.bundle.nms, undefined, "v2 的 nms 快照要留着");
+
+  const v4 = { ...v1, version: 4 };
+  assert.equal(parseBackupBundle(JSON.stringify(v4)).ok, false, "未来的版本不硬吃");
+});
+
+test("备份：覆盖模式换掉同 id / 同名的，合并模式跳过", () => {
+  const { bundle } = buildBackupBundle({
+    sessions: [sampleSession()],
+    memories: [{ name: "m1", body: "包里的正文", createdAt: "" }],
+    files: [{ name: "设定.md", text: "包里的文件", at: "2026-11-01T00:00:00Z" }],
+  });
+  const existing = {
+    sessionIds: new Set(["s1"]),
+    memoryNames: new Set(["m1"]),
+    stickerIds: new Set(),
+    fileNames: new Set(["设定.md"]),
+  };
+  const merge = planRestore(bundle, existing, "merge");
+  assert.equal(merge.sessions.length, 0);
+  assert.equal(merge.overwritten.sessions, 0);
+  assert.equal(merge.skipped.sessions, 1);
+
+  const over = planRestore(bundle, existing, "overwrite");
+  assert.equal(over.sessions.length, 1, "覆盖要真的写");
+  assert.equal(over.overwritten.sessions, 1);
+  assert.equal(over.skipped.sessions, 0);
+  assert.equal(over.overwritten.memories, 1);
+  assert.equal(over.overwritten.files, 1);
+  assert.equal(over.memories[0].body, "包里的正文", "写的是包里那份");
+});
+
+test("备份：只带文件的包也拆得开", () => {
+  const bundle = {
+    format: "herta-backup",
+    version: 3,
+    exportedAt: "2026-11-06T00:00:00Z",
+    sessions: [],
+    memories: [],
+    files: [
+      { name: "a.md", text: "正文", at: "2026-11-06T00:00:00Z" },
+      { name: "", text: "没名字", at: "" },
+      { name: "空.md", text: "   ", at: "" },
+    ],
+  };
+  const parsed = parseBackupBundle(JSON.stringify(bundle));
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.bundle.files?.length, 1, "没名字 / 没正文的丢掉");
+  assert.equal(parsed.bundle.files?.[0].name, "a.md");
 });
 
 test("备份：大小说人话", () => {

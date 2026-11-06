@@ -99,14 +99,40 @@ export async function exportNmsBackup(): Promise<NmsBackupDump | null> {
   return { nodes, edges };
 }
 
-/** 恢复 NMS：只在新库为空时导入，返回是否写入。 */
-export async function restoreNmsBackup(raw: unknown): Promise<boolean> {
-  if (!Capacitor.isNativePlatform()) return false;
-  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return false;
+export interface NmsRestoreOutcome {
+  /** 动过没有。 */
+  wrote: boolean;
+  nodes: number;
+  edges: number;
+  /** 为什么没动：none / not_native / bad_dump / occupied（合并模式下本机已有记忆）。 */
+  reason: "ok" | "not_native" | "bad_dump" | "occupied" | "no_reset";
+}
+
+/**
+ * 恢复记忆网络。
+ *
+ * - `merge`（默认）：只在本机一条记忆都没有时导入。本机已有就不动——她可能已经在上面
+ *   长出新东西了，硬塞进去只会变成两套记忆。
+ * - `overwrite`：先 reset() 再全量导入（换机「覆盖本机」）。拿不到 reset 就退化成合并，
+ *   并把 reason 报回给调用方，别假装覆盖成功。
+ */
+export async function restoreNmsBackup(
+  raw: unknown,
+  mode: "merge" | "overwrite" = "merge"
+): Promise<NmsRestoreOutcome> {
+  const idle = (reason: NmsRestoreOutcome["reason"]): NmsRestoreOutcome => ({ wrote: false, nodes: 0, edges: 0, reason });
+  if (!Capacitor.isNativePlatform()) return idle("not_native");
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return idle("bad_dump");
   const dump = raw as Partial<NmsBackupDump>;
-  if (!Array.isArray(dump.nodes) || !Array.isArray(dump.edges)) return false;
+  if (!Array.isArray(dump.nodes) || !Array.isArray(dump.edges)) return idle("bad_dump");
   const active = await getNmsStore();
-  if ((await active.countNodes()) > 0) return false;
+
+  if (mode === "overwrite") {
+    if (typeof active.reset !== "function") return idle("no_reset");
+    await active.reset();
+  } else if ((await active.countNodes()) > 0) {
+    return idle("occupied");
+  }
 
   const idMap = new Map<number, number>();
   for (const node of dump.nodes) {
@@ -132,15 +158,17 @@ export async function restoreNmsBackup(raw: unknown): Promise<boolean> {
       history: node.history,
     });
   }
+  let edges = 0;
   for (const edge of dump.edges) {
     const a = idMap.get(edge.a);
     const b = idMap.get(edge.b);
     if (a === undefined || b === undefined || a === b) continue;
     await active.insertEdge(a, b, { strength: edge.strength, kind: edge.kind });
+    edges += 1;
   }
   // 备份同时带了旧 MemoryRecord；恢复后不要再让增量迁移把它们重复导一遍。
   await active.setMeta("legacy_migrated", "1");
-  return true;
+  return { wrote: true, nodes: idMap.size, edges, reason: "ok" };
 }
 
 /** 读快照（UI 刷新用）。 */

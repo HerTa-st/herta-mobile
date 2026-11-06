@@ -994,6 +994,17 @@ export function createMobileNmsStore(options: MobileNmsStoreOptions = {}): NmsSt
     }
   }
 
+  /**
+   * 换机「覆盖本机」时用：边先删（有外键引用），再删节点，最后清掉待处理回合——
+   * 那些回合属于旧会话，留着会在下次深睡时被当成新素材。
+   * meta 与 dream_runs 不动：迁移标记、睡眠账本不是「她的记忆」。
+   */
+  async function reset(): Promise<void> {
+    await run("DELETE FROM edges");
+    await run("DELETE FROM nodes");
+    await run("DELETE FROM pending_turns");
+  }
+
   async function close(): Promise<void> {
     if (openPromise !== null) {
       try {
@@ -1057,5 +1068,6 @@ export function createMobileNmsStore(options: MobileNmsStoreOptions = {}): NmsSt
     snapshot,
     countNodes,
     sizeBytes,
+    reset,
   };
 }

@@ -77,6 +77,22 @@ export function removeReadableFile(name: string): Promise<ReadableFileRecord[]> 
   return run;
 }
 
+/**
+ * 整库换掉（换机「覆盖本机」用）。
+ *
+ * 跟 removeReadableFile 一样走同一条串行链：正在加文件的那次写完才轮到这次，
+ * 不会出现「恢复时的数组把刚加的文件盖掉」。
+ */
+export function replaceReadableFiles(list: readonly ReadableFileRecord[]): Promise<ReadableFileRecord[]> {
+  const run = chain.then(async (): Promise<ReadableFileRecord[]> => {
+    const kept = trimTextFiles(list.filter(isRecord), READABLE_FILES_MAX_CHARS);
+    await setKV(KEY, kept);
+    return kept;
+  });
+  chain = run.catch(() => undefined);
+  return run;
+}
+
 /** 全清：她读过的文件不该只能增不能减，这是一条死路。 */
 export function clearReadableFiles(): Promise<ReadableFileRecord[]> {
   const run = chain.then(async (): Promise<ReadableFileRecord[]> => {
