@@ -628,6 +628,33 @@
 .bk-reportRow b { font-weight: 650; font-variant-numeric: tabular-nums; }
 .bk-reportRow small { font-size: 8.5px; color: var(--muted); text-align: right; }
 
+/* B16：版本更新页 + 设置里的红点。 */
+.ss-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: #e5484d;
+  vertical-align: 1px;
+}
+.up-pair { display: flex; align-items: flex-end; gap: 12px; margin: 6px 0 4px; }
+.up-pair small { display: block; font-size: 8.5px; color: var(--muted); margin-bottom: 2px; }
+.up-num {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.3px;
+  color: var(--ink);
+}
+.up-num.up-new { color: var(--accent, #7c5cff); }
+.up-arrow { font-size: 13px; color: var(--muted); padding-bottom: 4px; }
+.up-line { margin: 4px 0 0; font-size: 10px; color: var(--ink-soft, var(--muted)); }
+.up-note { margin: 6px 0 2px; font-size: 10.5px; line-height: 1.7; color: var(--ink); }
+.up-must { border-color: rgba(229, 72, 77, 0.4); }
+.up-must p { margin: 6px 0 2px; font-size: 10px; line-height: 1.7; color: var(--ink); }
+.up-must b { color: #e5484d; }
+
 /* ---------------------------------------------------------------- 工具调用记录 */
 
 .tl-count { margin-top: 5px; font-size: 11px; color: var(--ink-soft); }
