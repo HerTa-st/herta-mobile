@@ -1,0 +1,128 @@
+/* B14 今日用量：只读一页，沿用 settings-suite 的壳，这里只管数字怎么排。 */
+
+.us-totalCard {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px 12px;
+}
+
+.us-total {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.us-total > div {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--surface-2, rgba(127, 127, 127, 0.08));
+}
+
+.us-total small {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.us-total b {
+  font-size: 20px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+
+.us-totalNote {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.us-listCard {
+  padding-bottom: 6px;
+}
+
+.us-list {
+  display: grid;
+}
+
+.us-row {
+  position: relative;
+  display: grid;
+  gap: 5px;
+  padding: 10px 14px 12px;
+  border-top: 1px solid var(--line, rgba(127, 127, 127, 0.16));
+}
+
+.us-row:first-child {
+  border-top: 0;
+}
+
+.us-rowTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.us-rowName {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.us-rowName em {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.us-rowNum {
+  font-size: 11.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.us-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--line, rgba(127, 127, 127, 0.16));
+  overflow: hidden;
+}
+
+.us-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent, #7c5cff);
+  transition: width 0.3s ease;
+}
+
+.us-rowShare {
+  position: absolute;
+  right: 14px;
+  bottom: 2px;
+  font-size: 10px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.us-empty {
+  margin: 0;
+  padding: 18px 16px 22px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .us-bar i {
+    transition: none;
+  }
+}

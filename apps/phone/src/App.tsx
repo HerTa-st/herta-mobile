@@ -44,6 +44,7 @@ import { DesignSystemSheet } from "./components/DesignSystemSheet.tsx";
 import { SponsorsScreen } from "./components/SponsorsScreen.tsx";
 import { DevsScreen } from "./components/DevsScreen.tsx";
 import { IssuesScreen } from "./components/IssuesScreen.tsx";
+import { UsageScreen } from "./components/UsageScreen.tsx";
 import { FEEDBACK_FORM_URL } from "./credits.ts";
 import { StickerTray } from "./components/StickerTray.tsx";
 import { AttachTray } from "./components/AttachTray.tsx";
@@ -2409,6 +2410,7 @@ export function App() {
                 onOpenSponsors={() => pages.push("sponsors")}
                 onOpenDevs={() => pages.push("devs")}
                 onOpenIssues={() => pages.push("issues")}
+                onOpenUsage={() => pages.push("usage")}
                 onOpenFeedback={openFeedback}
                 themeName={themes.find((theme) => theme.id === activeTheme)?.name ?? "内置"}
               />
@@ -2482,6 +2484,8 @@ export function App() {
                 onOpenFeedback={openFeedback}
               />
             );
+          case "usage":
+            return <UsageScreen key={key} onClose={() => pages.close("usage")} />;
           case "backup":
             return (
               <BackupSheet

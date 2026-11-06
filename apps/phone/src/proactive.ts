@@ -25,7 +25,8 @@ import {
 } from "@herta/core";
 import { BrowserAssetSource } from "./assets-browser.ts";
 import { getKV, setKV } from "./storage.ts";
-import { collect } from "./stream.ts";
+import { collectDetailed } from "./stream.ts";
+import { recordUsageFrom } from "./usage-ledger.ts";
 import type { ChatTransport } from "./transport.ts";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { Capacitor } from "@capacitor/core";
@@ -161,7 +162,7 @@ export async function writePing(deps: PingDeps): Promise<string> {
 
   const transcript = serializeRecord(recent, { maxBlocks: 0 });
   try {
-    const raw = await collect(
+    const seen = await collectDetailed(
       deps.transport.stream({
         apiKey: deps.apiKey,
         baseUrl: deps.baseUrl,
@@ -173,6 +174,9 @@ export async function writePing(deps: PingDeps): Promise<string> {
         maxTokens: 300,
       })
     );
+    // B14：主动消息是你看不见的时候自己发的，更该进账
+    recordUsageFrom("proactive", seen.usage);
+    const raw = seen.text;
     const speech = parseNarrative(raw).speech || raw.trim();
     // 只留第一句、去掉标签残留：通知栏放不下三段
     const line = speech.replace(/\s+/g, " ").trim().slice(0, 120);

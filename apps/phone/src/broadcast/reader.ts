@@ -11,7 +11,8 @@ import {
   type BroadcastDigest,
   type BroadcastItem,
 } from "@herta/core";
-import { collect } from "../stream.ts";
+import { collectDetailed } from "../stream.ts";
+import { recordUsageFrom } from "../usage-ledger.ts";
 import { pickTransport, type ChatTransport } from "../transport.ts";
 import type { Settings } from "../settings.ts";
 
@@ -64,7 +65,7 @@ export async function readArticle(
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), TIMEOUT_MS);
     try {
-      raw = await collect(
+      const seen = await collectDetailed(
         transport.stream({
           apiKey: settings.apiKey,
           baseUrl: settings.baseUrl,
@@ -86,6 +87,9 @@ export async function readArticle(
           ],
         })
       );
+      // B14：读原文（把网页正文讲成一段话）单独一条链路
+      recordUsageFrom("reader", seen.usage);
+      raw = seen.text;
     } finally {
       clearTimeout(timer);
     }

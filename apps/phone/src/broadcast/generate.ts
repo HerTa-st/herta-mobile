@@ -18,7 +18,8 @@ import {
 } from "@herta/core";
 import { BrowserAssetSource } from "../assets-browser.ts";
 import type { Settings } from "../settings.ts";
-import { collect } from "../stream.ts";
+import { collectDetailed } from "../stream.ts";
+import { recordUsageFrom } from "../usage-ledger.ts";
 import { pickTransport, type ChatTransport } from "../transport.ts";
 
 export interface GeneratedBroadcast {
@@ -90,7 +91,7 @@ async function callModel(opts: {
             : ""),
       },
     ];
-    return await collect(
+    const seen = await collectDetailed(
       opts.transport.stream({
         apiKey: opts.settings.apiKey,
         baseUrl: opts.settings.baseUrl,
@@ -100,6 +101,9 @@ async function callModel(opts: {
         signal: ac.signal,
       })
     );
+    // B14：生成一期播报是实打实的一次长请求
+    recordUsageFrom("broadcast", seen.usage);
+    return seen.text;
   } finally {
     clearTimeout(timer);
   }
