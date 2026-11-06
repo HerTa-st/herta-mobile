@@ -96,7 +96,13 @@ node fc/coin-api/test/fc.test.mjs       # 必须全绿
 
    ```powershell
    cd fc/coin-api
-   Compress-Archive -Path index.js,coin-core.js,seeds.js,news-pool.js,package.json -DestinationPath ..\..\coin-api.zip -Force
+   Compress-Archive -Path index.js,coin-core.js,seeds.js,news-pool.js,market-v2.js,oss-state.js,package.json -DestinationPath ..\..\coin-api.zip -Force
+   ```
+
+   或者直接跑仓库里的打包脚本（自动校验七个文件齐全、输出去重后的 zip）：
+
+   ```powershell
+   & tools/pack-coin-api.ps1
    ```
 
 6. 部署后记下公网访问地址（形如 `https://<id>.<region>.fcapp.run`），接口地址就是
