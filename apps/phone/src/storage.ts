@@ -119,6 +119,31 @@ export async function deleteSession(id: string): Promise<void> {
   await tx(STORE_SESSIONS, "readwrite", (s) => s.delete(id));
 }
 
+/** 重命名会话：只改标题，消息与时间一点都不动。 */
+export async function renameSession(id: string, title: string): Promise<void> {
+  const session = await loadSession(id);
+  if (!session) return;
+  const next = title.trim();
+  if (!next || next === session.title) return;
+  await putSession({ ...session, title: next });
+}
+
+const PINNED_KEY = "sessions.pinned";
+
+/**
+ * 置顶会话的 id（按置顶先后）。
+ *
+ * 会话对象里不加字段：备份包、协议、老版本读到的会话都保持原样；
+ * 置顶只是这台手机上的一张顺序表。
+ */
+export async function loadPinnedSessions(): Promise<string[]> {
+  return (await getKV<string[]>(PINNED_KEY)) ?? [];
+}
+
+export async function savePinnedSessions(ids: string[]): Promise<void> {
+  await setKV(PINNED_KEY, ids);
+}
+
 /* -------------------------------------------------------------- 表情库 */
 
 /**
