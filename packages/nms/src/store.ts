@@ -67,6 +67,14 @@ export interface NmsStore {
   snapshot(options?: { now?: number }): Promise<NmsSnapshot>;
   countNodes(): Promise<number>;
   sizeBytes(): Promise<number>;
+
+  /**
+   * 清空节点 / 边 / 待处理回合（**不删库、不重置 meta**）。
+   *
+   * 只为一件事存在：换机时选「覆盖本机」，把旧的记忆网络换掉。
+   * 可选方法：内存假库不实现也能跑，拿不到就退化成合并。
+   */
+  reset?(): Promise<void>;
 }
 
 export class NmsStoreError extends Error {

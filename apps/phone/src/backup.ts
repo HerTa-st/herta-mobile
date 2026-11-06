@@ -11,12 +11,15 @@ import {
   formatSize,
   parseBackupBundle,
   planRestore,
+  type BackupFile,
   type BackupStats,
   type BackupSticker,
+  type RestoreMode,
 } from "@herta/core";
 import type { Session } from "@herta/protocol";
 import { IdbMemoryStore } from "./memory-idb.ts";
-import { exportNmsBackup, restoreNmsBackup } from "./nms/controller.ts";
+import { exportNmsBackup, restoreNmsBackup, type NmsRestoreOutcome } from "./nms/controller.ts";
+import { loadReadableFiles, replaceReadableFiles, saveReadableFile } from "./readable-files.ts";
 import { loadCoinWallet, saveCoinWallet } from "./coin/coin-storage.ts";
 import { listBroadcastIssues, saveBroadcastIssue } from "./broadcast/storage.ts";
 import type { Settings } from "./settings.ts";
@@ -61,7 +64,7 @@ export interface LocalBackup {
 /** 把这台手机上的家底打成一个包。 */
 export async function buildLocalBackup(
   settings: Settings,
-  opts: { withStickers: boolean; withSettings: boolean }
+  opts: { withStickers: boolean; withSettings: boolean; withFiles?: boolean }
 ): Promise<LocalBackup> {
   const metas = await listSessions();
   const loaded = await Promise.all(metas.map((m) => loadSession(m.id)));
@@ -70,6 +73,10 @@ export async function buildLocalBackup(
   const coin = await loadCoinWallet();
   const broadcast = await listBroadcastIssues();
   const nms = await exportNmsBackup();
+  // v3：她能读的文件。不带就是老样子（v1/v2 的包也没有这块）
+  const files: BackupFile[] = opts.withFiles
+    ? (await loadReadableFiles()).map((file) => ({ name: file.name, text: file.text, at: file.at }))
+    : [];
   const stickers: BackupSticker[] = opts.withStickers
     ? (await listStickers()).map((s) => ({
         id: s.id,
@@ -92,6 +99,7 @@ export async function buildLocalBackup(
     // 播报期也是单机的家当，换机跟着走
     ...(broadcast.length > 0 ? { broadcast } : {}),
     ...(nms ? { nms } : {}),
+    ...(files.length > 0 ? { files } : {}),
     from: "Herta 手机端",
   });
   return { json: JSON.stringify(bundle), filename: backupFilename(), stats };
@@ -120,11 +128,38 @@ export async function saveBackup(backup: LocalBackup): Promise<string> {
   return "存到了：" + res.path + "（" + formatSize(res.bytes) + "）";
 }
 
-export interface RestoreOutcome {
+/**
+ * 恢复完了给的那张报告：写了几条、换了几条、跳过几条，钱包和记忆网络各自怎么样。
+ * 数字全部来自 planRestore 与实际写入的返回值，不在这里另算一遍——两处都算迟早对不上。
+ */
+/**
+ * 恢复之前强制先存一份当前状态。
+ *
+ * 原生平台存进应用自己的外部目录（和「保存备份」同一条通道）；
+ * 浏览器（dev）里不落盘——那里没有应用目录，硬下载一个文件反而吓人，界面上会说清楚。
+ */
+export async function makeSafetyBackup(settings: Settings): Promise<{ where: string; filename: string }> {
+  const backup = await buildLocalBackup(settings, { withStickers: true, withSettings: true, withFiles: true });
+  const filename = backup.filename.replace("herta-backup-", "herta-safety-");
+  if (!Capacitor.isNativePlatform()) {
+    return { where: "浏览器里不落盘（真机上会存到应用目录）", filename };
+  }
+  const res = await HertaBackup.save({ filename, text: backup.json });
+  return { where: res.path + "（" + formatSize(res.bytes) + "）", filename };
+}
+
+export interface RestoreReport {
   stats: BackupStats;
   from?: string;
-  writes: { sessions: number; memories: number; stickers: number; broadcast: number; wallet: boolean };
-  skipped: { sessions: number; memories: number; stickers: number; broadcast: number };
+  mode: RestoreMode;
+  wrote: { sessions: number; memories: number; stickers: number; broadcast: number; files: number };
+  overwritten: { sessions: number; memories: number; stickers: number; broadcast: number; files: number };
+  skipped: { sessions: number; memories: number; stickers: number; broadcast: number; files: number };
+  wallet: "written" | "kept" | "absent";
+  /** 记忆网络：写没写、为什么没写。 */
+  nms: NmsRestoreOutcome | { wrote: false; nodes: 0; edges: 0; reason: "not_in_bundle" };
+  /** 包里有没有带文件（区分「一个文件都没带」和「带了 0 个」）。 */
+  hasFiles: boolean;
 }
 
 /** 拆包：读完先校验，确认之后再真正写库。 */
@@ -132,24 +167,36 @@ export async function readBackup(text: string) {
   return parseBackupBundle(text);
 }
 
-export async function restoreLocalBackup(text: string): Promise<RestoreOutcome> {
+/**
+ * 真正写库。
+ *
+ * `mode`：合并（默认，本机已有的跳过）/ 覆盖（换机「覆盖本机」，本机已有的换掉）。
+ * 覆盖是唯一会弄丢东西的路径，调用方必须先自动备一份当前状态（BackupSheet 的三步流程）。
+ */
+export async function restoreLocalBackup(text: string, mode: RestoreMode = "merge"): Promise<RestoreReport> {
   const parsed = parseBackupBundle(text);
   if (!parsed.ok) throw new Error(parsed.error);
 
-  const [metas, memories, stickers, issues] = await Promise.all([
+  const [metas, memories, stickers, issues, localFiles] = await Promise.all([
     listSessions(),
     store.list(),
     listStickers(),
     listBroadcastIssues(),
+    loadReadableFiles(),
   ]);
   const existingWallet = await loadCoinWallet();
-  const plan = planRestore(parsed.bundle, {
-    sessionIds: new Set(metas.map((m) => m.id)),
-    memoryNames: new Set(memories.map((m) => m.name)),
-    stickerIds: new Set(stickers.map((s) => s.id)),
-    broadcastIds: new Set(issues.map((i) => i.id)),
-    wallet: existingWallet !== null,
-  });
+  const plan = planRestore(
+    parsed.bundle,
+    {
+      sessionIds: new Set(metas.map((m) => m.id)),
+      memoryNames: new Set(memories.map((m) => m.name)),
+      stickerIds: new Set(stickers.map((s) => s.id)),
+      broadcastIds: new Set(issues.map((i) => i.id)),
+      wallet: existingWallet !== null,
+      fileNames: new Set(localFiles.map((f) => f.name)),
+    },
+    mode
+  );
 
   for (const s of plan.sessions) await putSession(s);
   for (const m of plan.memories) await store.write(m);
@@ -165,21 +212,39 @@ export async function restoreLocalBackup(text: string): Promise<RestoreOutcome> 
     });
   }
   for (const issue of plan.broadcast) await saveBroadcastIssue(issue);
-  // 本地没有钱包才写；有就不覆盖（币是单机的，覆盖等于把本地的抹掉）
+
+  // 文件：包里带了这一块才动本机的文件库。
+  // 合并 → 逐份并进去；覆盖 → 整库换成包里那份（本机独有的也换掉，这才叫覆盖）。
+  if (parsed.bundle.files !== undefined) {
+    if (mode === "overwrite") await replaceReadableFiles(plan.files);
+    else for (const file of plan.files) await saveReadableFile({ name: file.name, text: file.text, at: file.at });
+  }
+
+  // 钱包只有一个：合并时本机没有才写；覆盖时照包里的换（反正恢复前刚存过一份）。
+  const wallet: RestoreReport["wallet"] = plan.coin ? "written" : existingWallet !== null ? "kept" : "absent";
   if (plan.coin) await saveCoinWallet(plan.coin);
-  // v2 备份带 NMS 节点/边：新库为空时直接恢复；旧 v1 包没有这段，交给首启迁移。
-  if (parsed.bundle.nms !== undefined) await restoreNmsBackup(parsed.bundle.nms);
+
+  // 记忆网络：v2 起才带快照。没带的包不动它，报告里如实说「包里没有」。
+  const nms: RestoreReport["nms"] =
+    parsed.bundle.nms !== undefined
+      ? await restoreNmsBackup(parsed.bundle.nms, mode)
+      : { wrote: false, nodes: 0, edges: 0, reason: "not_in_bundle" };
 
   return {
     stats: parsed.stats,
     ...(parsed.bundle.from ? { from: parsed.bundle.from } : {}),
-    writes: {
+    mode,
+    wrote: {
       sessions: plan.sessions.length,
       memories: plan.memories.length,
       stickers: plan.stickers.length,
       broadcast: plan.broadcast.length,
-      wallet: plan.coin !== undefined,
+      files: plan.files.length,
     },
+    overwritten: plan.overwritten,
     skipped: plan.skipped,
+    wallet,
+    nms,
+    hasFiles: parsed.bundle.files !== undefined,
   };
 }

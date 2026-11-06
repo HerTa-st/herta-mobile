@@ -15,7 +15,7 @@ import type { BroadcastIssue, BroadcastItem } from "./broadcast.ts";
 
 export const BACKUP_FORMAT = "herta-backup";
 /** v1 = 旧 MemoryRecord 备份；v2 = 允许带 NMS 快照（当前先保留字段，恢复由 app 层迁移旧记忆）。 */
-export const BACKUP_VERSION = 2;
+export const BACKUP_VERSION = 3;
 
 /** 表情也一样要搬：表情块只存引用，不带图过去，历史里那几张就全变成「已删」。 */
 export interface BackupSticker {
@@ -45,6 +45,17 @@ export interface BackupCoinWallet {
   updatedAt: string;
 }
 
+/**
+ * 「她能读的文件」在包里的一份。字段与本地那份一致（name/text/at），
+ * 这样恢复时不用再翻译一层。**v3 才有**：v1/v2 包没有这一块，照旧读。
+ */
+export interface BackupFile {
+  name: string;
+  text: string;
+  /** 放进来的时间（ISO）。 */
+  at: string;
+}
+
 export interface BackupBundle {
   format: typeof BACKUP_FORMAT;
   version: number;
@@ -62,6 +73,8 @@ export interface BackupBundle {
   broadcast?: BroadcastIssue[];
   /** v2：NMS 快照（可选；没有时恢复旧 MemoryRecord 后再迁移）。 */
   nms?: unknown;
+  /** v3：她能读的文件（可选；不带就还是老样子）。 */
+  files?: BackupFile[];
 }
 
 export interface BackupStats {
@@ -71,6 +84,8 @@ export interface BackupStats {
   stickers: number;
   /** 播报期数（可选：旧包没有这一项）。 */
   broadcast?: number;
+  /** 带上来的文件数（可选：v3 之前没有这一项）。 */
+  files?: number;
   /** JSON 的字节数（按 UTF-8 算）。 */
   bytes: number;
 }
@@ -83,8 +98,21 @@ export interface BuildBackupInput {
   coin?: BackupCoinWallet;
   broadcast?: readonly BroadcastIssue[];
   nms?: unknown;
+  files?: readonly BackupFile[];
   from?: string;
   now?: Date;
+}
+
+/** 同名的只留最后一份：跟本地「同名覆盖」是同一条规矩，包里也不该出现两份。 */
+function dedupeFiles(list: readonly BackupFile[]): BackupFile[] {
+  const out: BackupFile[] = [];
+  for (const file of list) {
+    const same = out.findIndex((f) => f.name === file.name);
+    const record = { name: file.name, text: file.text, at: file.at };
+    if (same >= 0) out[same] = record;
+    else out.push(record);
+  }
+  return out;
 }
 
 function byteLength(text: string): number {
@@ -114,6 +142,7 @@ export function buildBackupBundle(input: BuildBackupInput): { bundle: BackupBund
       ? { broadcast: input.broadcast.map((issue) => ({ ...issue, items: issue.items.map((item) => ({ ...item })) })) }
       : {}),
     ...(input.nms !== undefined ? { nms: input.nms } : {}),
+    ...(input.files && input.files.length > 0 ? { files: dedupeFiles(input.files) } : {}),
   };
   const bytes = byteLength(JSON.stringify(bundle));
   return {
@@ -124,6 +153,7 @@ export function buildBackupBundle(input: BuildBackupInput): { bundle: BackupBund
       memories: bundle.memories.length,
       stickers: bundle.stickers?.length ?? 0,
       broadcast: bundle.broadcast?.length ?? 0,
+      files: bundle.files?.length ?? 0,
       bytes,
     },
   };
@@ -383,7 +413,23 @@ export function parseBackupBundle(raw: string): ParseBackupResult {
   const coin = sanitizeCoin(parsed.coin);
   const broadcast = sanitizeBroadcast(parsed.broadcast);
 
-  if (sessions.length === 0 && memories.length === 0 && broadcast.length === 0 && !coin) {
+  // v3 的文件块：名字和正文都得有；同名只留最后一份（跟本地那条「同名覆盖」一致）
+  const files: BackupFile[] = [];
+  if (Array.isArray(parsed.files)) {
+    for (const raw of parsed.files) {
+      if (!isRecord(raw)) continue;
+      const name = String(raw.name ?? "").trim();
+      const text = String(raw.text ?? "");
+      if (!name || !text.trim()) continue;
+      const at = String(raw.at ?? new Date().toISOString());
+      const same = files.findIndex((f) => f.name === name);
+      const record: BackupFile = { name, text, at };
+      if (same >= 0) files[same] = record;
+      else files.push(record);
+    }
+  }
+
+  if (sessions.length === 0 && memories.length === 0 && broadcast.length === 0 && files.length === 0 && !coin) {
     return { ok: false, error: "包里没有能用的会话或记忆" };
   }
 
@@ -399,6 +445,7 @@ export function parseBackupBundle(raw: string): ParseBackupResult {
     ...(coin ? { coin } : {}),
     ...(broadcast.length > 0 ? { broadcast } : {}),
     ...(isRecord(parsed.nms) ? { nms: parsed.nms } : {}),
+    ...(files.length > 0 ? { files } : {}),
   };
   return {
     ok: true,
@@ -409,10 +456,21 @@ export function parseBackupBundle(raw: string): ParseBackupResult {
       memories: memories.length,
       stickers: stickers.length,
       broadcast: broadcast.length,
+      files: files.length,
       bytes: byteLength(raw),
     },
   };
 }
+
+/**
+ * 恢复的两种脾气：
+ *   - `merge`：并进来，同 id / 同名的跳过（同一份包导两次不会出现两份）；
+ *   - `overwrite`：把这一台换成包里那一份，同 id / 同名的**覆盖**。
+ *
+ * 覆盖只在这一个地方发生，而且调用方必须先把当前状态导出一份（见 BackupSheet 的三步流程）——
+ * 这是整套东西里唯一一次「点错就把家弄丢」的地方。
+ */
+export type RestoreMode = "merge" | "overwrite";
 
 export interface RestoreExisting {
   sessionIds: ReadonlySet<string>;
@@ -420,8 +478,10 @@ export interface RestoreExisting {
   stickerIds: ReadonlySet<string>;
   /** 本机已经有的播报期 id（日期）；同一期不重复写。 */
   broadcastIds?: ReadonlySet<string>;
-  /** 本机已经有黑塔币钱包：不覆盖（钱包只有一个，覆盖等于把本地的币抹掉）。 */
+  /** 本机已经有黑塔币钱包：合并时不动它（钱包只有一个，覆盖等于把本地的币抹掉）。 */
   wallet?: boolean;
+  /** 本机已有的「她能读的文件」名字（v3）。 */
+  fileNames?: ReadonlySet<string>;
 }
 
 export interface RestorePlan {
@@ -429,51 +489,102 @@ export interface RestorePlan {
   memories: MemoryRecord[];
   stickers: BackupSticker[];
   broadcast: BroadcastIssue[];
+  files: BackupFile[];
   coin?: BackupCoinWallet;
-  skipped: { sessions: number; memories: number; stickers: number; broadcast: number };
+  /** 因为本机已有而**没有写**的条数（覆盖模式下恒为 0）。 */
+  skipped: { sessions: number; memories: number; stickers: number; broadcast: number; files: number };
+  /** 本机已有、这次被**覆盖**掉的条数（合并模式下恒为 0）。 */
+  overwritten: { sessions: number; memories: number; stickers: number; broadcast: number; files: number };
 }
 
 /**
  * 决定哪些该写进去。
  *
- * 同一份包导两次不该出现两份：会话按 id、记忆按文件名、表情按 id 去重。
- * 跳过就是跳过，不覆盖——她那边可能已经改过同名那条。
+ * 同一份包导两次不该出现两份：会话按 id、记忆按文件名、表情按 id、播报按期号去重。
+ * 合并模式跳过本机已有的；覆盖模式把它们换掉——两种都要如实数出「写了几条 / 换了几条 / 跳过几条」，
+ * 恢复完那张报告就是照这份算出来的。
  */
-export function planRestore(bundle: BackupBundle, existing: RestoreExisting): RestorePlan {
+export function planRestore(
+  bundle: BackupBundle,
+  existing: RestoreExisting,
+  mode: RestoreMode = "merge"
+): RestorePlan {
+  const overwrite = mode === "overwrite";
   const sessions: Session[] = [];
   const memories: MemoryRecord[] = [];
   const stickers: BackupSticker[] = [];
   const broadcast: BroadcastIssue[] = [];
+  const files: BackupFile[] = [];
   let skipS = 0;
   let skipM = 0;
   let skipK = 0;
   let skipB = 0;
+  let skipF = 0;
+  let overS = 0;
+  let overM = 0;
+  let overK = 0;
+  let overB = 0;
+  let overF = 0;
   const broadcastIds = existing.broadcastIds ?? new Set<string>();
+  const fileNames = existing.fileNames ?? new Set<string>();
 
   for (const s of bundle.sessions) {
-    if (existing.sessionIds.has(s.id)) skipS += 1;
-    else if (!sessions.some((x) => x.id === s.id)) sessions.push(s);
+    if (sessions.some((x) => x.id === s.id)) continue;
+    const here = existing.sessionIds.has(s.id);
+    if (here && !overwrite) skipS += 1;
+    else {
+      if (here) overS += 1;
+      sessions.push(s);
+    }
   }
   for (const m of bundle.memories) {
-    if (existing.memoryNames.has(m.name)) skipM += 1;
-    else if (!memories.some((x) => x.name === m.name)) memories.push(m);
+    if (memories.some((x) => x.name === m.name)) continue;
+    const here = existing.memoryNames.has(m.name);
+    if (here && !overwrite) skipM += 1;
+    else {
+      if (here) overM += 1;
+      memories.push(m);
+    }
   }
   for (const k of bundle.stickers ?? []) {
-    if (existing.stickerIds.has(k.id)) skipK += 1;
-    else if (!stickers.some((x) => x.id === k.id)) stickers.push(k);
+    if (stickers.some((x) => x.id === k.id)) continue;
+    const here = existing.stickerIds.has(k.id);
+    if (here && !overwrite) skipK += 1;
+    else {
+      if (here) overK += 1;
+      stickers.push(k);
+    }
   }
   for (const issue of bundle.broadcast ?? []) {
-    if (broadcastIds.has(issue.id)) skipB += 1;
-    else if (!broadcast.some((x) => x.id === issue.id)) broadcast.push(issue);
+    if (broadcast.some((x) => x.id === issue.id)) continue;
+    const here = broadcastIds.has(issue.id);
+    if (here && !overwrite) skipB += 1;
+    else {
+      if (here) overB += 1;
+      broadcast.push(issue);
+    }
   }
+  for (const f of bundle.files ?? []) {
+    if (files.some((x) => x.name === f.name)) continue;
+    const here = fileNames.has(f.name);
+    if (here && !overwrite) skipF += 1;
+    else {
+      if (here) overF += 1;
+      files.push(f);
+    }
+  }
+
+  const takeWallet = !!bundle.coin && (overwrite || !existing.wallet);
 
   return {
     sessions,
     memories,
     stickers,
     broadcast,
-    ...(bundle.coin && !existing.wallet ? { coin: { ...bundle.coin } } : {}),
-    skipped: { sessions: skipS, memories: skipM, stickers: skipK, broadcast: skipB },
+    files,
+    ...(takeWallet ? { coin: { ...bundle.coin! } } : {}),
+    skipped: { sessions: skipS, memories: skipM, stickers: skipK, broadcast: skipB, files: skipF },
+    overwritten: { sessions: overS, memories: overM, stickers: overK, broadcast: overB, files: overF },
   };
 }
 
