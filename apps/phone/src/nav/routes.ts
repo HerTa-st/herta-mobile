@@ -11,6 +11,7 @@ export type RouteName =
   | "broadcast"
   | "memory"
   | "memoryDetail"
+  | "memoryGraph"
   | "settings"
   | "capabilities"
   | "onboarding"
@@ -32,6 +33,7 @@ export const ROUTES: Record<RouteName, RouteDef> = {
   broadcast: { label: "星际和平播报", fullscreen: true },
   memory: { label: "记忆网络", fullscreen: true },
   memoryDetail: { label: "记忆全文", fullscreen: true },
+  memoryGraph: { label: "记忆网络全屏", fullscreen: true },
   settings: { label: "设置", fullscreen: true },
   capabilities: { label: "她能做什么", fullscreen: true },
   onboarding: { label: "首次引导", fullscreen: true },
