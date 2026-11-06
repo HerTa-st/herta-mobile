@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
 import type { Block, HertaBlock, ImportBundle, Session, UserBlock } from "@herta/protocol";
 import {
   appendBlocks,
@@ -63,6 +64,7 @@ import { IdbMemoryStore } from "./memory-idb.ts";
 import {
   deleteSession,
   deleteSticker,
+  getKV,
   listSessions,
   listStickers,
   loadPinnedSessions,
@@ -72,6 +74,7 @@ import {
   putSticker,
   renameSession,
   savePinnedSessions,
+  setKV,
   type SessionMeta,
   type StickerRecord,
 } from "./storage.ts";
@@ -107,6 +110,12 @@ function RailIcon({ d }: { d: string }) {
 /** 模型名里带这些的，当它自己能看图（deepseek-flash / 各家 VL）。 */
 const VISION_MODEL = /flash|vision|vl|omni/i;
 
+/**
+ * 老版本写下的工具旁白没有 hidden 标记，正文形如「（上网查了：…）」。
+ * 按这个形状认出来，聊天里同样不显示——「她看到了，没接话」这种没有冒号，不受影响。
+ */
+const LEGACY_TOOL_NOTE = /^（[^）]{1,48}：/;
+
 /** 文档格式的显示名：toast 里说「从 Word 抽出 1234 字」比说 docx 好懂。 */
 const DOC_LABEL: Record<DocumentFormat, string> = { pdf: "PDF", docx: "Word", pptx: "PPT", xlsx: "Excel" };
 
@@ -133,7 +142,19 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   /** 报错统一走这里：接口吐回来的 JSON 先翻成人话再上屏。 */
   const reportError = useCallback((message: string | null) => {
-    setError(message ? humanizeError(message) : null);
+    if (!message) {
+      setError(null);
+      return;
+    }
+    // 发送失败要能一眼看出「这句没出去」——humanizeError 会把前缀洗掉，这里补回来。
+    const prefix = "没发出去：";
+    if (message.startsWith(prefix)) {
+      const detail = humanizeError(message.slice(prefix.length));
+      const offline = /failed to fetch|fetch failed|networkerror|network request failed|load failed/i.test(detail);
+      setError(prefix + (offline ? "网络不通，检查一下再点「重发」。" : detail || "这一轮没发出去。"));
+      return;
+    }
+    setError(humanizeError(message));
   }, []);
   const {
     memories,
@@ -193,8 +214,19 @@ export function App() {
   const [stickers, setStickers] = useState<StickerRecord[]>([]);
   /** 表情面板：从输入框抽起来的一层 */
   const [showTray, setShowTray] = useState(false);
-  /** 回形针面板：拍照 / 选文件。和表情面板互斥，一次只抽一层。 */
+  /** 回形针面板：拍照 / 相册 / 文件，一层三选。和表情面板互斥，一次只抽一层。 */
   const [showAttach, setShowAttach] = useState(false);
+  /** 消息菜单：当前展开的是哪一块（块索引）。 */
+  const [menuIdx, setMenuIdx] = useState<number | null>(null);
+  /** 离开聊天页的次数：「想」靠它重新挂载，回来时恢复收起。 */
+  const [chatVisit, setChatVisit] = useState(0);
+  /** 她找过我：会话 id → 标点时间。只存本机 kv，不写进会话对象（同置顶）。 */
+  const [sought, setSought] = useState<Record<string, number>>({});
+  const soughtRef = useRef<Record<string, number>>({});
+  /** 相册：原生走相机插件的 Photos 源，浏览器退回文件选择。 */
+  const albumInputRef = useRef<HTMLInputElement | null>(null);
+  /** 可见性判断要读最新的抽屉状态。 */
+  const drawerRef = useRef(false);
   /** 一句话的回执（「存进表情箱了」）。她看不到控制台，这种小事也得说一声。 */
   const [toast, setToast] = useState<string | null>(null);
   /** 回形针的「选文件」：现在什么都收，按类型分流（图片 / 文本 / 其它）。 */
@@ -223,6 +255,18 @@ export function App() {
   const [atBottom, setAtBottom] = useState(true);
 
   useEffect(() => saveSettings(settings), [settings]);
+
+  /** 上一次的页面栈顶：从聊天页离开一次就加一，「想」回来时重新挂载成收起。 */
+  const prevTopRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (prevTopRef.current === null && pages.top !== null) setChatVisit((v) => v + 1);
+    prevTopRef.current = pages.top;
+  }, [pages.top]);
+
+  // 换会话 / 离开聊天页时，消息菜单自动收起。
+  useEffect(() => {
+    setMenuIdx(null);
+  }, [session?.id, pages.top]);
 
   // 真播了才记「上次开屏时间」：被门控跳过的那次不算一次开屏。
   useEffect(() => {
@@ -340,6 +384,8 @@ export function App() {
   }, []);
 
   const onFeedScroll = useCallback(() => {
+    // 翻历史时把消息菜单收掉：它属于某一条，不该跟着滚走
+    setMenuIdx(null);
     const el = feedRef.current;
     if (!el) return;
     // 距离底部 80px 以内都算"贴底"——手指抖一下不该让它停止跟随
@@ -351,6 +397,99 @@ export function App() {
   const refreshList = useCallback(async () => {
     setSessions(await listSessions());
   }, []);
+
+  /* ------------------------------------------------------ 她找过我（未读点） */
+
+  useEffect(() => {
+    drawerRef.current = drawer;
+  }, [drawer]);
+
+  // 跨重启保留：跟置顶一样只放 kv，会话对象与备份包一点不动。
+  useEffect(() => {
+    let alive = true;
+    void getKV<Record<string, number>>("sessions.sought")
+      .then((value) => {
+        if (!alive || !value || typeof value !== "object") return;
+        soughtRef.current = value;
+        setSought(value);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const writeSought = useCallback((next: Record<string, number>) => {
+    soughtRef.current = next;
+    setSought(next);
+    void setKV("sessions.sought", next).catch(() => undefined);
+  }, []);
+
+  const markSought = useCallback(
+    (id: string) => {
+      const current = soughtRef.current;
+      if (current[id]) return;
+      writeSought({ ...current, [id]: Date.now() });
+    },
+    [writeSought]
+  );
+
+  const markSessionRead = useCallback(
+    (id: string | null | undefined) => {
+      if (!id) return;
+      const current = soughtRef.current;
+      if (!(id in current)) return;
+      const next = { ...current };
+      delete next[id];
+      writeSought(next);
+    },
+    [writeSought]
+  );
+
+  /** 会话被删了，未读点也得一起收掉——不然左栏那颗红点永远点不灭。 */
+  const forgetSought = useCallback(
+    (ids: string[]) => {
+      const current = soughtRef.current;
+      const next = { ...current };
+      let changed = false;
+      for (const id of ids) {
+        if (id in next) {
+          delete next[id];
+          changed = true;
+        }
+      }
+      if (changed) writeSought(next);
+    },
+    [writeSought]
+  );
+
+  // 恢复备份、换机器之后，未读表里可能留着已经不存在的会话 id：顺手剪掉。
+  useEffect(() => {
+    if (sessions.length === 0) return;
+    const alive = new Set(sessions.map((s) => s.id));
+    const stale = Object.keys(sought).filter((id) => !alive.has(id));
+    if (stale.length > 0) forgetSought(stale);
+  }, [sessions, sought, forgetSought]);
+
+  /**
+   * 打开着聊天页、抽屉也关着，当前会话就算读过了。
+   * 从后台回来（可见性变化）走下面那条监听。
+   */
+  useEffect(() => {
+    if (!session?.id) return;
+    if (pages.top !== null || drawer) return;
+    if (document.visibilityState === "hidden") return;
+    markSessionRead(session.id);
+  }, [session?.id, pages.top, drawer, sought, markSessionRead]);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      if (pages.read().length === 0 && !drawerRef.current) markSessionRead(sessionRef.current?.id);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [markSessionRead]);
 
   /* 启动：取最近一条会话；一条都没有就开一条。 */
   useEffect(() => {
@@ -385,6 +524,7 @@ export function App() {
           if (alive && s) {
             setSession(s);
             setSessions(list);
+            markSessionRead(s.id);
             return;
           }
         }
@@ -409,27 +549,34 @@ export function App() {
     const fresh = createSession();
     await putSession(fresh);
     setSession(fresh);
+    markSessionRead(fresh.id);
     setDrawer(false);
     await refreshList();
-  }, [refreshList]);
+  }, [markSessionRead, refreshList]);
 
-  const openSession = useCallback(async (id: string) => {
-    const s = await loadSession(id);
-    if (s) {
-      setSession(s);
-      setDrawer(false);
-    }
-  }, []);
+  const openSession = useCallback(
+    async (id: string) => {
+      const s = await loadSession(id);
+      if (s) {
+        setSession(s);
+        markSessionRead(id);
+        setDrawer(false);
+      }
+    },
+    [markSessionRead]
+  );
 
   const removeSession = useCallback(
     async (id: string) => {
       await deleteSession(id);
+      forgetSought([id]);
       const rest = await listSessions();
       setSessions(rest);
       if (session?.id === id) {
         if (rest.length > 0) {
           const next = await loadSession(rest[0].id);
           setSession(next);
+          markSessionRead(next?.id);
         } else {
           const fresh = createSession();
           await putSession(fresh);
@@ -438,7 +585,7 @@ export function App() {
         }
       }
     },
-    [refreshList, session?.id]
+    [forgetSought, markSessionRead, refreshList, session?.id]
   );
 
   /** 重命名：只改标题；改的是当前会话就连页头一起换。 */
@@ -468,6 +615,7 @@ export function App() {
     async (ids: string[]) => {
       if (ids.length === 0) return;
       for (const id of ids) await deleteSession(id);
+      forgetSought(ids);
       const rest = await listSessions();
       setSessions(rest);
       const nextPinned = pinned.filter((id) => !ids.includes(id));
@@ -477,7 +625,9 @@ export function App() {
       }
       if (session && ids.includes(session.id)) {
         if (rest.length > 0) {
-          setSession(await loadSession(rest[0].id));
+          const next = await loadSession(rest[0].id);
+          setSession(next);
+          markSessionRead(next?.id);
         } else {
           const fresh = createSession();
           await putSession(fresh);
@@ -486,7 +636,7 @@ export function App() {
         }
       }
     },
-    [pinned, refreshList, session]
+    [forgetSought, markSessionRead, pinned, refreshList, session]
   );
 
   const persist = useCallback(
@@ -573,7 +723,7 @@ export function App() {
   }, []);
 
   /** 一个回合的全过程都在这里：判心情、算行踪、带工具说话、复核、落库。 */
-  const { send, stop, busy, mood, moodAt, typing } = useChatTurn({
+  const { send, stop, busy, mood, moodAt, typing, regenerate, retry, failed } = useChatTurn({
     settings,
     session,
     setSession,
@@ -603,7 +753,13 @@ export function App() {
   useProactive({
     settings,
     session,
-    setSession,
+    // 她主动 ping 落进会话的那一刻：你不在聊天页（或在后台）就亮「她找过我」。
+    setSession: (next) => {
+      setSession(next);
+      const notThere =
+        document.visibilityState !== "visible" || pages.read().length > 0 || drawerRef.current;
+      if (notThere) markSought(next.id);
+    },
     persist,
     memories,
     dreamState,
@@ -703,6 +859,7 @@ export function App() {
         // 导完直接跳到最新那个，省得她自己在列表里找
         const newest = [...plan.toWrite].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))[0];
         setSession(newest);
+        markSessionRead(newest.id);
         setDrawer(false);
       }
     },
@@ -1078,6 +1235,51 @@ export function App() {
   }, [ingestImage, reportError]);
 
   /**
+   * 相册。
+   *
+   * 原生用相机插件的 Photos 源（系统相册选择器）；浏览器里没有插件，退回
+   * 只收图片的 file input。两种来源最后都进同一条看图管线。
+   */
+  const takeFromAlbum = useCallback(async () => {
+    setShowAttach(false);
+    if (!isNative()) {
+      albumInputRef.current?.click();
+      return;
+    }
+    setImageBusy(true);
+    try {
+      let shot: { dataUrl?: string };
+      try {
+        shot = await Camera.getPhoto({
+          quality: 85,
+          resultType: CameraResultType.DataUrl,
+          source: CameraSource.Photos,
+          saveToGallery: false,
+        });
+      } catch (err) {
+        // 取消不算错误；权限和「打不开」翻成人话
+        const message = cameraFailureText(err);
+        if (message) reportError(message.replace(/相机/g, "相册"));
+        return;
+      }
+      if (!shot.dataUrl) {
+        reportError("选了照片，但没读到图。");
+        return;
+      }
+      let blob: Blob;
+      try {
+        blob = dataUrlToBlob(shot.dataUrl);
+      } catch (err) {
+        reportError("选了照片，但这张图读不出来：" + (err instanceof Error ? err.message : String(err)));
+        return;
+      }
+      await ingestImage(blob, "相册照片");
+    } finally {
+      setImageBusy(false);
+    }
+  }, [ingestImage, reportError]);
+
+  /**
    * 文字进「她能读的文件」：落盘、聊天里留提示、toast。
    * 纯文本文件与 PDF / Office 抽出来的文字都走这一条——后面只有一份存储、一个 read_file。
    */
@@ -1375,10 +1577,11 @@ export function App() {
       if (!s) return;
       stickToBottom.current = false;
       setSession(s);
+      markSessionRead(sessionId);
       setPendingJump({ sessionId, index });
       setDrawer(false);
     },
-    []
+    [markSessionRead]
   );
 
   // 换了会话：直接落在最新一条，别让人自己找。
@@ -1427,16 +1630,37 @@ export function App() {
       : d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
   };
 
+  /**
+   * 「想」是页边批注，不该占正文——默认收成一行「▸ 想了一下」。
+   *
+   * 用原生 details/summary：读屏、键盘、手套都能点到，不必再为它挂一层长按。
+   * key 带 chatVisit：离开聊天页再回来时重新挂载，自动恢复收起。
+   */
+  const thoughtNote = (text: string, index: number) => (
+    <details
+      className="thought"
+      data-part="message-thought"
+      key={"thought-" + index + "-" + chatVisit}
+      style={{ display: "block" }}
+    >
+      <summary
+        style={{
+          display: "block",
+          cursor: "pointer",
+          listStyle: "none",
+          color: "var(--accent)",
+          fontWeight: 600,
+        }}
+      >
+        ▸ 想了一下
+      </summary>
+      <p style={{ margin: "6px 0 0" }}>{text}</p>
+    </details>
+  );
+
   /** 一条消息的正文：图在气泡里，字是字。 */
-  const bodyOf = (b: UserBlock | HertaBlock) => {
-    if (b.kind === "herta" && b.surface === "thought") {
-      return (
-        <div className="thought" data-part="message-thought">
-          <span className="thoughtLabel">想</span>
-          <p>{b.text}</p>
-        </div>
-      );
-    }
+  const bodyOf = (b: UserBlock | HertaBlock, index: number) => {
+    if (b.kind === "herta" && b.surface === "thought") return thoughtNote(b.text, index);
     const att = b.attachments?.[0];
     const actionMatch =
       b.kind === "herta" && b.surface === "speech" ? /^（([^）]*)）\s*/.exec(b.text) : null;
@@ -1466,6 +1690,204 @@ export function App() {
     );
   };
 
+  /** 复制一条消息：原生剪贴板优先，拿不到再退回临时 textarea。 */
+  const copyMessage = useCallback(
+    async (text: string) => {
+      setMenuIdx(null);
+      if (!text.trim()) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        flashToast("已复制");
+        return;
+      } catch {
+        /* 某些 WebView 要用户手势才给剪贴板，退回老办法 */
+      }
+      try {
+        const area = document.createElement("textarea");
+        area.value = text;
+        area.style.position = "fixed";
+        area.style.opacity = "0";
+        document.body.appendChild(area);
+        area.select();
+        document.execCommand("copy");
+        area.remove();
+        flashToast("已复制");
+      } catch {
+        reportError("复制失败：这台设备的剪贴板没打开。");
+      }
+    },
+    [flashToast, reportError]
+  );
+
+  /** 引用：原文塞进输入条，光标留在后面，接着写就行。 */
+  const quoteMessage = useCallback((text: string) => {
+    if (!text.trim()) return;
+    setDraft((current) => (current.trim() ? "「" + text + "」\n" + current : "「" + text + "」\n"));
+    setMenuIdx(null);
+    setShowAttach(false);
+    setShowTray(false);
+    requestAnimationFrame(() => draftRef.current?.focus());
+  }, []);
+
+  /**
+   * 重新生成这一条。
+   *
+   * 目标之后如果还有更晚的用户回合，先确认——那会连同后面的对话一起丢掉。
+   * 最后一条不弹，长按一下就能重说。
+   */
+  const regenerateMessage = useCallback(
+    async (startIndex: number, target: number) => {
+      if (!session) return;
+      let lastUser = -1;
+      for (let k = session.blocks.length - 1; k >= 0; k -= 1) {
+        const block = session.blocks[k];
+        if (block.kind === "user" || (block.kind === "sticker" && block.from === "user")) {
+          lastUser = k;
+          break;
+        }
+      }
+      if (lastUser > target && !window.confirm("重新生成这条，会丢掉它之后的对话。继续？")) return;
+      setMenuIdx(null);
+      await regenerate(startIndex);
+    },
+    [regenerate, session]
+  );
+
+  /**
+   * 一条普通消息：气泡 + 长按菜单 + 常驻「⋯」按钮。
+   *
+   * 长按是主入口，但读屏与手套用户到不了长按——所以每条消息都留一个点得到的
+   * 「⋯」，两个入口打开的是同一份菜单。
+   */
+  const messageRow = (b: UserBlock | HertaBlock, i: number, thought: HertaBlock | null, avatar: boolean) => {
+    const raw = b.text ?? "";
+    // 动作旁白（「（转了下椅子）她……」）在界面上是单独一行，复制时也只复制台词。
+    const spoken = b.kind === "herta" && b.surface === "speech" ? raw.replace(/^（[^）]*）\s*/, "") : raw;
+    const text = spoken.trim() ? spoken : raw;
+    const isUser = b.kind === "user";
+    const image = b.kind === "user" ? b.attachments?.[0] : undefined;
+    const isMenu = menuIdx === i;
+    // 重生成的起点：用户消息保留自己，重说它后面那一条；她的消息连同一块「想」一起重说。
+    const startIndex = isUser ? i + 1 : thought ? i - 1 : i;
+    // 用户发图时，长按归看图（存表情），别和消息菜单抢手势；这时菜单只走 ⋯。
+    const canLongPress = !(isUser && (b.attachments?.length ?? 0) > 0);
+    const press = canLongPress
+      ? longPressProps(() => setMenuIdx((current) => (current === i ? null : i)))
+      : null;
+    const menuButtonStyle = {
+      font: "inherit",
+      fontSize: 11,
+      lineHeight: 1.5,
+      minHeight: 32,
+      padding: "6px 12px",
+      borderRadius: 999,
+      border: "1px solid var(--line)",
+      background: "var(--card)",
+      color: "var(--ink)",
+      cursor: "pointer",
+    } as const;
+    return (
+      <div key={i} data-idx={i} data-part="message">
+        <div className={"turn " + b.kind + (b.kind === "herta" ? " " + b.surface : "")}>
+          {avatar && <img className="turnAvatar" src="/herta.png" alt="" />}
+          <article
+            className={"bubble " + b.kind + (b.kind === "herta" ? " " + b.surface : "")}
+            data-part="message-bubble"
+            // 右侧要留出常驻的「⋯」按钮：不挤这一下，气泡会把它顶出屏幕
+            style={{
+              maxWidth: isUser ? "min(76%, calc(100% - 72px))" : "calc(100% - 74px)",
+            }}
+            {...(press ? press.props : {})}
+          >
+            {thought && thoughtNote(thought.text, i)}
+            {bodyOf(b, i)}
+            <span className="bubbleTime" data-part="message-time">{clockOf(b.at)}</span>
+          </article>
+          {isUser && <span className="userMark">你</span>}
+          <button
+            type="button"
+            aria-label="消息操作"
+            aria-haspopup="menu"
+            aria-expanded={isMenu}
+            onClick={() => setMenuIdx((current) => (current === i ? null : i))}
+            style={{
+              flex: "none",
+              alignSelf: isUser ? "flex-end" : "flex-start",
+              marginTop: isUser ? 0 : 4,
+              width: 30,
+              height: 30,
+              padding: 0,
+              border: "1px solid var(--line)",
+              borderRadius: 999,
+              background: "var(--card)",
+              color: "var(--muted)",
+              fontSize: 13,
+              lineHeight: 1,
+              cursor: "pointer",
+            }}
+          >
+            ⋯
+          </button>
+        </div>
+        {isMenu && (
+          <div
+            role="menu"
+            aria-label="消息操作"
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 6,
+              margin: "3px 0 0",
+              justifyContent: isUser ? "flex-end" : "flex-start",
+              padding: isUser ? "0 34px 0 0" : "0 0 0 36px",
+            }}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              style={menuButtonStyle}
+              disabled={!text.trim()}
+              onClick={() => void copyMessage(text)}
+            >
+              复制
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              style={menuButtonStyle}
+              disabled={!text.trim()}
+              onClick={() => quoteMessage(text)}
+            >
+              引用
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              style={menuButtonStyle}
+              onClick={() => void regenerateMessage(startIndex, i)}
+            >
+              重新生成这一条
+            </button>
+            {image && (
+              // 图片长按是「存进表情箱」：这里给它一条点得到的替代路径。
+              <button
+                type="button"
+                role="menuitem"
+                style={menuButtonStyle}
+                onClick={() => {
+                  setMenuIdx(null);
+                  void saveToBox(image.data, image.name ?? "图", image.mediaType, [], "mine");
+                }}
+              >
+                存进表情箱
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="app" data-part="app" data-rail={settings.railCollapsed ? "collapsed" : "expanded"}>
       {!splashGone && <Splash onDone={hideSplash} />}
@@ -1484,9 +1906,17 @@ export function App() {
             data-part="rail-item"
             className={pages.canGoBack ? "" : "on"}
             onClick={showChat}
-            aria-label="对话"
+            aria-label={"对话" + (Object.keys(sought).length > 0 ? "（她找过你）" : "")}
           >
             <RailIcon d="M4 5.5h16v10.5H9l-5 4z" />
+            {Object.keys(sought).length > 0 && (
+              <span
+                className="broadcastEntryDot"
+                role="img"
+                aria-label="她找过你"
+                style={{ position: "absolute", top: 7, right: 7 }}
+              />
+            )}
           </button>
           <button type="button" data-part="rail-item" className={pages.isTop("memory") ? "on" : ""} onClick={() => openPage("memory")} aria-label="记忆">
             <RailIcon d="M8 4h8a2 2 0 0 1 2 2v14l-6-4-6 4V6a2 2 0 0 1 2-2Z" />
@@ -1593,6 +2023,7 @@ export function App() {
           coinPct={coinPct}
           broadcastNo={broadcast.today?.no ?? null}
           broadcastUnread={broadcast.unread}
+          sought={Object.keys(sought)}
           actions={{
             newSession: () => void newSession(),
             openSession: (id) => void openSession(id),
@@ -1831,7 +2262,7 @@ export function App() {
           if (b.kind === "system") {
             // 文件库事件只在「工具调用记录」里显示，聊天流里不刷屏；
             // 老版本写下的块没有 hidden 标记，按正文再认一遍（见 core 的 READABLE_FILE_EVENT_NOTE）
-            if (b.hidden || READABLE_FILE_EVENT_NOTE.test(b.body)) return null;
+            if (b.hidden || READABLE_FILE_EVENT_NOTE.test(b.body) || LEGACY_TOOL_NOTE.test(b.body)) return null;
             return (
               <p key={i} className="note" data-part="message-note">
                 {b.body}
@@ -1848,12 +2279,32 @@ export function App() {
                 </p>
               );
             }
-            const press = longPressProps(() =>
-              void saveToBox(rec.data, rec.name, rec.mediaType, rec.tags, b.from === "herta" ? "mine" : "herta")
-            );
+            const collect = () =>
+              void saveToBox(rec.data, rec.name, rec.mediaType, rec.tags, b.from === "herta" ? "mine" : "herta");
+            const press = longPressProps(collect);
             return (
               <article key={i} data-idx={i} data-part="message" className={"bubble stickerBubble " + b.from}>
                 <img className="sticker" src={rec.data} alt={rec.name} title={rec.tags.join("、") || rec.name} {...press.props} />
+                {/* 长按能收，但读屏/手套到不了长按：底下留一个点得到的同类动作 */}
+                <button
+                  type="button"
+                  data-part="sticker-collect"
+                  onClick={collect}
+                  style={{
+                    display: "block",
+                    margin: "6px auto 0",
+                    padding: "2px 6px",
+                    border: 0,
+                    background: "none",
+                    color: "var(--muted)",
+                    font: "inherit",
+                    fontSize: 11,
+                    lineHeight: 1.6,
+                    cursor: "pointer",
+                  }}
+                >
+                  {b.from === "herta" ? "存进表情箱" : "送给她"}
+                </button>
               </article>
             );
           }
@@ -1894,41 +2345,35 @@ export function App() {
             }
           }
           if (b.kind === "herta" && b.surface === "speech" && thought) {
-            return (
-              <div key={i} data-idx={i} data-part="message" className="turn herta speech">
-                <img className="turnAvatar" src="/herta.png" alt="" />
-                <article className="bubble herta speech" data-part="message-bubble">
-                  <div className="thought" data-part="message-thought">
-                    <span className="thoughtLabel">想</span>
-                    <p>{thought.text}</p>
-                  </div>
-                  {bodyOf(b)}
-                  <span className="bubbleTime" data-part="message-time">{clockOf(b.at)}</span>
-                </article>
-              </div>
-            );
+            return messageRow(b, i, thought, true);
           }
-          return (
-            <div
-              key={i}
-              data-idx={i}
-              data-part="message"
-              className={"turn " + b.kind + (b.kind === "herta" ? " " + b.surface : "")}
-            >
-              {b.kind === "herta" && <img className="turnAvatar" src="/herta.png" alt="" />}
-              <article
-                className={"bubble " + b.kind + (b.kind === "herta" ? " " + b.surface : "")}
-                data-part="message-bubble"
-              >
-                {bodyOf(b)}
-                <span className="bubbleTime" data-part="message-time">{clockOf(b.at)}</span>
-              </article>
-              {b.kind === "user" && <span className="userMark">你</span>}
-            </div>
-          );
+          return messageRow(b, i, null, b.kind === "herta");
         })}
         {typing && <p className="note typing">她正在敲字…</p>}
-        {error && <p className="error">{error}</p>}
+        {error && (
+          <div className="error" role="alert">
+            <span>{error}</span>
+            {failed && failed.sessionId === session?.id && (
+              <button
+                type="button"
+                onClick={() => void retry()}
+                style={{
+                  marginLeft: 8,
+                  padding: "2px 10px",
+                  border: "1px solid currentColor",
+                  borderRadius: 999,
+                  background: "transparent",
+                  color: "inherit",
+                  font: "inherit",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                重发
+              </button>
+            )}
+          </div>
+        )}
         {toast && <p className="toast">{toast}</p>}
       </main>
 
@@ -1988,6 +2433,19 @@ export function App() {
             void ingestImage(file, file.name || "相机照片");
           }}
         />
+        {/* 浏览器里的相册退路：只收图片；原生走 Camera 插件的 Photos 源 */}
+        <input
+          ref={albumInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (!file) return;
+            void ingestImage(file, file.name || "相册照片");
+          }}
+        />
         {!unconnected && (
           <div className="composerQuick">
             {!busy && blocks.length > 0 && (
@@ -2002,6 +2460,7 @@ export function App() {
         {showAttach && (
           <AttachTray
             onCamera={() => void takePhoto()}
+            onAlbum={() => void takeFromAlbum()}
             onFile={() => {
               setShowAttach(false);
               fileInputRef.current?.click();
@@ -2041,8 +2500,11 @@ export function App() {
             onChange={(e) => setDraft(e.target.value)}
             placeholder="给黑塔发消息…"
             rows={1}
-            // 点正文就把附件面板收起来：那两个按钮已经不需要了
-            onFocus={() => setShowAttach(false)}
+            // 点正文就把附件面板与消息菜单收起来：它们已经不需要了
+            onFocus={() => {
+              setShowAttach(false);
+              setMenuIdx(null);
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();

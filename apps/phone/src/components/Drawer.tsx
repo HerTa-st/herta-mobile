@@ -58,6 +58,8 @@ export interface DrawerProps {
   broadcastNo: number | null;
   /** 今天这期还没读：入口右侧亮一个点。 */
   broadcastUnread: boolean;
+  /** 她找过我：这些会话里有她主动说的话还没看（打开即消）。 */
+  sought: string[];
   actions: DrawerActions;
 }
 
@@ -65,6 +67,7 @@ const LONG_PRESS_MS = 450;
 
 export function Drawer(props: DrawerProps) {
   const { actions } = props;
+  const sought = new Set(props.sought);
   /** 打开菜单的会话 id；null = 没开。 */
   const [menuId, setMenuId] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
@@ -241,6 +244,13 @@ export function Drawer(props: DrawerProps) {
                       {pinned && <span className="pin" aria-label="已置顶" style={{ color: "var(--accent)" }}>◇ </span>}
                       {s.title}
                     </span>
+                    {sought.has(s.id) && (
+                      <span
+                        role="img"
+                        aria-label="她找过你"
+                        style={{ flex: "none", width: 7, height: 7, borderRadius: "50%", background: "#d96a7a" }}
+                      />
+                    )}
                     <span className="sm">{s.origin === "import" ? "导入" : s.blocks + " 块"}</span>
                   </button>
                   {!selecting && (

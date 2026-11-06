@@ -1,19 +1,22 @@
 /**
- * 回形针抽起来的那一层：拍照 / 选文件。
+ * 回形针抽起来的那一层：拍照 / 相册 / 文件，一层三选。
  *
  * 以前回形针一点就直接弹系统选图——Android 各家的选择器长相不一，有的根本没有
- * 「拍照」，用户想拍一张反而找不到入口。把两个来源摆成两个按钮，点哪个进哪个。
+ * 「拍照」，用户想拍一张反而找不到入口。把三个来源一次摆出来，点哪个进哪个，
+ * 选完直接回输入条预览，不再多一层托盘。
  *
- * 两样最终都进同一条看图管线（切片 → 待发），所以这里只负责「从哪儿来」，
- * 不碰切图和发送。
+ * 三样最终都进同一条看图管线（切片 → 待发）或文件分流，所以这里只负责
+ * 「从哪儿来」，不碰切图和发送。
  */
 export function AttachTray({
   onCamera,
+  onAlbum,
   onFile,
   onClose,
   busy,
 }: {
   onCamera(): void;
+  onAlbum(): void;
   onFile(): void;
   onClose(): void;
   /** 上一张还在处理（或相机还开着）时先别再点。 */
@@ -49,7 +52,30 @@ export function AttachTray({
             <em>用相机拍一张</em>
           </span>
         </button>
-        <button type="button" className="attachOpt" onClick={onFile} disabled={busy}>
+        <button type="button" className="attachOpt" onClick={onAlbum} disabled={busy}>
+          <span className="ico" aria-hidden="true">
+            <svg
+              viewBox="0 0 24 24"
+              width="20"
+              height="20"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="3.5" y="4.5" width="17" height="15" rx="2.2" />
+              <circle cx="8.6" cy="9.4" r="1.4" />
+              <path d="m4.6 17.2 4.7-4.6 3.1 3 2.6-2.6 4.4 4.2" />
+            </svg>
+          </span>
+          <span>
+            <b>相册</b>
+            <em>从相册里选</em>
+          </span>
+        </button>
+        {/* 两列网格：文件这个来源占满下一行，三个入口一眼看全 */}
+        <button type="button" className="attachOpt" onClick={onFile} disabled={busy} style={{ gridColumn: "span 2" }}>
           <span className="ico" aria-hidden="true">
             <svg
               viewBox="0 0 24 24"
