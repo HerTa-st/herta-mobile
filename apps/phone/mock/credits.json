@@ -1,0 +1,97 @@
+{
+  "updatedAt": "2026-11-06",
+  "sponsors": [
+    {
+      "name": "示例赞助者 · 甲",
+      "month": "2026-10",
+      "tier": "一点点"
+    },
+    {
+      "name": "示例赞助者 · 乙",
+      "month": "2026-10"
+    },
+    {
+      "name": "示例赞助者 · 丙",
+      "month": "2026-09"
+    },
+    {
+      "name": "示例赞助者 · 丁",
+      "month": "2026-09",
+      "tier": "很多"
+    }
+  ],
+  "devs": [
+    {
+      "name": "梦源",
+      "role": "作者 · 人格与叙述 / 记忆内核 / 手机端 / 黑塔币"
+    }
+  ],
+  "credits": [
+    {
+      "kind": "work",
+      "name": "上游 Herta",
+      "author": "米哈游 · 崩坏：星穹铁道"
+    },
+    {
+      "kind": "work",
+      "name": "DSH",
+      "author": "DeepSeek Harness"
+    },
+    {
+      "kind": "idea",
+      "name": "示例读者（待替换）"
+    }
+  ],
+  "donate": {
+    "wechat": "/mock/qr-wechat.png",
+    "alipay": "/mock/qr-alipay.png",
+    "qqGroup": "1134762673"
+  },
+  "issues": [
+    {
+      "title": "扫描件 PDF 抽不出字",
+      "detail": "只抽文字层，没做 OCR。扫描件里没有文字，出来就是空的——这不是 bug，是没做的功能。",
+      "status": "open"
+    },
+    {
+      "title": "老版 .doc / .xls / .ppt、压缩包读不了",
+      "detail": "只支持 .docx / .xlsx / .pptx；二进制老格式与压缩包会明确说读不了。",
+      "status": "open"
+    },
+    {
+      "title": "PDF 抽字在旧手机上失败",
+      "detail": "pdf.js 要求较新的 Android System WebView（约 Chrome 119 以上）。提示更新 WebView 即可，不影响图片与文本。",
+      "status": "open"
+    },
+    {
+      "title": "低端机上开屏 / 记忆网络掉帧",
+      "detail": "还没在低端机上实测过帧率。真机卡顿请告诉我机型。",
+      "status": "open"
+    },
+    {
+      "title": "切后台久了，深睡没跑",
+      "detail": "深睡依赖 WebView 活着。系统杀进程或关掉常驻服务时不保证——这是 Android 的限制，不是遗漏。",
+      "status": "open"
+    },
+    {
+      "title": "备份包恢复后「她能读的文件」没了",
+      "detail": "备份不带能读的文件，只带会话、记忆、表情、设置。",
+      "status": "open"
+    },
+    {
+      "title": "历史消息里的表情变成「（表情已删）」",
+      "detail": "表情块存的是引用不是图，删了库里的原图就会这样。",
+      "status": "open"
+    },
+    {
+      "title": "没有 iOS 版",
+      "detail": "只有 Android。",
+      "status": "open"
+    },
+    {
+      "title": "没填 API Key 就什么都聊不了",
+      "detail": "她跑在你自己的 Key 上。没填时界面会显示「她还没接上」，记忆、币、备份仍然能用。",
+      "status": "open"
+    }
+  ]
+}

@@ -41,6 +41,10 @@ import { Onboarding } from "./components/Onboarding.tsx";
 import { ToolLogSheet } from "./components/ToolLogSheet.tsx";
 import { BackupSheet } from "./components/BackupSheet.tsx";
 import { DesignSystemSheet } from "./components/DesignSystemSheet.tsx";
+import { SponsorsScreen } from "./components/SponsorsScreen.tsx";
+import { DevsScreen } from "./components/DevsScreen.tsx";
+import { IssuesScreen } from "./components/IssuesScreen.tsx";
+import { FEEDBACK_FORM_URL } from "./credits.ts";
 import { StickerTray } from "./components/StickerTray.tsx";
 import { AttachTray } from "./components/AttachTray.tsx";
 import { longPressProps } from "./components/long-press.ts";
@@ -375,6 +379,22 @@ export function App() {
     () => connectSystemBack(() => pages.read().length > 0 && pages.back()),
     [pages.back, pages.read]
   );
+
+  /**
+   * B13「关于」组里的反馈：打开第三方表单（飞书），App 不收集、不经手提交内容。
+   * 链接与网站同一行（site/assets/config.js 的 feedback）；万一以后被留空，
+   * 退回「已知问题」页，不给死链（设计文档 §16.3）。
+   */
+  const openFeedback = useCallback(() => {
+    const url = FEEDBACK_FORM_URL.trim();
+    if (!url) {
+      pages.push("issues");
+      return;
+    }
+    void openLink(url).catch((openError) => {
+      setError(openError instanceof Error ? openError.message : String(openError));
+    });
+  }, [pages]);
 
   /**
    * 外观：把解析后的主题写到 <html data-theme>。
@@ -2386,6 +2406,10 @@ export function App() {
                 onOpenDesignSystem={() => pages.push("designSystem")}
                 onOpenAppearance={() => pages.push("appearance")}
                 onOpenTheme={() => pages.push("theme")}
+                onOpenSponsors={() => pages.push("sponsors")}
+                onOpenDevs={() => pages.push("devs")}
+                onOpenIssues={() => pages.push("issues")}
+                onOpenFeedback={openFeedback}
                 themeName={themes.find((theme) => theme.id === activeTheme)?.name ?? "内置"}
               />
             );
@@ -2446,6 +2470,18 @@ export function App() {
             return <ToolLogSheet key={key} onClose={() => pages.close("toolLog")} />;
           case "designSystem":
             return <DesignSystemSheet key={key} onClose={() => pages.close("designSystem")} />;
+          case "sponsors":
+            return <SponsorsScreen key={key} onClose={() => pages.close("sponsors")} />;
+          case "devs":
+            return <DevsScreen key={key} onClose={() => pages.close("devs")} />;
+          case "issues":
+            return (
+              <IssuesScreen
+                key={key}
+                onClose={() => pages.close("issues")}
+                onOpenFeedback={openFeedback}
+              />
+            );
           case "backup":
             return (
               <BackupSheet

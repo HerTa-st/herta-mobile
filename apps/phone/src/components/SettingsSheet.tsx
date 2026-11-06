@@ -1,6 +1,7 @@
 import { CHEAP_LIMITS } from "@herta/core";
 import { faceSrc, type Settings } from "../settings.ts";
 import type { StickerRecord } from "../storage.ts";
+import { APP_VERSION } from "../theme/version.ts";
 import "../styles/settings-suite.css";
 
 /**
@@ -64,6 +65,10 @@ export function SettingsSheet({
   onOpenDesignSystem,
   onOpenAppearance,
   onOpenTheme,
+  onOpenSponsors,
+  onOpenDevs,
+  onOpenIssues,
+  onOpenFeedback,
   themeName,
 }: {
   settings: Settings;
@@ -81,6 +86,12 @@ export function SettingsSheet({
   onOpenDesignSystem(): void;
   onOpenAppearance(): void;
   onOpenTheme(): void;
+  /** B13：关于三页各自压栈，返回键回到这一层设置。 */
+  onOpenSponsors(): void;
+  onOpenDevs(): void;
+  onOpenIssues(): void;
+  /** 反馈走第三方表单（与网站同一条飞书链接），App 里不收集。 */
+  onOpenFeedback(): void;
   /** 当前生效的主题名（"内置" 或已安装主题的显示名）。 */
   themeName: string;
 }) {
@@ -309,6 +320,57 @@ export function SettingsSheet({
               设计系统
             </button>
           </p>
+        </section>
+
+        {/* B13：最底部一组「关于」。版本号直接读打包时注入的那份，不在这里写死。 */}
+        <section className="ss-card">
+          <div className="ss-groupHead">
+            <span>关于</span>
+            <span>about</span>
+          </div>
+          <button type="button" className="ss-row ss-rowTap" onClick={onOpenSponsors}>
+            <span className="ss-rowMain">
+              <b>赞助名单</b>
+              <small>按月的名单 · 换名单换码都不用发版</small>
+            </span>
+            <span className="ss-rowValue">
+              <Icon d={ICON.chevron} size={13} />
+            </span>
+          </button>
+          <button type="button" className="ss-row ss-rowTap" onClick={onOpenDevs}>
+            <span className="ss-rowMain">
+              <b>开发人员</b>
+              <small>作者与每人负责哪块 · 取材自 / 点子来自</small>
+            </span>
+            <span className="ss-rowValue">
+              <Icon d={ICON.chevron} size={13} />
+            </span>
+          </button>
+          <button type="button" className="ss-row ss-rowTap" onClick={onOpenIssues}>
+            <span className="ss-rowMain">
+              <b>已知问题</b>
+              <small>还没修的边界 · 反馈前先看一眼，能省一轮</small>
+            </span>
+            <span className="ss-rowValue">
+              <Icon d={ICON.chevron} size={13} />
+            </span>
+          </button>
+          <button type="button" className="ss-row ss-rowTap" onClick={onOpenFeedback}>
+            <span className="ss-rowMain">
+              <b>反馈</b>
+              <small>第三方表单（飞书）· 能收截图，不用注册</small>
+            </span>
+            <span className="ss-rowValue">
+              <Icon d={ICON.chevron} size={13} />
+            </span>
+          </button>
+          <div className="ss-row">
+            <span className="ss-rowMain">
+              <b>版本号</b>
+              <small>打包时从 version.json 注入，不另存一份</small>
+            </span>
+            <span className="ss-rowValue">{APP_VERSION}</span>
+          </div>
         </section>
 
         <p className="ss-hint">
