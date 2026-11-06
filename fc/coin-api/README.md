@@ -9,7 +9,8 @@
 ```
 fc/coin-api/
 ├── index.js          # FC 入口 exports.handler（HTTP 外壳：路由/CORS/404/405/500）
-├── coin-core.js      # 确定性算法逐行同构移植 + buildDailyResponse(nowMs)（纯函数）
+├── coin-core.js      # 确定性算法逐行同构移植 + buildDailyResponse(nowMs, getSecret)（纯函数）
+├── seeds.js          # 每日价格密钥：生成 / 落盘（state/coin.json 顶层 seeds）/ 窗口下发
 ├── news-pool.js      # 从 phantom-market/news.js 原样搬来的 NEWS_POOL（210 条，参与价格路径）
 ├── dev-server.mjs    # 本地 mock：127.0.0.1:8787，支持 COIN_MOCK_NOW 钉时间
 ├── package.json      # {"type":"commonjs"}；零第三方依赖，不需要 npm install
@@ -17,6 +18,7 @@ fc/coin-api/
 └── test/
     ├── gen-vectors.mjs  # 用网页侧 app.js 生成 6 个固定时刻的测试向量 -> vectors.json
     ├── fc.test.mjs      # 同源测试：coin-core 输出 vs vectors.json，逐项比对
+    ├── seeds.test.mjs   # /api/seeds：窗口 / 只生成一次 / 旧日期不发 / 账务接口改吃密钥
     ├── vectors.json     # 生成的向量（提交进仓库，算法改了要重跑重新生成）
     └── .tmp/            # gen-vectors 的临时产物（gitignore）：phantom-market 拷贝 / Edge profile
 ```
@@ -88,13 +90,13 @@ node fc/coin-api/test/fc.test.mjs       # 必须全绿
    - 请求方法：**GET**
    - 路径：**`/api/daily`**
    - 认证方式：**无需认证**（匿名；app 不带签名，走公开只读接口）
-5. 打完包后确认 ZIP **根目录**直接是 `index.js`、`coin-core.js`、`news-pool.js`、`package.json`
+5. 打完包后确认 ZIP **根目录**直接是 `index.js`、`coin-core.js`、`seeds.js`、`news-pool.js`、`package.json`
    （不要把外层 `fc/coin-api/` 目录打进去，也不要把 `test/`、`dev-server.mjs` 打进部署包）。
    在 PowerShell 里打包示例：
 
    ```powershell
    cd fc/coin-api
-   Compress-Archive -Path index.js,coin-core.js,news-pool.js,package.json -DestinationPath ..\..\coin-api.zip -Force
+   Compress-Archive -Path index.js,coin-core.js,seeds.js,news-pool.js,package.json -DestinationPath ..\..\coin-api.zip -Force
    ```
 
 6. 部署后记下公网访问地址（形如 `https://<id>.<region>.fcapp.run`），接口地址就是
@@ -217,7 +219,7 @@ app 的接口基址走**构建配置**（发布包绝不内置 mock）：
 
 ## 七、v2 共享市场部署（增量，2026-10-29）
 
-新增文件：`market-v2.js`（共享市场逻辑）、`oss-state.js`（OSS 状态 + 锁）；`index.js` 新增 `/api/state`、`/api/trade`、`/api/leaderboard`。
+新增文件：`market-v2.js`（共享市场逻辑）、`oss-state.js`（OSS 状态 + 锁）、`seeds.js`（每日价格密钥，2026-11-07 加）；`index.js` 新增 `/api/state`、`/api/trade`、`/api/leaderboard`、`/api/seeds`。
 
 ### 1. 给函数配置执行角色（读写 OSS）
 
@@ -245,7 +247,7 @@ RAM 先建一个自定义策略 `coin-state-rw`（最小权限）：
 
 ### 3. 上传新代码
 
-上传 `herta-mobile/coin-api-deploy.zip`（根目录含 `index.js`、`coin-core.js`、`news-pool.js`、`market-v2.js`、`oss-state.js`、`package.json`），函数入口仍是 `index.handler`。
+上传 `herta-mobile/coin-api-deploy.zip`（根目录含 `index.js`、`coin-core.js`、`seeds.js`、`news-pool.js`、`market-v2.js`、`oss-state.js`、`package.json`），函数入口仍是 `index.handler`。
 
 ### 4. 环境变量（都有默认值，可不填）
 
@@ -275,3 +277,34 @@ curl "https://<fc域名>/api/leaderboard"
 - 用户数据里新增 `merged / streak / lastSignDay`；`GET /api/state` 的 `user.signin` 返回连签与下次奖励
 
 上传 `herta-mobile/coin-api-deploy.zip` 后重新「部署代码」即可。
+
+### 7. v2.2 每日价格密钥（2026-11-07）
+
+口径见 `docs/价格密钥-设计-2026-11-07.md`：切换日 `CUTOVER = 2026-11-07`（含当天）之前的日期
+走旧的「日期派生」规则，**历史价格一根都不许变**；切换日起每天一把 16 字节随机密钥（32 位小写 hex），
+由服务端生成、落盘在 `state/coin.json` 顶层 `seeds`，客户端取走后本地算 K 线。
+
+派生规则（`coin-core.js`）：
+
+| 用途 | 切换日之前 | 切换日（含）之后 |
+|---|---|---|
+| 日线 | `HTC\|daily\|<date>` | `HTC\|daily\|<date>\|<secret>` |
+| 分钟路径 | `HTC\|intraday\|<date>` | `HTC\|intraday\|<date>\|<secret>` |
+
+新接口：
+
+```bash
+curl "https://<fc域名>/api/seeds?from=2026-11-07"
+# { "version": 1, "cutover": "2026-11-07", "seeds": { "2026-11-09": "<32 hex>" } }
+```
+
+- 只发 `[max(from, CUTOVER), 今天]` 区间里的**交易日**（周末不发）；`from` 早于 CUTOVER 按 CUTOVER 回，晚于今天就回空表；
+- 缺的当场生成并**加锁**落盘：同一日期只生成一次，重复调用不会换密钥；旧状态没有 `seeds` 按空对象处理，不会清库；
+- 服务端**没有密钥就是开不了盘**（`503 missing_secret`），不拿日期派生备用钥匙——那会和手机端算出两条线。
+- 其它接口请求/响应形状不变（`/api/daily` 的 `bars` 这一轮先留着，给对账用），只是内部先读 `seeds` 再算；
+  每个写盘的接口（`/api/state`、`/api/trade`、`/api/signin`、`/api/claim`）都会把已知密钥补回账本，
+  免得老代码 / 读得早的实例把 `seeds` 覆盖掉（覆盖掉就会重摇一把，价格换条线）。
+
+> 上线注意①：HTTP 触发器的路径要覆盖 `/api/*`（不是只挂 `/api/daily`），否则 `/api/seeds` 到不了函数。
+> 上线注意②：切换日前把新代码部署到**所有实例**。旧版本函数不知道 `seeds`，写盘时会把它抹掉，
+> 抹掉后不同实例可能各摇一把、算出两条价格线——这是唯一需要留心的滚动窗口。

@@ -1185,7 +1185,7 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
               shared.market.impactPct.toFixed(2) +
               "% · 基准 " +
               formatPrice(shared.market.basePrice)
-            : "行情与网页同源 · 30s 刷新"}
+            : "行情在手机上算 · 30s 重算"}
         </p>
         <p className="coinSrc">交易时段 · 工作日 09:30–11:30 / 13:00–15:00</p>
       </section>

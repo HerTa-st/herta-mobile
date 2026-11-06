@@ -7,6 +7,7 @@
  *   POST /api/trade                 {"user":"昵称","action":"market|limit|open_short|close_short|restart",...}
  *   POST /api/restart               {"user":"昵称"} 主动重开（等价 action=restart）
  *   GET  /api/leaderboard          排行榜
+ *   GET  /api/seeds?from=YYYY-MM-DD  每日价格密钥（切换日 2026-11-07 起）
  *   其它：405 / 404；异常统一 JSON
  *
  * 响应头：Content-Type: application/json; charset=utf-8、Cache-Control: no-store、CORS *
@@ -17,7 +18,8 @@
  */
 'use strict';
 
-const { buildDailyResponse, buildPlan, makeRng, COIN } = require('./coin-core');
+const { buildDailyResponse, buildPlan, getSession, makeRng, COIN } = require('./coin-core');
+const { ensureSeeds, applySeeds, secretLookup } = require('./seeds');
 const {
   createState,
   buildStatePayload,
@@ -95,9 +97,9 @@ function ymdToUtcDate(ymd) {
   return new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2])));
 }
 
-function buildNews(daily) {
+function buildNews(daily, getSecret) {
   // buildPlan 吃 Date（内部 ds() 用 UTC 字段）；HTTP 层拿到的是 YYYY-MM-DD 字符串
-  const plan = buildPlan(ymdToUtcDate(daily.market.sessionDate));
+  const plan = buildPlan(ymdToUtcDate(daily.market.sessionDate), getSecret);
   const maxBar = daily.market.status === 'trading' ? daily.market.revealed : daily.market.revealed - 1;
   const items = plan.events
     .filter(function (e) { return e.bar <= maxBar; })
@@ -208,6 +210,26 @@ function createHandler(options) {
   const nowFn = typeof options.now === 'function' ? options.now : Date.now;
   const storeFactory = options.storeFactory || defaultStoreFactory;
 
+  /**
+   * 先读 seeds 再算行情（切换日之前密钥为空，一次 OSS 都不碰）。
+   * 缺的密钥当场生成并落盘——同一日期只生成一次，价格历史才稳得住。
+   * @returns {Promise<{daily: object, getSecret: Function, seeds: object}>}
+   */
+  async function loadDaily(nowMs, store) {
+    const seedInfo = await ensureSeeds(store, {
+      nowMs: nowMs,
+      // 空账本要建就建成正常账本（和 /api/state 第一次建号同一个形状）
+      sessionDate: getSession(nowMs).sessionDate,
+      createEmptyState: function (sessionDate) { return createState(sessionDate); }
+    });
+    const getSecret = secretLookup(seedInfo.seeds);
+    return {
+      daily: buildDailyResponse(nowMs, getSecret),
+      getSecret: getSecret,
+      seeds: seedInfo.seeds
+    };
+  }
+
   return async function handler(event, context) {
     let info = { method: '', path: '' };
     try {
@@ -218,15 +240,33 @@ function createHandler(options) {
         return { statusCode: 204, headers: RESPONSE_HEADERS, body: '' };
       }
 
+      /* ---------- 每日价格密钥（客户端拿它本地算 K 线） ---------- */
+      if (info.path === '/api/seeds') {
+        if (info.method !== 'GET') {
+          return jsonResponse(405, { error: 'method_not_allowed', message: '只支持 GET 请求' });
+        }
+        const nowMs = nowFn();
+        const store = storeFactory(context);
+        const seedInfo = await ensureSeeds(store, {
+          nowMs: nowMs,
+          from: info.query.from,
+          sessionDate: getSession(nowMs).sessionDate,
+          createEmptyState: function (sessionDate) { return createState(sessionDate); }
+        });
+        return jsonResponse(200, seedInfo);
+      }
+
       /* ---------- 行情（v1 兼容） ---------- */
       if (info.path === API_PATH) {
         if (info.method !== 'GET') {
           return jsonResponse(405, { error: 'method_not_allowed', message: '只支持 GET 请求' });
         }
         const nowMs = nowFn();
-        const daily = buildDailyResponse(nowMs);
+        const store = storeFactory(context);
+        const loaded = await loadDaily(nowMs, store);
+        const daily = loaded.daily;
         // 快讯只加在 HTTP 外壳上：coin-core 的纯算法与测试向量保持原样
-        return jsonResponse(200, Object.assign({}, daily, { news: buildNews(daily) }));
+        return jsonResponse(200, Object.assign({}, daily, { news: buildNews(daily, loaded.getSecret) }));
       }
 
       /* ---------- 共享市场状态 ---------- */
@@ -236,8 +276,9 @@ function createHandler(options) {
         }
         const nowMs = nowFn();
         const name = normalizeName(info.query.user);
-        const daily = buildDailyResponse(nowMs);
         const store = storeFactory(context);
+        const loaded = await loadDaily(nowMs, store);
+        const daily = loaded.daily;
 
         // 快路径：状态已存在且不需要建号 / 换场，就不动锁
         const existing = await store.read();
@@ -250,6 +291,7 @@ function createHandler(options) {
           let state = await store.read();
           if (!state) state = createState(daily.market.sessionDate);
           const built = buildStatePayload(daily, state, name, nowMs);
+          applySeeds(state, loaded.seeds);
           await store.write(state);
           return built.payload;
         });
@@ -264,8 +306,9 @@ function createHandler(options) {
         const body = parseBody(ev);
         const nowMs = nowFn();
         const name = normalizeName(body.user);
-        const daily = buildDailyResponse(nowMs);
         const store = storeFactory(context);
+        const loaded = await loadDaily(nowMs, store);
+        const daily = loaded.daily;
 
         const result = await store.withLock(async function () {
           let state = await store.read();
@@ -274,6 +317,7 @@ function createHandler(options) {
             ? Object.assign({}, body, { action: 'restart' })
             : body;
           const r = executeAction(daily, state, name, actionBody, nowMs);
+          applySeeds(state, loaded.seeds);
           await store.write(state);
           return r;
         });
@@ -289,13 +333,15 @@ function createHandler(options) {
         const body = parseBody(ev);
         const nowMs = nowFn();
         const name = normalizeName(body.user);
-        const daily = buildDailyResponse(nowMs);
         const store = storeFactory(context);
+        const loaded = await loadDaily(nowMs, store);
+        const daily = loaded.daily;
 
         const result = await store.withLock(async function () {
           let state = await store.read();
           if (!state) state = createState(daily.market.sessionDate);
           const r = signIn(daily, state, name, nowMs);
+          applySeeds(state, loaded.seeds);
           await store.write(state);
           const price = effectivePrice(daily, state).price;
           return {
@@ -318,13 +364,15 @@ function createHandler(options) {
         const body = parseBody(ev);
         const nowMs = nowFn();
         const name = normalizeName(body.user);
-        const daily = buildDailyResponse(nowMs);
         const store = storeFactory(context);
+        const loaded = await loadDaily(nowMs, store);
+        const daily = loaded.daily;
 
         const result = await store.withLock(async function () {
           let state = await store.read();
           if (!state) state = createState(daily.market.sessionDate);
           const r = claimLocalWallet(daily, state, name, body.amount, nowMs);
+          applySeeds(state, loaded.seeds);
           await store.write(state);
           const price = effectivePrice(daily, state).price;
           return {
@@ -343,8 +391,9 @@ function createHandler(options) {
           return jsonResponse(405, { error: 'method_not_allowed', message: '只支持 GET 请求' });
         }
         const nowMs = nowFn();
-        const daily = buildDailyResponse(nowMs);
         const store = storeFactory(context);
+        const loaded = await loadDaily(nowMs, store);
+        const daily = loaded.daily;
         const state = await store.read();
         const price = state ? effectivePrice(daily, state).price : daily.market.close;
         const board = state ? buildLeaderboard(state, price, 20) : [];
@@ -358,7 +407,7 @@ function createHandler(options) {
 
       return jsonResponse(404, {
         error: 'not_found',
-        message: '没有这个接口；行情 /api/daily、状态 /api/state、交易 /api/trade、排行 /api/leaderboard'
+        message: '没有这个接口；行情 /api/daily、密钥 /api/seeds、状态 /api/state、交易 /api/trade、排行 /api/leaderboard'
       });
     } catch (err) {
       const status = (err && err.status && err.status >= 400 && err.status < 600) ? err.status : 500;

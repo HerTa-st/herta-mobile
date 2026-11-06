@@ -9,7 +9,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node test/fc.test.mjs",
+    "test": "node test/fc.test.mjs && node test/seeds.test.mjs",
     "gen-vectors": "node test/gen-vectors.mjs",
     "dev": "node dev-server.mjs"
   }

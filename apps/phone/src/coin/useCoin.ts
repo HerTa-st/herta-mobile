@@ -13,9 +13,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CoinDailyResponse, CoinWallet, SigninCheck } from "@herta/coin";
-import { applySignin, createWallet, fetchCoinDaily, signinCheck } from "@herta/coin";
+import { applySignin, createWallet, signinCheck } from "@herta/coin";
 import { pickTransport } from "../transport.ts";
 import { loadCoinQuote, loadCoinWallet, saveCoinQuote, saveCoinWallet } from "./coin-storage.ts";
+import { buildLocalQuote, hasTodaySeed, syncSeeds } from "./local-quote.ts";
+import { readSeedCache, type SeedMap } from "./seeds.ts";
 
 /** 行情轮询间隔：契约写死 30s。 */
 const REFRESH_MS = 30_000;
@@ -70,6 +72,16 @@ export function useCoin(opts: UseCoinOptions): UseCoinResult {
   const inflightRef = useRef<Promise<void> | null>(null);
   /** 初始 1000 HTC 只发一次（落库失败才允许下一轮重试）。 */
   const walletInitRef = useRef(false);
+  /** 每日价格密钥（本地缓存 + 本轮拉到的）。K 线拿它在地算，不再向接口要 bars。 */
+  const seedsRef = useRef<SeedMap>({});
+
+  const seedStorage = (): Pick<Storage, "getItem" | "setItem"> | null => {
+    try {
+      return typeof localStorage === "undefined" ? null : localStorage;
+    } catch {
+      return null;
+    }
+  };
 
   const setOfflineState = useCallback((value: boolean) => {
     offlineRef.current = value;
@@ -87,6 +99,17 @@ export function useCoin(opts: UseCoinOptions): UseCoinResult {
     if (storedWallet) {
       walletRef.current = storedWallet;
       setWallet(storedWallet);
+    }
+    // 有今天（或昨天）的密钥就当场算一份：断网也能立刻出图，不必等接口
+    const storage = seedStorage();
+    seedsRef.current = readSeedCache(storage);
+    const local = buildLocalQuote(Date.now(), seedsRef.current);
+    if (local) {
+      quoteRef.current = local;
+      setQuote(local);
+      cachedRef.current = false;
+      setCached(false);
+      return;
     }
     if (storedQuote) {
       quoteRef.current = storedQuote.response;
@@ -129,9 +152,18 @@ export function useCoin(opts: UseCoinOptions): UseCoinResult {
 
     // 后台 30s 刷新也亮 loading：CoinView 的「重试/刷新」按钮靠它防连点
     setLoading(true);
+    const nowMs = Date.now();
 
     try {
-      const fresh = await fetchCoinDaily(currentBase, (url) => pickTransport().getText(url));
+      // 密钥一天一把：没有就向服务端要；已经有了就地重算，不再拉 K 线数据。
+      let seeds = seedsRef.current;
+      if (!hasTodaySeed(seeds, nowMs)) {
+        const synced = await syncSeeds(currentBase, (url) => pickTransport().getText(url), seedStorage());
+        seeds = synced.seeds;
+        seedsRef.current = seeds;
+      }
+      const fresh = buildLocalQuote(nowMs, seeds);
+      if (!fresh) throw new Error("今天还没拿到密钥，连上就有了");
       quoteRef.current = fresh;
       setQuote(fresh);
       cachedRef.current = false;

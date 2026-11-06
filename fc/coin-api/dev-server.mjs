@@ -120,6 +120,7 @@ const server = createServer(async (req, res) => {
 server.listen(PORT, HOST, () => {
   console.log('[coin-mock] 黑塔币 mock 服务已启动（v2 共享市场，状态在内存）');
   console.log('[coin-mock]   GET  http://' + HOST + ':' + PORT + '/api/daily');
+  console.log('[coin-mock]   GET  http://' + HOST + ':' + PORT + '/api/seeds?from=2026-11-07');
   console.log('[coin-mock]   GET  http://' + HOST + ':' + PORT + '/api/state?user=梦源');
   console.log('[coin-mock]   POST http://' + HOST + ':' + PORT + '/api/trade');
   console.log('[coin-mock]   时间：' + mockLabel);

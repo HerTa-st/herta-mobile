@@ -296,19 +296,7 @@ export function SettingsSheet({
               每轮少两次请求（判心情、复核），上下文与长图也压小了。代价：她更容易跑题、记性更短，复核也拦不住她吹牛。
             </p>
           )}
-          {/* B14：今日用量。数字来自接口回执，不涉及这次发出去的请求怎么写——只读。 */}
-          <button type="button" className="ss-row ss-rowTap" onClick={onOpenUsage}>
-            <span className="ss-rowMain">
-              <b>今日用量</b>
-              <small>输入 / 输出分开 · 含后台那些你看不见的调用 · 过零点清零</small>
-            </span>
-            <span className="ss-rowValue">
-              {usage.calls > 0
-                ? "入 " + formatTokens(usage.prompt) + " · 出 " + formatTokens(usage.completion)
-                : "还没调用"}
-              <Icon d={ICON.chevron} size={13} />
-            </span>
-          </button>
+          {/* 今日用量已经在上面的快捷键里了，这里不再放第二遍。 */}
           <label className="ss-rowStack">
             <span className="ss-rowMain">
               <b>黑塔币接口地址</b>

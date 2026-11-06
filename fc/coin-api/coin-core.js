@@ -12,8 +12,13 @@
  * 确定性随机种子只吃日期字符串 / 下标 / epoch 秒，不受时区影响。
  *
  * 对外接口：
- *   buildDailyResponse(nowMs) -> 契约 §2.2 的 { version, serverTime, market }
+ *   buildDailyResponse(nowMs, getSecret) -> 契约 §2.2 的 { version, serverTime, market }
+ *   getSession(nowMs)                    -> 当前该画哪一场 / 已揭示多少根
  *   （其余导出仅供本地测试 / 排查用）
+ *
+ * 每日密钥（2026-11-07 切换，见 docs/价格密钥-设计-2026-11-07.md）：
+ *   切换日之前，随机种子只吃日期；切换日起，种子吃「日期 + 当日密钥」，
+ *   密钥由服务端随机生成、落盘在 state/coin.json 的 seeds 里，经 /api/seeds 下发。
  */
 'use strict';
 
@@ -40,6 +45,41 @@ const PM_END = 900;     // 15:00
 const API_VERSION = 1;
 const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000;
 const WEEK_NAMES = ['日', '一', '二', '三', '四', '五', '六'];
+
+/* ============================================================
+ * 每日密钥（2026-11-07 切换）
+ *
+ *   date <  CUTOVER：种子只吃日期（历史价格一根都不许变）
+ *   date >= CUTOVER：种子 = 日期 + 当日密钥（服务端随机生成、经 /api/seeds 下发）
+ *
+ * 服务端拿不到密钥就是开不了盘：不拿日期派生备用密钥（那样会和手机端算出两条线）。
+ * ============================================================ */
+const CUTOVER = '2026-11-07';
+
+function daySeed(dateStr, secret) {
+  return dateStr < CUTOVER ? 'HTC|daily|' + dateStr : 'HTC|daily|' + dateStr + '|' + secret;
+}
+
+function planSeed(dateStr, secret) {
+  return dateStr < CUTOVER ? 'HTC|intraday|' + dateStr : 'HTC|intraday|' + dateStr + '|' + secret;
+}
+
+/**
+ * 取某天的密钥：切换日之前不需要（返回 null，连 getSecret 都不调），之后必须有。
+ * @param {string} dateStr YYYY-MM-DD
+ * @param {(date: string) => string | null} [getSecret]
+ */
+function requireSecret(dateStr, getSecret) {
+  if (dateStr < CUTOVER) return null;
+  const secret = typeof getSecret === 'function' ? getSecret(dateStr) : null;
+  if (typeof secret !== 'string' || secret.length === 0) {
+    const err = new Error('缺少 ' + dateStr + ' 的价格密钥，今天开不了盘（先取 /api/seeds）');
+    err.status = 503;
+    err.code = 'missing_secret';
+    throw err;
+  }
+  return secret;
+}
 
 /* ============================================================
  * 确定性随机数（逐行同构）
@@ -159,6 +199,12 @@ function openAt(date, hour, minute) {
   return new Date(Date.UTC(y, m, d, hour, minute, 0, 0));
 }
 
+// 上海墙上日期今天（YYYY-MM-DD），seeds.js 与 /api/seeds 用同一口径
+function shanghaiToday(nowMs) {
+  const ms = typeof nowMs === 'number' ? nowMs : Number(nowMs);
+  return ds(wallFromMs(Number.isFinite(ms) ? ms : Date.now()));
+}
+
 // 契约要求的 serverTime 形如 2026-10-29T10:15:30+08:00
 function formatServerTime(nowMs) {
   const w = wallFromMs(nowMs);
@@ -199,15 +245,33 @@ function getPool() {
  * ============================================================ */
 const dayCache = new Map();
 
-function dailySeries(endDate) {
-  const key = ds(endDate);
-  if (dayCache.has(key)) return dayCache.get(key);
+function seriesDates(endDate) {
+  const dates = tradingDatesBetween(parseDate(COIN.genesis), endDate);
+  return dates.length ? dates : [wallDate(...wallYmd(endDate))];
+}
 
-  const start = parseDate(COIN.genesis);
-  let dates = tradingDatesBetween(start, endDate);
-  if (!dates.length) {
-    dates = [wallDate(...wallYmd(endDate))];
+/**
+ * 日线链：从 genesis 走到 endDate，每天都问一次 getSecret（切换日之后才真的要）。
+ *
+ * 缓存按「日期 + 这段链用到的密钥指纹」存：密钥是每天落盘一把、永不改，
+ * 所以正常情况下同一个 endDate 永远命中同一条链；万一有别的密钥传进来
+ * （只可能出现在测试里），也不会拿到别人的链。
+ */
+function dailySeries(endDate, getSecret) {
+  const key = ds(endDate);
+  const dates = seriesDates(endDate);
+
+  const secrets = new Array(dates.length);
+  const used = [];
+  for (let i = 0; i < dates.length; i++) {
+    const dstr = ds(dates[i]);
+    const secret = requireSecret(dstr, getSecret);
+    secrets[i] = secret;
+    if (secret) used.push(dstr + ':' + secret);
   }
+
+  const cacheKey = used.length ? key + '|' + fingerprint(used.join('|')) : key;
+  if (dayCache.has(cacheKey)) return dayCache.get(cacheKey);
 
   let close = COIN.genesisClose;
   const list = [];
@@ -218,7 +282,7 @@ function dailySeries(endDate) {
       list.push({ date: d, close: close });
       continue;
     }
-    const rng = makeRng('HTC|daily|' + dstr);
+    const rng = makeRng(daySeed(dstr, secrets[i]));
     const dev = Math.log(close / COIN.genesisClose);
     const ret = rng.norm() * COIN.dailyVol + 0.0005 - 0.010 * dev;
     close = close * (1 + ret);
@@ -227,7 +291,7 @@ function dailySeries(endDate) {
     list.push({ date: d, close: close });
   }
 
-  dayCache.set(key, list);
+  dayCache.set(cacheKey, list);
   return list;
 }
 
@@ -236,16 +300,18 @@ function dailySeries(endDate) {
  * ============================================================ */
 const planCache = new Map();
 
-function buildPlan(sessionDate) {
+function buildPlan(sessionDate, getSecret) {
   const key = ds(sessionDate);
-  if (planCache.has(key)) return planCache.get(key);
+  const secret = requireSecret(key, getSecret);
+  const cacheKey = secret ? key + '|' + secret : key;
+  if (planCache.has(cacheKey)) return planCache.get(cacheKey);
 
-  const series = dailySeries(sessionDate);
+  const series = dailySeries(sessionDate, getSecret);
   const last = series.length - 1;
   const today = series[last];
   const prev = series[last - 1] || today;
 
-  const rng = makeRng('HTC|intraday|' + key);
+  const rng = makeRng(planSeed(key, secret));
   const pool = getPool();
 
   /* --- 1. 排新闻：按分钟分布，方向和强度会在生成行情时给冲击 --- */
@@ -344,7 +410,7 @@ function buildPlan(sessionDate) {
     dayVolume: dayVolume,
     sessionNumber: series.length
   };
-  planCache.set(key, plan);
+  planCache.set(cacheKey, plan);
   return plan;
 }
 
@@ -499,12 +565,17 @@ function computeQuote(plan, bars) {
 /* ============================================================
  * 契约 §2.2 返回体
  * ============================================================ */
-function buildDailyResponse(nowMs) {
+/**
+ * @param {number} nowMs 毫秒时间戳
+ * @param {(date: string) => string | null} [getSecret] 每日密钥查询；
+ *        切换日（含）之后必须有，切换日之前不会被调用。
+ */
+function buildDailyResponse(nowMs, getSecret) {
   const ms = typeof nowMs === 'number' ? nowMs : Number(nowMs);
   if (!Number.isFinite(ms)) throw new TypeError('nowMs 必须是有效的毫秒时间戳，收到：' + nowMs);
 
   const info = getSession(ms);
-  const plan = buildPlan(info.sessionDate);
+  const plan = buildPlan(info.sessionDate, getSecret);
   const displayBars = buildDisplay(plan, info, ms);
   const quote = computeQuote(plan, displayBars);
   const key = ds(info.sessionDate);
@@ -559,5 +630,13 @@ module.exports = {
   TOTAL_BARS,
   API_VERSION,
   SHANGHAI_OFFSET_MS,
-  WEEK_NAMES
+  WEEK_NAMES,
+  // 每日密钥（seeds.js 也吃这几个）
+  CUTOVER,
+  daySeed,
+  planSeed,
+  requireSecret,
+  shanghaiToday,
+  isTradingDay,
+  parseDate
 };

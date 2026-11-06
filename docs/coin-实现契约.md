@@ -71,6 +71,8 @@
 ```
 
 - `bars` = 网页 `state.displayBars`：已揭示的完整分钟 K（`t` 为 0..239 的下标）+ 当前分钟的部分 K（带 `"partial": true`，只在 `inSession && revealed<240` 时追加）。
+  **2026-11-07 起**：手机端不再消费这个字段，改为按当日密钥本地算（见 [价格密钥-设计-2026-11-07.md](价格密钥-设计-2026-11-07.md)）；
+  `bars` 暂时保留给对账，等下一轮再瘦身。
 - `high/low/close/volume/turnover` 按 displayBars 现算（和网页 `computeQuote` 一致）；`open` 取当日计划的 open。
 - `keyFingerprint` = 网页 `fingerprint(ds(sessionDate))`。
 - 只输出已揭示部分，绝不补未来数据。
