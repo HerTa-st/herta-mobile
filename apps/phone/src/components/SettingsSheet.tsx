@@ -328,15 +328,7 @@ export function SettingsSheet({
             <span>数据</span>
             <span>本机</span>
           </div>
-          <button type="button" className="ss-row ss-rowTap" onClick={onOpenBackup}>
-            <span className="ss-rowMain">
-              <b>备份与迁移</b>
-              <small>打包随身、换机带走；API Key 不进包</small>
-            </span>
-            <span className="ss-rowValue">
-              <Icon d={ICON.chevron} size={13} />
-            </span>
-          </button>
+          {/* 备份入口挪到上面那排快捷键了，这里不再放第二个按钮。 */}
           <div className="ss-row">
             <span className="ss-rowMain">
               <b>数据统计</b>
@@ -345,19 +337,34 @@ export function SettingsSheet({
               </small>
             </span>
           </div>
-          <p className="ss-links">
-            <button type="button" className="ss-linkBtn" onClick={onOpenToolLog}>
-              工具调用记录
-            </button>
-            <i>·</i>
-            <button type="button" className="ss-linkBtn" onClick={onReplayOnboarding}>
-              开屏与引导
-            </button>
-            <i>·</i>
-            <button type="button" className="ss-linkBtn" onClick={onOpenDesignSystem}>
-              设计系统
-            </button>
-          </p>
+          {/* 原来挤成一排小字链接，点不准也认不出；改成和其它入口一样的行。 */}
+          <button type="button" className="ss-row ss-rowTap" onClick={onOpenToolLog}>
+            <span className="ss-rowMain">
+              <b>工具调用记录</b>
+              <small>她伸手做过什么 · 只留在这台手机</small>
+            </span>
+            <span className="ss-rowValue">
+              <Icon d={ICON.chevron} size={13} />
+            </span>
+          </button>
+          <button type="button" className="ss-row ss-rowTap" onClick={onReplayOnboarding}>
+            <span className="ss-rowMain">
+              <b>开屏与引导</b>
+              <small>重播开场 · 会再问一遍她怎么称呼你</small>
+            </span>
+            <span className="ss-rowValue">
+              <Icon d={ICON.chevron} size={13} />
+            </span>
+          </button>
+          <button type="button" className="ss-row ss-rowTap" onClick={onOpenDesignSystem}>
+            <span className="ss-rowMain">
+              <b>设计系统</b>
+              <small>token 与锚点清单 · 做主题看这个</small>
+            </span>
+            <span className="ss-rowValue">
+              <Icon d={ICON.chevron} size={13} />
+            </span>
+          </button>
         </section>
 
         {/* B13：最底部一组「关于」。版本号直接读打包时注入的那份，不在这里写死。 */}
