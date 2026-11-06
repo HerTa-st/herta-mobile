@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
 import type { Block, HertaBlock, ImportBundle, Session, UserBlock } from "@herta/protocol";
 import {
@@ -104,6 +104,18 @@ import { playVoice, stopVoice } from "./voice.ts";
 import { usePageStack } from "./nav/use-page-stack.ts";
 import { connectSystemBack } from "./nav/system-back.ts";
 import { routeFromNotification } from "./nav/routes.ts";
+import { ThemeScreen } from "./theme/ThemeScreen.tsx";
+import {
+  activateTheme,
+  APP_VERSION,
+  bootstrapTheme,
+  installThemeFromBytes,
+  installThemeFromUrl,
+  uninstallTheme,
+  type ThemeSnapshot,
+} from "./theme/runtime.ts";
+import { Slot } from "./theme/slots.tsx";
+import type { InstalledThemeMeta } from "./theme/store.ts";
 
 const assets = new BrowserAssetSource();
 const transport = pickTransport();
@@ -143,6 +155,11 @@ export function App() {
   const [appearancePick, setAppearancePick] = useState<"avatar" | "background" | null>(null);
   /** 外观页的一句话回执（读图失败 / 这张太大）。 */
   const [appearanceNote, setAppearanceNote] = useState<string | null>(null);
+  /** 已安装的主题包与当前生效的那个（B10）。空串 = 内置。 */
+  const [themes, setThemes] = useState<InstalledThemeMeta[]>([]);
+  const [activeTheme, setActiveTheme] = useState("");
+  const [themeNote, setThemeNote] = useState<string | null>(null);
+  const [themeBusy, setThemeBusy] = useState(false);
   /** 系统是不是深色。theme=system 时用它决定解析结果。 */
   const [systemDark, setSystemDark] = useState(() =>
     typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -277,6 +294,40 @@ export function App() {
   const [atBottom, setAtBottom] = useState(true);
 
   useEffect(() => saveSettings(settings), [settings]);
+
+  /**
+   * B10：启动时应用上次选的主题。
+   * bootstrapTheme 会先校验主题包、再按「内置 → 主题 → 用户层」的顺序注入；
+   * 若主题包坏了，它自己回滚到内置，不会把 App 卡在没有样式的状态。
+   */
+  useEffect(() => {
+    let cancelled = false;
+    void bootstrapTheme().then((snap) => {
+      if (cancelled) return;
+      setThemes(snap.themes);
+      setActiveTheme(snap.activeId);
+      if (snap.error) setThemeNote(snap.error);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** 主题操作统一走这里：串行、失败只报一句人话，不拆界面。 */
+  const runThemeAction = useCallback(async (action: () => Promise<ThemeSnapshot>) => {
+    setThemeBusy(true);
+    setThemeNote(null);
+    try {
+      const snap = await action();
+      setThemes(snap.themes);
+      setActiveTheme(snap.activeId);
+      setThemeNote(snap.error);
+    } catch (err) {
+      setThemeNote(err instanceof Error ? err.message : String(err));
+    } finally {
+      setThemeBusy(false);
+    }
+  }, []);
 
   // 按会话的背景覆盖（kv）。读不到就当没有，全部走全局。
   useEffect(() => {
@@ -1916,9 +1967,10 @@ export function App() {
       cursor: "pointer",
     } as const;
     return (
-      <div key={i} data-idx={i} data-part="message">
+      <Slot key={i} name="message" region={b.kind}>
+      <div data-idx={i} data-part="message">
         <div className={"turn " + b.kind + (b.kind === "herta" ? " " + b.surface : "")}>
-          {avatar && <img className="turnAvatar" src={faceSrc(settings)} alt="" />}
+          {avatar && <img className="turnAvatar" src={faceSrc(settings)} data-herta-user="face" alt="" />}
           <article
             className={"bubble " + b.kind + (b.kind === "herta" ? " " + b.surface : "")}
             data-part="message-bubble"
@@ -2014,6 +2066,7 @@ export function App() {
           </div>
         )}
       </div>
+      </Slot>
     );
   };
 
@@ -2023,18 +2076,29 @@ export function App() {
       data-part="app"
       data-rail={settings.railCollapsed ? "collapsed" : "expanded"}
     >
-      {!splashGone && <Splash onDone={hideSplash} />}
+      {!splashGone && (
+        <Slot name="splash">
+          <Splash onDone={hideSplash} />
+        </Slot>
+      )}
 
-      {/* 聊天背景：一层底图 + 一层光罩（光罩在 CSS 里），消息永远在它上面 */}
+      {/* 聊天背景：一层底图 + 一层光罩（光罩在 CSS 里），消息永远在它上面。
+          自定义图走 --herta-user-bg，让用户覆盖层能用 !important 保住它。 */}
       <div
         className="appBg"
         data-part="app-bg"
+        data-herta-user="chat-bg"
         data-bg={chatBackgroundKind}
         aria-hidden="true"
-        style={chatBackgroundKind === "custom" ? { backgroundImage: 'url("' + chatBackground + '")' } : undefined}
+        style={
+          chatBackgroundKind === "custom"
+            ? ({ "--herta-user-bg": 'url("' + chatBackground + '")' } as CSSProperties)
+            : undefined
+        }
       />
 
       {/* 桌面端那条侧栏的窄版：会话常驻，入口在底部 */}
+      <Slot name="railTopbar" region="rail">
       <aside className="rail" data-part="rail" aria-label="侧栏">
         <button className="railMark" data-part="rail-item" type="button" onClick={() => setDrawer((v) => !v)} aria-label="会话">
           H
@@ -2100,8 +2164,10 @@ export function App() {
         aria-label={settings.railCollapsed ? "展开左轨" : "收起左轨"}
         aria-expanded={!settings.railCollapsed}
       />
+      </Slot>
 
       <section className="workspace">
+      <Slot name="railTopbar" region="topbar">
       <header className="bar" data-part="topbar">
         <button className="iconBtn" type="button" onClick={() => setDrawer((v) => !v)} aria-label="会话">
           ☰
@@ -2134,9 +2200,10 @@ export function App() {
           {themeIsDark ? "日" : "夜"}
         </button>
         <button className="topAvatarBtn" type="button" onClick={() => pages.push("settings")} aria-label="设置">
-          <img src={faceSrc(settings)} alt="" />
+          <img src={faceSrc(settings)} data-herta-user="face" alt="" />
         </button>
       </header>
+      </Slot>
 
       {moodOpen && (
         <div className="moodPop" role="dialog" aria-label="她的心情">
@@ -2318,6 +2385,8 @@ export function App() {
                 }}
                 onOpenDesignSystem={() => pages.push("designSystem")}
                 onOpenAppearance={() => pages.push("appearance")}
+                onOpenTheme={() => pages.push("theme")}
+                themeName={themes.find((theme) => theme.id === activeTheme)?.name ?? "内置"}
               />
             );
           case "appearance":
@@ -2337,6 +2406,27 @@ export function App() {
                 onPickPhoto={(target) => void pickAppearancePhoto(target)}
                 picking={appearancePick}
                 note={appearanceNote}
+              />
+            );
+          case "theme":
+            return (
+              <ThemeScreen
+                key={key}
+                version={APP_VERSION}
+                activeId={activeTheme}
+                themes={themes}
+                busy={themeBusy}
+                note={themeNote}
+                onInstallFile={(file) => {
+                  void runThemeAction(async () => {
+                    const bytes = new Uint8Array(await file.arrayBuffer());
+                    return installThemeFromBytes(bytes);
+                  });
+                }}
+                onInstallUrl={(url) => void runThemeAction(() => installThemeFromUrl(url))}
+                onActivate={(id) => void runThemeAction(() => activateTheme(id))}
+                onUninstall={(id) => void runThemeAction(() => uninstallTheme(id))}
+                onClose={() => pages.close("theme")}
               />
             );
           case "onboarding":
@@ -2456,7 +2546,11 @@ export function App() {
               void saveToBox(rec.data, rec.name, rec.mediaType, rec.tags, b.from === "herta" ? "mine" : "herta");
             const press = longPressProps(collect);
             return (
-              <article key={i} data-idx={i} data-part="message" className={"bubble stickerBubble " + b.from}>
+              <Slot key={i} name="message" region="sticker">
+              {/* 表情消息也要两个锚点：message 是容器，message-bubble 是气泡本体。
+                  display:contents 让外层不参与 .feed 的 flex 排布。 */}
+              <div data-part="message" style={{ display: "contents" }}>
+              <article data-idx={i} data-part="message-bubble" className={"bubble stickerBubble " + b.from}>
                 <img className="sticker" src={rec.data} alt={rec.name} title={rec.tags.join("、") || rec.name} {...press.props} />
                 {/* 长按能收，但读屏/手套到不了长按：底下留一个点得到的同类动作 */}
                 <button
@@ -2479,6 +2573,8 @@ export function App() {
                   {b.from === "herta" ? "存进表情箱" : "送给她"}
                 </button>
               </article>
+              </div>
+              </Slot>
             );
           }
           // 播报提示：她递过来的一份东西，不是一句台词 —— 用转播卡，不用对话气泡
@@ -2556,6 +2652,7 @@ export function App() {
         </button>
       )}
 
+      <Slot name="composer">
       <footer className="composer" data-part="composer">
         {docReading && (
           <p className="notice">正在读「{docReading}」…大文档要十几秒，读完会出现在她能读的文件里。</p>
@@ -2774,6 +2871,7 @@ export function App() {
           <span>{settings.model}</span>
         </div>
       </footer>
+      </Slot>
       </section>
     </div>
   );

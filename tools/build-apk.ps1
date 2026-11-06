@@ -73,6 +73,22 @@ Push-Location $app
 node (Join-Path $root 'node_modules\@capacitor\cli\bin\capacitor') sync android
 Pop-Location
 
+# 版本号只有 apps/phone/version.json 一个出处（这文件进 git）。
+# android/ 是 .gitignore 的本地产物，所以每次打包前把版本号同步进 build.gradle；
+# 换机器、重新 cap add android 之后也不会丢版本。
+Write-Host '[3.5/4] 同步版本号（version.json → build.gradle）'
+$versionFile = Join-Path $app 'version.json'
+if (-not (Test-Path $versionFile)) { throw "找不到版本文件：$versionFile" }
+$version = Get-Content $versionFile -Raw | ConvertFrom-Json
+if (-not $version.versionName -or -not $version.versionCode) {
+  throw 'version.json 要同时写 versionName 与 versionCode'
+}
+$gradlePath = Join-Path $app 'android\app\build.gradle'
+$gradle = Get-Content $gradlePath -Raw
+$gradle = [regex]::Replace($gradle, 'versionCode\s+\d+', ('versionCode ' + [int]$version.versionCode))
+$gradle = [regex]::Replace($gradle, 'versionName\s+"[^"]+"', ('versionName "' + $version.versionName + '"'))
+Set-Content -LiteralPath $gradlePath -Value $gradle -NoNewline -Encoding utf8
+
 Write-Host '[4/4] 打包'
 # 增量打包会把上一版删掉的大文件留成 APK 里的空洞（这次删了 1.8MB 的 png 闪屏，
 # 产物反而从 7.3MB 涨到 9.5MB——空洞不会自己消失）。先删旧产物，让 gradle 从零写。

@@ -63,6 +63,8 @@ export function SettingsSheet({
   onReplayOnboarding,
   onOpenDesignSystem,
   onOpenAppearance,
+  onOpenTheme,
+  themeName,
 }: {
   settings: Settings;
   onChange(patch: Partial<Settings>): void;
@@ -78,6 +80,9 @@ export function SettingsSheet({
   onReplayOnboarding(): void;
   onOpenDesignSystem(): void;
   onOpenAppearance(): void;
+  onOpenTheme(): void;
+  /** 当前生效的主题名（"内置" 或已安装主题的显示名）。 */
+  themeName: string;
 }) {
   const capCount = CAP_KEYS.filter((key) => settings[key]).length;
   const capHint = capCount > 0 ? capCount + " 项开着" : "全关着";
@@ -103,7 +108,7 @@ export function SettingsSheet({
 
       <div className="ss-body">
         <section className="ss-card ss-profileCard">
-          <img className="ss-avatar" src={faceSrc(settings)} alt="她现在的样子" />
+          <img className="ss-avatar" src={faceSrc(settings)} data-herta-user="face" alt="她现在的样子" />
           <div className="ss-profileMain">
             <b>黑塔</b>
             <span>herta · 单人格 · 单记忆分区</span>
@@ -154,6 +159,15 @@ export function SettingsSheet({
             <span className="ss-rowMain">
               <b>她的样子</b>
               <small>头像与聊天背景 · 预设像 / 相册自选 · 全局或按会话</small>
+            </span>
+            <span className="ss-rowValue">
+              <Icon d={ICON.chevron} size={13} />
+            </span>
+          </button>
+          <button type="button" className="ss-row ss-rowTap" onClick={onOpenTheme}>
+            <span className="ss-rowMain">
+              <b>主题包</b>
+              <small>{themeName} · 安装 / 切换 / 卸载 zip 主题（只改样式）</small>
             </span>
             <span className="ss-rowValue">
               <Icon d={ICON.chevron} size={13} />

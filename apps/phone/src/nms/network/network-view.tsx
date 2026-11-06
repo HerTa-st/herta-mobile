@@ -726,7 +726,7 @@ export function NetworkView({
             ) : null}
           </NetworkCanvas>
         ) : (
-          <div className="nmsnet-empty">
+          <div className="nmsnet-empty" data-part="empty-state">
             <div className="nmsnet-empty-title">{emptyTitle}</div>
             <div className="nmsnet-empty-desc">{emptyDesc}</div>
             {error && onRefresh ? (

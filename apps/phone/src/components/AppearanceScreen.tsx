@@ -113,7 +113,7 @@ export function AppearanceScreen({
           </div>
 
           <div className="as-faceRow">
-            <img className="as-faceBig" src={face} alt="她现在的样子" />
+            <img className="as-faceBig" src={face} data-herta-user="face" alt="她现在的样子" />
             <div className="as-faceMeta">
               <b>{customFace ? "相册里的这张" : "预设像"}</b>
               <small>
@@ -139,7 +139,7 @@ export function AppearanceScreen({
               disabled={picking !== null}
               onClick={() => onPickPhoto("avatar")}
             >
-              {customFace ? <img src={settings.avatar} alt="" /> : <span className="as-choicePlus">＋</span>}
+              {customFace ? <img src={settings.avatar} data-herta-user="face" alt="" /> : <span className="as-choicePlus">＋</span>}
               <span>{picking === "avatar" ? "读图中…" : "相册自选"}</span>
             </button>
           </div>

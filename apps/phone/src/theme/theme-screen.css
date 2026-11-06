@@ -1,0 +1,93 @@
+/* 主题包管理页：只补 settings-suite 没覆盖到的局部，颜色全走 --ss-* / 全局 token。 */
+
+.themeScreen .ss-btnSmall {
+  flex: none;
+}
+
+.themeNote {
+  margin: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--ss-bad-line);
+  border-radius: 12px;
+  background: var(--ss-bad-bg);
+  color: var(--ss-bad);
+  font-size: 10px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.themeCurrent {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 2px;
+}
+
+.themeSwatch {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--ss-line);
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 30% 28%, rgba(62, 107, 87, 0.45), transparent 58%),
+    linear-gradient(145deg, #f7f3e9, #dfe8e1);
+}
+
+:root[data-theme="dark"] .themeSwatch {
+  background:
+    radial-gradient(circle at 30% 28%, rgba(143, 191, 163, 0.42), transparent 58%),
+    linear-gradient(145deg, #101b17, #0a141b);
+}
+
+.themeBusy {
+  flex: none;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 9px;
+  color: var(--ss-accent);
+}
+
+.themeInstallRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 2px;
+  border-top: 1px solid var(--ss-line);
+}
+
+.themeInstallRow:first-of-type {
+  border-top: 0;
+}
+
+.themeInstallRow .ss-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.themeInstallHint {
+  flex: 1;
+  margin: 0;
+}
+
+.themeRow {
+  align-items: flex-start;
+}
+
+.themeRowActions {
+  flex: none;
+  display: flex;
+  gap: 4px;
+  padding-top: 2px;
+}
+
+.themeInUse {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--ss-ok-bg);
+  color: var(--ss-ok);
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 500;
+  vertical-align: 1px;
+}

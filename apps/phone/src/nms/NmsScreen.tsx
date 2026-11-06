@@ -219,7 +219,7 @@ export function NmsScreen({
                   </div>
                 ))
               ) : (
-                <p className="nmsEmpty">记忆库还是空的。睡一觉之后，新的情景会出现在这里。</p>
+                <p className="nmsEmpty" data-part="empty-state">记忆库还是空的。睡一觉之后，新的情景会出现在这里。</p>
               )}
             </section>
 
@@ -274,7 +274,7 @@ export function NmsScreen({
             <section className="nmsTierGroup">
               <h3>她记住的文件 · {memories.filter((m) => !m.forgotten).length}</h3>
               {memories.filter((m) => !m.forgotten).length === 0 ? (
-                <p className="nmsEmpty">还没有。聊几轮、睡一觉，或者回聊天页点「把这段对话整理成记忆」。</p>
+                <p className="nmsEmpty" data-part="empty-state">还没有。聊几轮、睡一觉，或者回聊天页点「把这段对话整理成记忆」。</p>
               ) : (
                 [...memories]
                   .filter((m) => !m.forgotten)

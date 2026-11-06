@@ -126,9 +126,9 @@ export function ToolLogSheet({ onClose }: { onClose(): void }) {
 
         <section className="ss-card tl-listCard">
           {rows.length === 0 ? (
-            <p className="tl-empty">还没有记录。她调一次工具，这里就多一行。</p>
+            <p className="tl-empty" data-part="empty-state">还没有记录。她调一次工具，这里就多一行。</p>
           ) : shown.length === 0 ? (
-            <p className="tl-empty">这个筛选下没有记录。</p>
+            <p className="tl-empty" data-part="empty-state">这个筛选下没有记录。</p>
           ) : (
             <div className="tl-list">
               {shown.map(({ r, i }) => {
