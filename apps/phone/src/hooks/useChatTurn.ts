@@ -74,6 +74,8 @@ const TOOL_LABEL: Record<string, string> = {
   tap: "点了一下",
 };
 
+type TurnAttachment = { mediaType: string; data: string; name?: string };
+
 /**
  * 一个回合：判心情 → 算行踪 → 带工具说话 → 她自己复核 → 落库。
  *
@@ -124,36 +126,30 @@ export function useChatTurn(opts: {
     };
   }, []);
   const abort = useRef<AbortController | null>(null);
-  const send = useCallback(async (
+  /** 失败的那一轮：点「重发」按原样再来一次，不再追加用户块（否则会重复你的话）。 */
+  const [failed, setFailed] = useState<{
+    sessionId: string;
+    history: Session;
+    text: string;
+    attachments?: TurnAttachment[];
+    sticker?: StickerRecord;
+  } | null>(null);
+
+  /**
+   * 从一段已有历史往下生成一轮。
+   *
+   * 正常发送、重发、单独重生成走的是同一段：区别只在于传进来的 history
+   * 停在哪一块。用户块由调用方负责先落进 history，这里只负责生成。
+   */
+  const runTurn = useCallback(async (
+    history: Session,
     text: string,
-    attachments?: { mediaType: string; data: string; name?: string }[],
-    /** 这一轮是"发了一张表情"：那么起点不是一条文字消息，而是表情块。 */
+    attachments?: TurnAttachment[],
     sticker?: StickerRecord
   ) => {
-    if ((!text.trim() && !attachments?.length && !sticker) || busy || !session) return;
-    if (!settings.apiKey) {
-      // 未接通不是错误（设计文档 §4.1）：只把她领到设置去填，界面上不弹红字。
-      onNeedKey();
-      return;
-    }
     onError(null);
+    setFailed(null);
     setBusy(true);
-    
-
-    const at = new Date().toISOString();
-    // 发一张表情和发一条文字是两种起点：表情块没有台词，但它同样"是你开的口"，
-    // 序列化、截断、撤回都按这个认（见 core/sticker.ts）。
-    const opening: Block = sticker
-      ? { kind: "sticker", from: "user", stickerId: sticker.id, name: sticker.name, at }
-      : {
-          kind: "user",
-          text,
-          at,
-          ...(attachments && attachments.length > 0 ? { attachments } : {}),
-        };
-    const history = appendBlocks(session, [opening]);
-    setSession(history);
-    void persist(history);
 
     // pending_turns 的写入点：正常、拒答、打断、异常都要覆盖；同一轮只发一次。
     let turnEndSent = false;
@@ -168,7 +164,7 @@ export function useChatTurn(opts: {
         .map((block) => block.text)
         .join("\n");
       onTurnEnd({
-        sessionId: session.id,
+        sessionId: history.id,
         turn,
         userText: text.trim().length > 0 ? text : sticker?.name ?? "",
         assistantText,
@@ -184,9 +180,9 @@ export function useChatTurn(opts: {
      */
     if (settings.replyPacing !== false) {
       const bond = bondLevel({
-        blocks: session.blocks.length,
+        blocks: history.blocks.length,
         memories: memories.length,
-        days: daysSince(session.createdAt),
+        days: daysSince(history.createdAt),
       });
       const decision = decideReply({ text, bond });
       if (!decision.reply) {
@@ -424,6 +420,8 @@ export function useChatTurn(opts: {
                   String(result.content).replace(/\s+/g, " ").slice(0, 140) +
                   "）",
                 at: new Date().toISOString(),
+                // 聊天流里不显示（设计文档 §5 根⑤）；转录序列化不过滤，工具记录页另有全量审计。
+                hidden: true,
               };
               toolNotes.push(note);
               setSession({ ...history, blocks: [...history.blocks, ...toolNotes] });
@@ -544,6 +542,7 @@ export function useChatTurn(opts: {
       }
 
       const final = appendBlocks(withRedos, tail);
+      setFailed(null);
       setSession(final);
       await persist(final);
       emitTurnEnd(final.blocks, "final");
@@ -555,11 +554,15 @@ export function useChatTurn(opts: {
         // 打断不是错误：留下已经说出口的半句，别把红字糊她脸上。
         const partial = parseNarrative(raw).speech;
         const kept = partial ? appendBlocks(history, [{ kind: "herta", surface: "speech", text: partial, at: new Date().toISOString() }]) : history;
+        setFailed(null);
         setSession(kept);
         await persist(kept);
         emitTurnEnd(kept.blocks, "aborted");
       } else {
-        onError(e instanceof Error ? e.message : String(e));
+        const detail = e instanceof Error ? e.message : String(e);
+        // 你的话留在会话里，不因为网断了就被吞掉；「重发」从这一段历史接着生成。
+        setFailed({ sessionId: history.id, history, text, attachments, sticker });
+        onError("没发出去：" + detail);
         setSession(history);
         await persist(history);
         emitTurnEnd(history.blocks, "error");
@@ -568,12 +571,92 @@ export function useChatTurn(opts: {
       abort.current = null;
       setBusy(false);
     }
-  }, [busy, dreamState, files, memories, nmsVoice, onError, onKeepSticker, onNeedKey, onNmsRecall, onTurnEnd, persist, session, settings, stickers]);
+  }, [dreamState, files, memories, nmsVoice, onError, onKeepSticker, onNmsRecall, onTurnEnd, persist, setSession, settings, stickers]);
+
+  /** 正常发一条：先把用户的块落进会话，再从那里往下生成。 */
+  const send = useCallback(
+    async (text: string, attachments?: TurnAttachment[], sticker?: StickerRecord) => {
+      if ((!text.trim() && !attachments?.length && !sticker) || busy || !session) return;
+      if (!settings.apiKey) {
+        // 未接通不是错误（设计文档 §4.1）：只把她领到设置去填，界面上不弹红字。
+        onNeedKey();
+        return;
+      }
+      const at = new Date().toISOString();
+      // 发一张表情和发一条文字是两种起点：表情块没有台词，但它同样"是你开的口"，
+      // 序列化、截断、撤回都按这个认（见 core/sticker.ts）。
+      const opening: Block = sticker
+        ? { kind: "sticker", from: "user", stickerId: sticker.id, name: sticker.name, at }
+        : {
+            kind: "user",
+            text,
+            at,
+            ...(attachments && attachments.length > 0 ? { attachments } : {}),
+          };
+      setFailed(null);
+      const history = appendBlocks(session, [opening]);
+      setSession(history);
+      void persist(history);
+      await runTurn(history, text, attachments, sticker);
+    },
+    [busy, onNeedKey, persist, runTurn, session, setSession, settings.apiKey]
+  );
+
+  /**
+   * 重新生成：把会话截到 startIndex，再从这里往下说。
+   *
+   * startIndex 之前的最后一块用户/表情是这个回合的起点——不新增用户块，
+   * 否则长按重生成一次就多一句"你"。
+   */
+  const regenerate = useCallback(
+    async (startIndex: number) => {
+      if (busy || !session) return;
+      if (!settings.apiKey) {
+        onNeedKey();
+        return;
+      }
+      const base = session.blocks.slice(0, Math.max(0, startIndex));
+      let last: Block | null = null;
+      for (let i = base.length - 1; i >= 0; i -= 1) {
+        const block = base[i];
+        if (block.kind === "user" || (block.kind === "sticker" && block.from === "user")) {
+          last = block;
+          break;
+        }
+      }
+      if (!last) return;
+      // 表情库删了就重说不了——先查再截，别把后面的对话白丢。
+      const stickerRecord =
+        last.kind === "sticker" ? stickers.find((s) => s.id === last.stickerId) ?? null : null;
+      if (last.kind === "sticker" && !stickerRecord) return;
+      setFailed(null);
+      const truncated: Session = { ...session, blocks: base, updatedAt: new Date().toISOString() };
+      setSession(truncated);
+      await persist(truncated);
+      if (last.kind === "user") {
+        await runTurn(truncated, last.text, last.attachments);
+      } else if (stickerRecord) {
+        await runTurn(truncated, "", undefined, stickerRecord);
+      }
+    },
+    [busy, onNeedKey, persist, runTurn, session, setSession, settings.apiKey, stickers]
+  );
+
+  /** 重发失败的那一轮：历史原样，只重跑生成。 */
+  const retry = useCallback(async () => {
+    if (!failed || busy || !session || failed.sessionId !== session.id) return;
+    await runTurn(failed.history, failed.text, failed.attachments, failed.sticker);
+  }, [busy, failed, runTurn, session]);
+
+  // 换了会话就把「重发」收掉：那条失败属于另一条会话。
+  useEffect(() => {
+    setFailed((current) => (current && current.sessionId !== session?.id ? null : current));
+  }, [session?.id]);
 
   // 中途被打断（打断/切会话）别把"正在输入"留在界面上
   useEffect(() => () => setTyping(false), []);
 
   const stop = useCallback(() => abort.current?.abort(), []);
 
-  return { send, stop, busy, mood, moodAt, typing };
+  return { send, stop, busy, mood, moodAt, typing, regenerate, retry, failed };
 }
