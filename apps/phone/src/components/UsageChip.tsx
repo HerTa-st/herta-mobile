@@ -21,7 +21,7 @@ export function UsageChip({ usage }: { usage: TokenUsage }) {
   ].join(" · ");
 
   return (
-    <div className="usageRow">
+    <div className="usageRow" data-part="message-usage">
       <button
         type="button"
         className="usageChip"

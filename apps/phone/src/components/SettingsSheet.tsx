@@ -53,6 +53,8 @@ export function SettingsSheet({
   mood,
   fileNames,
   onFile,
+  onRemoveFile,
+  onClearFiles,
   stickers,
   onAddStickers,
   onRemoveSticker,
@@ -68,6 +70,10 @@ export function SettingsSheet({
   mood: string;
   fileNames: string[];
   onFile(file: File): void;
+  /** 单条删：她读过的文件不该只能增不能减。 */
+  onRemoveFile(name: string): void;
+  /** 全清：一次把文件库清空。 */
+  onClearFiles(): void;
   stickers: StickerRecord[];
   onAddStickers(files: File[]): void;
   onRemoveSticker(id: string): void;
@@ -81,7 +87,7 @@ export function SettingsSheet({
   const capHint = capCount > 0 ? capCount + " 项开着" : "全关着";
 
   return (
-    <div className="ss-page" role="dialog" aria-label="设置">
+    <div className="ss-page" data-part="panel" role="dialog" aria-label="设置">
       <header className="ss-top">
         <button type="button" className="ss-iconBtn" onClick={onClose} aria-label="返回">
           <Icon d={ICON.back} size={18} />
@@ -444,11 +450,31 @@ export function SettingsSheet({
               }}
             />
           </label>
-          <p className="ss-note">
-            {fileNames.length > 0
-              ? "她能读：" + fileNames.join("、")
-              : "还没给她文件。回形针的「选文件」也可以加；她只能读你选的，不能自己翻手机。"}
-          </p>
+          {fileNames.length > 0 ? (
+            <div className="ss-fileList">
+              {fileNames.map((name) => (
+                <span className="ss-fileRow" key={name}>
+                  <span className="ss-fileName" title={name}>
+                    {name}
+                  </span>
+                  <button
+                    type="button"
+                    className="ss-btnSmall ss-btnGhost"
+                    onClick={() => onRemoveFile(name)}
+                    aria-label={"删掉「" + name + "」"}
+                    title="删掉这一份"
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+              <button type="button" className="ss-btnSmall ss-btnGhost" onClick={onClearFiles}>
+                全清（{fileNames.length}）
+              </button>
+            </div>
+          ) : (
+            <p className="ss-note" data-part="empty-state">还没给她文件。回形针的「选文件」也可以加；她只能读你选的，不能自己翻手机。</p>
+          )}
           <label className="ss-rowStack">
             <span className="ss-rowMain">
               <b>她的表情包（{stickers.length} 张）</b>

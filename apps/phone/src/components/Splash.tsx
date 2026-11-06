@@ -117,6 +117,7 @@ export function Splash({ onDone }: { onDone(): void }) {
 
   return (
     <div
+      data-part="splash"
       className={"opening" + (leaving ? " leaving" : "")}
       style={{ transitionDuration: fadeMs + "ms" }}
       aria-hidden="true"

@@ -69,7 +69,7 @@ export function ToolLogSheet({ onClose }: { onClose(): void }) {
   ];
 
   return (
-    <div className="ss-page" role="dialog" aria-label="工具调用记录">
+    <div className="ss-page" data-part="panel" role="dialog" aria-label="工具调用记录">
       <header className="ss-top">
         <button type="button" className="ss-iconBtn" onClick={onClose} aria-label="返回">
           <Icon d={ICON.back} size={18} />

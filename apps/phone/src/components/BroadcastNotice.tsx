@@ -17,7 +17,7 @@ export interface BroadcastNoticeProps {
 
 export function BroadcastNotice({ no, count, text, onOpen }: BroadcastNoticeProps) {
   return (
-    <article className="bcastNotice">
+    <article className="bcastNotice" data-part="message-card">
       <div className="bcastNoticeHead">
         <span className="bcastNoticeLabel">星际和平播报</span>
         <span className="bcastNoticeNo">第 {no} 期</span>

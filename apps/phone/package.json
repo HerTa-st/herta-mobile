@@ -17,6 +17,7 @@
     "sync": "cap sync android"
   },
   "dependencies": {
+    "@capacitor/app": "^8.1.2",
     "@capacitor/app-launcher": "^8.0.1",
     "@capacitor/calendar": "^1.0.1",
     "@capacitor/camera": "^8.2.6",

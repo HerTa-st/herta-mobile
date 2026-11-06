@@ -27,7 +27,7 @@ const TYPE: { name: string; size: string; sample: string; className?: string }[]
 
 export function DesignSystemSheet({ onClose }: { onClose(): void }) {
   return (
-    <div className="ss-page" role="dialog" aria-label="设计系统">
+    <div className="ss-page" data-part="panel" role="dialog" aria-label="设计系统">
       <header className="ss-top">
         <button type="button" className="ss-iconBtn" onClick={onClose} aria-label="返回">
           ←

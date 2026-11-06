@@ -72,7 +72,7 @@ import {
   type SessionMeta,
   type StickerRecord,
 } from "./storage.ts";
-import { loadReadableFiles, saveReadableFile } from "./readable-files.ts";
+import { clearReadableFiles, loadReadableFiles, removeReadableFile, saveReadableFile } from "./readable-files.ts";
 import { budgetOf, loadSettings, saveSettings, type Settings } from "./settings.ts";
 import { pickTransport } from "./transport.ts";
 import { loadPromptCode } from "./prompts.ts";
@@ -84,6 +84,9 @@ import { useBroadcast } from "./broadcast/useBroadcast.ts";
 import { readArticle } from "./broadcast/reader.ts";
 import { synthesize } from "./tts.ts";
 import { playVoice, stopVoice } from "./voice.ts";
+import { usePageStack } from "./nav/use-page-stack.ts";
+import { connectSystemBack } from "./nav/system-back.ts";
+import { routeFromNotification } from "./nav/routes.ts";
 
 const assets = new BrowserAssetSource();
 const transport = pickTransport();
@@ -155,12 +158,11 @@ export function App() {
   const nmsActivation = useMemo(() => createActivationStore(), []);
   const nmsRecallSeq = useRef(0);
   const memorySleepEnabled = settings.autoDream || settings.nmsDeepSleepEnabled;
-  const [showSettings, setShowSettings] = useState(false);
-  const [showCaps, setShowCaps] = useState(false);
-  const [showOnboarding, setShowOnboarding] = useState(false);
-  const [showToolLog, setShowToolLog] = useState(false);
-  const [showBackup, setShowBackup] = useState(false);
-  const [showDesignSystem, setShowDesignSystem] = useState(false);
+  /**
+   * 整屏页的骨架：布尔量换成页面栈（ADR-0002）。
+   * 页面只认 route 名；返回键、通知深链、主题都从这一处走。
+   */
+  const pages = usePageStack();
   const [moodOpen, setMoodOpen] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -180,8 +182,7 @@ export function App() {
   const [imageBusy, setImageBusy] = useState(false);
   /** 正在抽文字的文档名（null = 没在抽）。抽大 PDF 要十几秒，得让用户看见进度。 */
   const [docReading, setDocReading] = useState<string | null>(null);
-  /** 点开看整张图（长图缩略裁过，原图在这里）。 */
-  const [viewingShot, setViewingShot] = useState<{ pieces: string[]; name?: string } | null>(null);
+
   /** 待发的图是不是长图：是就裁成竖卡片，不然预览也只剩一条线。 */
   const [previewTall, setPreviewTall] = useState(false);
   const [stickers, setStickers] = useState<StickerRecord[]>([]);
@@ -197,11 +198,7 @@ export function App() {
   const docBusyRef = useRef(false);
   /** 浏览器里没有相机插件：退回带 capture 的 file input（桌面浏览器会开文件选择）。 */
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
-  const [viewing, setViewing] = useState<MemoryRecord | null>(null);
-  const [showGraph, setShowGraph] = useState(false);
   /** 黑塔币页：聊天之外的小模块，v1 只从抽屉进。 */
-  const [showCoin, setShowCoin] = useState(false);
-  const [showBroadcast, setShowBroadcast] = useState(false);
   /** 抽屉入口右侧那枚涨跌幅：只用最后一次成功行情的缓存，没打开过就是 null。 */
   const [coinPct, setCoinPct] = useState<number | null>(null);
   /** 本机提醒记录：用来把写进对话的「提醒」认出来、渲染成卡片。 */
@@ -237,6 +234,16 @@ export function App() {
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
+
+  /**
+   * 系统返回键（ADR-0002）：页面栈先吃一层；栈空才交还系统。
+   * 安卓的返回键在 Activity 层，JS 收不到——这里接 Capacitor App 插件，
+   * 没装插件时退到 popstate（浏览器/dev）。
+   */
+  useEffect(
+    () => connectSystemBack(() => pages.read().length > 0 && pages.back()),
+    [pages.back, pages.read]
+  );
 
   /**
    * 外观：把解析后的主题写到 <html data-theme>。
@@ -276,7 +283,8 @@ export function App() {
     let cancelled = false;
     void onCoinNotificationTap(() => {
       setDrawer(false);
-      setShowCoin(true);
+      // 深链统一走 route：通知点进来与点侧栏走的是同一条路
+      pages.push(routeFromNotification("coin"));
     }).then((fn) => {
       if (cancelled) fn();
       else off = fn;
@@ -294,7 +302,7 @@ export function App() {
     let cancelled = false;
     void onBroadcastNotificationTap(() => {
       setDrawer(false);
-      setShowBroadcast(true);
+      pages.push(routeFromNotification("broadcast"));
     }).then((fn) => {
       if (cancelled) fn();
       else off = fn;
@@ -315,7 +323,7 @@ export function App() {
       localStorage.setItem("herta.onboarded.v1", "1");
       return;
     }
-    setShowOnboarding(true);
+    pages.push("onboarding");
   }, []);
 
   const scrollToBottom = useCallback((smooth = true) => {
@@ -523,7 +531,7 @@ export function App() {
     // 她把你发的表情收进库：走同一条存库路径（重复的会被挡掉）
     onKeepSticker: (record) => keepStickerRef.current(record),
     onError: reportError,
-    onNeedKey: () => setShowSettings(true),
+    onNeedKey: () => pages.push("settings"),
     onTurnEnd: (payload) => recordNmsTurn(payload),
     onNmsRecall: (events) => {
       nmsRecallSeq.current += 1;
@@ -599,30 +607,25 @@ export function App() {
     onPrompt: appendBroadcastPrompt,
   });
 
-  /** 侧栏四个入口：同一时间只开一页，再点一次关掉。 */
+  /** 侧栏四个入口：走页面栈；再点一次同一页就退回去。 */
   const openPage = useCallback(
     (target: "memory" | "broadcast" | "coin") => {
-      const isOpen = target === "memory" ? showGraph : target === "broadcast" ? showBroadcast : showCoin;
-      setShowGraph(target === "memory" ? !isOpen : false);
-      setShowBroadcast(target === "broadcast" ? !isOpen : false);
-      setShowCoin(target === "coin" ? !isOpen : false);
+      if (pages.isTop(target)) pages.close(target);
+      else pages.push(target);
     },
-    [showGraph, showBroadcast, showCoin]
+    [pages]
   );
 
-  /** 回对话：关掉所有整屏页，不新建会话。 */
+  /** 回对话：清栈回到底，不新建会话。 */
   const showChat = useCallback(() => {
-    setShowGraph(false);
-    setShowBroadcast(false);
-    setShowCoin(false);
-    setShowSettings(false);
+    pages.reset();
     setDrawer(false);
-  }, []);
+  }, [pages]);
 
   /** 从播报里点「让她再多说两句」：关页、回聊天、带引用发一句。 */
   const discussBroadcastItem = useCallback(
     (item: BroadcastItem) => {
-      setShowBroadcast(false);
+      pages.close("broadcast");
       const quote = "关于这条新闻，你怎么看？\n「" + item.title + "」" + (item.url ? "\n" + item.url : "");
       void send(quote);
     },
@@ -917,7 +920,7 @@ export function App() {
   const dispatch = useCallback(() => {
     // 未接通：输入区本来就是引导态，这里只把她领到设置，不弹红字。
     if (!settings.apiKey.trim()) {
-      setShowSettings(true);
+      pages.push("settings");
       return;
     }
     const img = pendingImage;
@@ -1207,6 +1210,36 @@ export function App() {
     [addDocument, addReadableFile, reportError]
   );
 
+  /** 落盘后的全量同步进内存与界面：删完列表必须跟着变，不能各存一份。 */
+  const applyReadableFiles = useCallback((list: { name: string; text: string }[]) => {
+    filesRef.current.clear();
+    for (const file of list) filesRef.current.set(file.name, file.text);
+    setFileNames([...filesRef.current.keys()]);
+  }, []);
+
+  /** 单条删：她读过的文件不该只能增不能减。 */
+  const removeReadableFileEntry = useCallback(
+    async (name: string) => {
+      try {
+        applyReadableFiles(await removeReadableFile(name));
+        setToast("已删掉「" + name + "」——她读不到了");
+      } catch (e) {
+        reportError("删不掉：" + (e instanceof Error ? e.message : String(e)));
+      }
+    },
+    [applyReadableFiles, reportError]
+  );
+
+  /** 全清：一次把文件库清空。 */
+  const clearReadableFilesEntry = useCallback(async () => {
+    try {
+      applyReadableFiles(await clearReadableFiles());
+      setToast("文件都清掉了——她的书桌空了");
+    } catch (e) {
+      reportError("清不空：" + (e instanceof Error ? e.message : String(e)));
+    }
+  }, [applyReadableFiles, reportError]);
+
   /**
    * 回形针选回来的文件按类型分流：图片进看图管线，其余交给「能读的文件」入口。
    * 文件名与 MIME 都要看——文件管理器给的 MIME 有时是空的（见 core/files.ts）。
@@ -1344,7 +1377,7 @@ export function App() {
   const bodyOf = (b: UserBlock | HertaBlock) => {
     if (b.kind === "herta" && b.surface === "thought") {
       return (
-        <div className="thought">
+        <div className="thought" data-part="message-thought">
           <span className="thoughtLabel">想</span>
           <p>{b.text}</p>
         </div>
@@ -1361,7 +1394,7 @@ export function App() {
           <Shot
             pieces={(b.attachments ?? []).map((a) => a.data)}
             name={att.name}
-            onOpen={() => setViewingShot({ pieces: (b.attachments ?? []).map((a) => a.data), name: att.name })}
+            onOpen={() => pages.push("shot", { pieces: (b.attachments ?? []).map((a) => a.data), name: att.name })}
             // 长按存进表情箱：手机上这是唯一不打断看图的手势
             onLongPress={() => void saveToBox(att.data, att.name ?? "图", att.mediaType, [], "mine")}
           />
@@ -1372,7 +1405,7 @@ export function App() {
             ▶ 念
           </button>
         )}
-        {actionText && <p className="action">（{actionText}）</p>}
+        {actionText && <p className="action" data-part="message-actor">（{actionText}）</p>}
         {bodyText && <p>{bodyText}</p>}
         {b.kind === "herta" && b.surface === "speech" && b.usage && <UsageChip usage={b.usage} />}
       </>
@@ -1380,51 +1413,54 @@ export function App() {
   };
 
   return (
-    <div className="app" data-rail={settings.railCollapsed ? "collapsed" : "expanded"}>
+    <div className="app" data-part="app" data-rail={settings.railCollapsed ? "collapsed" : "expanded"}>
       {!splashGone && <Splash onDone={hideSplash} />}
 
       {/* 桌面端那条侧栏的窄版：会话常驻，入口在底部 */}
-      <aside className="rail" aria-label="侧栏">
-        <button className="railMark" type="button" onClick={() => setDrawer((v) => !v)} aria-label="会话">
+      <aside className="rail" data-part="rail" aria-label="侧栏">
+        <button className="railMark" data-part="rail-item" type="button" onClick={() => setDrawer((v) => !v)} aria-label="会话">
           H
         </button>
-        <button className="railNew" type="button" onClick={() => void newSession()} aria-label="新对话">
+        <button className="railNew" data-part="rail-item" type="button" onClick={() => void newSession()} aria-label="新对话">
           ＋
         </button>
         <nav className="railNav" aria-label="模块">
           <button
             type="button"
-            className={!showGraph && !showBroadcast && !showCoin && !showSettings ? "on" : ""}
+            data-part="rail-item"
+            className={pages.canGoBack ? "" : "on"}
             onClick={showChat}
             aria-label="对话"
           >
             <RailIcon d="M4 5.5h16v10.5H9l-5 4z" />
           </button>
-          <button type="button" className={showGraph ? "on" : ""} onClick={() => openPage("memory")} aria-label="记忆">
+          <button type="button" data-part="rail-item" className={pages.isTop("memory") ? "on" : ""} onClick={() => openPage("memory")} aria-label="记忆">
             <RailIcon d="M8 4h8a2 2 0 0 1 2 2v14l-6-4-6 4V6a2 2 0 0 1 2-2Z" />
           </button>
           <button
             type="button"
-            className={showBroadcast ? "on" : ""}
+            data-part="rail-item"
+            className={pages.isTop("broadcast") ? "on" : ""}
             onClick={() => openPage("broadcast")}
             aria-label="播报"
           >
             <RailIcon d="M12 12h.01M8.6 15.4a4.8 4.8 0 0 1 0-6.8M15.4 8.6a4.8 4.8 0 0 1 0 6.8M5.6 18.4a9 9 0 0 1 0-12.8M18.4 5.6a9 9 0 0 1 0 12.8" />
           </button>
-          <button type="button" className={showCoin ? "on" : ""} onClick={() => openPage("coin")} aria-label="黑塔币">
+          <button type="button" data-part="rail-item" className={pages.isTop("coin") ? "on" : ""} onClick={() => openPage("coin")} aria-label="黑塔币">
             <RailIcon d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18ZM12 8v8M9 10h4.5a1.5 1.5 0 0 1 0 3H9" />
           </button>
         </nav>
         <div className="railFoot">
           <button
             type="button"
-            className={showSettings ? "on" : ""}
-            onClick={() => setShowSettings((v) => !v)}
+            data-part="rail-item"
+            className={pages.isTop("settings") ? "on" : ""}
+            onClick={() => (pages.isTop("settings") ? pages.close("settings") : pages.push("settings"))}
             aria-label="设置"
           >
             <RailIcon d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM19.4 13a7.9 7.9 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.9 7.9 0 0 0-1.7-1L15 3.5h-4l-.3 2.5a7.9 7.9 0 0 0-1.7 1l-2.4-1-2 3.4L6.6 11a7.9 7.9 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.9 7.9 0 0 0 1.7 1l.3 2.5h4l.3-2.5a7.9 7.9 0 0 0 1.7-1l2.4 1 2-3.4-2-1.6Z" />
           </button>
-          <button type="button" onClick={() => setDrawer((v) => !v)} aria-label="更多">
+          <button type="button" data-part="rail-item" onClick={() => setDrawer((v) => !v)} aria-label="更多">
             ⋯
           </button>
         </div>
@@ -1440,17 +1476,18 @@ export function App() {
       />
 
       <section className="workspace">
-      <header className="bar">
+      <header className="bar" data-part="topbar">
         <button className="iconBtn" type="button" onClick={() => setDrawer((v) => !v)} aria-label="会话">
           ☰
         </button>
         <div className="topTitle">
           <span className="topName">黑塔</span>
-          <span className="topSub">
+          <span className="topSub" data-part="presence">
             {presenceAt().phase} · {presenceAt().place}
           </span>
         </div>
         <button
+          data-part="mood"
           className="moodChip"
           type="button"
           onClick={() => setMoodOpen((v) => !v)}
@@ -1470,7 +1507,7 @@ export function App() {
         >
           {themeIsDark ? "日" : "夜"}
         </button>
-        <button className="topAvatarBtn" type="button" onClick={() => setShowSettings(true)} aria-label="设置">
+        <button className="topAvatarBtn" type="button" onClick={() => pages.push("settings")} aria-label="设置">
           <img src="/herta.png" alt="" />
         </button>
       </header>
@@ -1514,11 +1551,11 @@ export function App() {
             removeSession: (id) => void removeSession(id),
             jump: (sessionId, index) => void jumpTo(sessionId, index),
             openMemory: (record) => {
-              setViewing(record);
+              pages.push("memoryDetail", record);
               setDrawer(false);
             },
             removeMemory: (name) => void removeMemory(name),
-            showGraph: () => setShowGraph(true),
+            showGraph: () => pages.push("memory"),
             dream: () => void (session && dreamNow(session, true)),
             distill: () => void (session && distillNow(session)),
             toggleImport: () => setShowImport((v) => !v),
@@ -1542,129 +1579,156 @@ export function App() {
         />
       )}
 
-      {showCoin && (
-        <CoinView
-          // base 变了就重挂：设置里改接口地址后要重新拉，不用杀 app
-          key={coinBase || "coin-no-base"}
-          base={coinBase}
-          identity={settings.coinIdentity}
-          onIdentityChange={(next) => setSettings({ ...settings, coinIdentity: next })}
-          onClose={() => setShowCoin(false)}
-          onQuoteChange={(q) => setCoinPct(q ? q.market.changePct : null)}
-        />
-      )}
-
-      {showBroadcast && (
-        <BroadcastView
-          issues={broadcast.issues}
-          today={broadcast.today}
-          status={broadcast.status}
-          error={broadcast.error}
-          generating={broadcast.generating}
-          config={broadcast.config}
-          onClose={() => setShowBroadcast(false)}
-          onRetry={() => void broadcast.generate(true)}
-          onMarkRead={broadcast.markRead}
-          onOpenLink={(url) => {
-            void openLink(url).catch((openError) => {
-              setError(openError instanceof Error ? openError.message : String(openError));
-            });
-          }}
-          onDiscuss={discussBroadcastItem}
-          onReadItem={(item) => readArticle(item, settings)}
-          onCacheItem={(issueId, itemId, digest) => broadcast.cacheDetail(issueId, itemId, digest)}
-          onConfigChange={(next) => void broadcast.updateConfig(next)}
-          onClearHistory={() => void broadcast.clearHistory()}
-          unconnected={unconnected}
-        />
-      )}
-
-      {showGraph && (
-        <NmsScreen
-          snapshot={nmsSnapshot}
-          activationStore={nmsActivation}
-          settings={settings}
-          voice={voiceState}
-          onSettingsChange={(patch) => setSettings({ ...settings, ...patch })}
-          onRefresh={() => void refreshMemories()}
-          onRewriteVoice={rewriteVoice}
-          onChangeVoiceParams={(params) => void changeVoiceParams(params)}
-          onRollbackVoice={(version) => void revertVoice(version)}
-          onClose={() => setShowGraph(false)}
-        />
-      )}
-
-      {viewing && (
-        <MemoryViewer
-          record={viewing}
-          onClose={() => setViewing(null)}
-          onDelete={(name) => {
-            setViewing(null);
-            void removeMemory(name);
-          }}
-        />
-      )}
-
-      {showSettings && (
-        <SettingsSheet
-          settings={settings}
-          onChange={(patch) => setSettings({ ...settings, ...patch })}
-          onClose={() => setShowSettings(false)}
-          mood={mood}
-          fileNames={fileNames}
-          stickers={herStickers}
-          onAddStickers={(files) => void addStickers(files, "herta")}
-          onRemoveSticker={(id) => void removeSticker(id)}
-          onOpenCapabilities={() => setShowCaps(true)}
-          onOpenToolLog={() => setShowToolLog(true)}
-          onOpenBackup={() => setShowBackup(true)}
-          onReplayOnboarding={() => {
-            setShowSettings(false);
-            setShowOnboarding(true);
-          }}
-          onOpenDesignSystem={() => setShowDesignSystem(true)}
-          onFile={(file) => ingestReadable(file)}
-        />
-      )}
-
-      {showOnboarding && (
-        <Onboarding
-          settings={settings}
-          onChange={(patch) => setSettings({ ...settings, ...patch })}
-          onOpenCapabilities={() => setShowCaps(true)}
-          onDone={() => {
-            localStorage.setItem("herta.onboarded.v1", "1");
-            setShowOnboarding(false);
-          }}
-        />
-      )}
-
-      {showToolLog && <ToolLogSheet onClose={() => setShowToolLog(false)} />}
-
-      {showDesignSystem && <DesignSystemSheet onClose={() => setShowDesignSystem(false)} />}
-
-      {showBackup && (
-        <BackupSheet
-          settings={settings}
-          onClose={() => setShowBackup(false)}
-          onRestored={() => {
-            void refreshList();
-            void refreshMemories();
-            void listStickers().then(setStickers);
-            void broadcast.refresh();
-          }}
-        />
-      )}
-
-      {showCaps && (
-        <CapabilitiesSheet
-          settings={settings}
-          onChange={(patch) => setSettings({ ...settings, ...patch })}
-          onClose={() => setShowCaps(false)}
-        />
-      )}
-
-      {viewingShot && <ShotViewer pieces={viewingShot.pieces} name={viewingShot.name} onClose={() => setViewingShot(null)} />}
+      {/*
+        整屏页：按栈的顺序渲染。压在下面的那页不卸载——
+        关掉上面一层还能回到它原来的位置（设置 → 她能做什么 → 返回）。
+      */}
+      {pages.stack.map((entry, index) => {
+        const key = entry.name + ":" + index;
+        switch (entry.name) {
+          case "coin":
+            return (
+              <CoinView
+                // base 变了就重挂：设置里改接口地址后要重新拉，不用杀 app
+                key={key + ":" + (coinBase || "coin-no-base")}
+                base={coinBase}
+                identity={settings.coinIdentity}
+                onIdentityChange={(next) => setSettings({ ...settings, coinIdentity: next })}
+                onClose={() => pages.close("coin")}
+                onQuoteChange={(q) => setCoinPct(q ? q.market.changePct : null)}
+              />
+            );
+          case "broadcast":
+            return (
+              <BroadcastView
+                key={key}
+                issues={broadcast.issues}
+                today={broadcast.today}
+                status={broadcast.status}
+                error={broadcast.error}
+                generating={broadcast.generating}
+                config={broadcast.config}
+                onClose={() => pages.close("broadcast")}
+                onRetry={() => void broadcast.generate(true)}
+                onMarkRead={broadcast.markRead}
+                onOpenLink={(url) => {
+                  void openLink(url).catch((openError) => {
+                    setError(openError instanceof Error ? openError.message : String(openError));
+                  });
+                }}
+                onDiscuss={discussBroadcastItem}
+                onReadItem={(item) => readArticle(item, settings)}
+                onCacheItem={(issueId, itemId, digest) => broadcast.cacheDetail(issueId, itemId, digest)}
+                onConfigChange={(next) => void broadcast.updateConfig(next)}
+                onClearHistory={() => void broadcast.clearHistory()}
+                unconnected={unconnected}
+              />
+            );
+          case "memory":
+            return (
+              <NmsScreen
+                key={key}
+                snapshot={nmsSnapshot}
+                activationStore={nmsActivation}
+                settings={settings}
+                voice={voiceState}
+                onSettingsChange={(patch) => setSettings({ ...settings, ...patch })}
+                onRefresh={() => void refreshMemories()}
+                onRewriteVoice={rewriteVoice}
+                onChangeVoiceParams={(params) => void changeVoiceParams(params)}
+                onRollbackVoice={(version) => void revertVoice(version)}
+                onClose={() => pages.close("memory")}
+              />
+            );
+          case "memoryDetail": {
+            const record = entry.param as MemoryRecord | undefined;
+            if (!record) return null;
+            return (
+              <MemoryViewer
+                key={key}
+                record={record}
+                onClose={() => pages.close("memoryDetail")}
+                onDelete={(name) => {
+                  pages.close("memoryDetail");
+                  void removeMemory(name);
+                }}
+              />
+            );
+          }
+          case "settings":
+            return (
+              <SettingsSheet
+                key={key}
+                settings={settings}
+                onChange={(patch) => setSettings({ ...settings, ...patch })}
+                onClose={() => pages.close("settings")}
+                mood={mood}
+                fileNames={fileNames}
+                onFile={(file) => ingestReadable(file)}
+                onRemoveFile={(name) => void removeReadableFileEntry(name)}
+                onClearFiles={() => void clearReadableFilesEntry()}
+                stickers={herStickers}
+                onAddStickers={(files) => void addStickers(files, "herta")}
+                onRemoveSticker={(id) => void removeSticker(id)}
+                onOpenCapabilities={() => pages.push("capabilities")}
+                onOpenToolLog={() => pages.push("toolLog")}
+                onOpenBackup={() => pages.push("backup")}
+                onReplayOnboarding={() => {
+                  pages.close("settings");
+                  pages.push("onboarding");
+                }}
+                onOpenDesignSystem={() => pages.push("designSystem")}
+              />
+            );
+          case "onboarding":
+            return (
+              <Onboarding
+                key={key}
+                settings={settings}
+                onChange={(patch) => setSettings({ ...settings, ...patch })}
+                onOpenCapabilities={() => pages.push("capabilities")}
+                onDone={() => {
+                  localStorage.setItem("herta.onboarded.v1", "1");
+                  pages.close("onboarding");
+                }}
+              />
+            );
+          case "toolLog":
+            return <ToolLogSheet key={key} onClose={() => pages.close("toolLog")} />;
+          case "designSystem":
+            return <DesignSystemSheet key={key} onClose={() => pages.close("designSystem")} />;
+          case "backup":
+            return (
+              <BackupSheet
+                key={key}
+                settings={settings}
+                onClose={() => pages.close("backup")}
+                onRestored={() => {
+                  void refreshList();
+                  void refreshMemories();
+                  void listStickers().then(setStickers);
+                  void broadcast.refresh();
+                }}
+              />
+            );
+          case "capabilities":
+            return (
+              <CapabilitiesSheet
+                key={key}
+                settings={settings}
+                onChange={(patch) => setSettings({ ...settings, ...patch })}
+                onClose={() => pages.close("capabilities")}
+              />
+            );
+          case "shot": {
+            const shot = entry.param as { pieces: string[]; name?: string } | undefined;
+            if (!shot) return null;
+            return <ShotViewer key={key} pieces={shot.pieces} name={shot.name} onClose={() => pages.close("shot")} />;
+          }
+          default:
+            return null;
+        }
+      })}
 
       <div className="chatContext">
         <span className="liveDot" />
@@ -1684,19 +1748,19 @@ export function App() {
           type="button"
           className="coinOfflineBar"
           style={{ margin: "8px 12px 0", fontFamily: "inherit", fontSize: 12, textAlign: "left", cursor: "pointer" }}
-          onClick={() => setShowSettings(true)}
+          onClick={() => pages.push("settings")}
         >
           她还没接上，点这里填 Key
         </button>
       )}
 
       {/* 点聊天区就把附件面板收起来：它是冲着输入框来的，不该一直挂着 */}
-      <main className="feed" ref={feedRef} onScroll={onFeedScroll} onPointerDown={() => setShowAttach(false)}>
+      <main className="feed" data-part="feed" ref={feedRef} onScroll={onFeedScroll} onPointerDown={() => setShowAttach(false)}>
         {blocks.length === 0 && (
-          <p className="empty">{unconnected ? "她还没接上。填好 Key，她就会开口。" : "她还没开口。说点什么。"}</p>
+          <p className="empty" data-part="empty-state">{unconnected ? "她还没接上。填好 Key，她就会开口。" : "她还没开口。说点什么。"}</p>
         )}
         {blocks.length > 0 && (
-          <div className="dayLine">
+          <div className="dayLine" data-part="day-divider">
             <span>今天</span>
           </div>
         )}
@@ -1707,7 +1771,7 @@ export function App() {
             // 老版本写下的块没有 hidden 标记，按正文再认一遍（见 core 的 READABLE_FILE_EVENT_NOTE）
             if (b.hidden || READABLE_FILE_EVENT_NOTE.test(b.body)) return null;
             return (
-              <p key={i} className="note">
+              <p key={i} className="note" data-part="message-note">
                 {b.body}
               </p>
             );
@@ -1717,7 +1781,7 @@ export function App() {
             // 库被删了也留一行：历史不该因为一张表情没了就凭空少一段
             if (!rec) {
               return (
-                <p key={i} className="note">
+                <p key={i} className="note" data-part="message-note">
                   （表情已删：{b.name}）
                 </p>
               );
@@ -1726,7 +1790,7 @@ export function App() {
               void saveToBox(rec.data, rec.name, rec.mediaType, rec.tags, b.from === "herta" ? "mine" : "herta")
             );
             return (
-              <article key={i} data-idx={i} className={"bubble stickerBubble " + b.from}>
+              <article key={i} data-idx={i} data-part="message" className={"bubble stickerBubble " + b.from}>
                 <img className="sticker" src={rec.data} alt={rec.name} title={rec.tags.join("、") || rec.name} {...press.props} />
               </article>
             );
@@ -1742,7 +1806,7 @@ export function App() {
                 text={b.text}
                 onOpen={() => {
                   setDrawer(false);
-                  setShowBroadcast(true);
+                  pages.push("broadcast");
                 }}
               />
             );
@@ -1769,15 +1833,15 @@ export function App() {
           }
           if (b.kind === "herta" && b.surface === "speech" && thought) {
             return (
-              <div key={i} data-idx={i} className="turn herta speech">
+              <div key={i} data-idx={i} data-part="message" className="turn herta speech">
                 <img className="turnAvatar" src="/herta.png" alt="" />
-                <article className="bubble herta speech">
-                  <div className="thought">
+                <article className="bubble herta speech" data-part="message-bubble">
+                  <div className="thought" data-part="message-thought">
                     <span className="thoughtLabel">想</span>
                     <p>{thought.text}</p>
                   </div>
                   {bodyOf(b)}
-                  <span className="bubbleTime">{clockOf(b.at)}</span>
+                  <span className="bubbleTime" data-part="message-time">{clockOf(b.at)}</span>
                 </article>
               </div>
             );
@@ -1786,12 +1850,16 @@ export function App() {
             <div
               key={i}
               data-idx={i}
+              data-part="message"
               className={"turn " + b.kind + (b.kind === "herta" ? " " + b.surface : "")}
             >
               {b.kind === "herta" && <img className="turnAvatar" src="/herta.png" alt="" />}
-              <article className={"bubble " + b.kind + (b.kind === "herta" ? " " + b.surface : "")}>
+              <article
+                className={"bubble " + b.kind + (b.kind === "herta" ? " " + b.surface : "")}
+                data-part="message-bubble"
+              >
                 {bodyOf(b)}
-                <span className="bubbleTime">{clockOf(b.at)}</span>
+                <span className="bubbleTime" data-part="message-time">{clockOf(b.at)}</span>
               </article>
               {b.kind === "user" && <span className="userMark">你</span>}
             </div>
@@ -1808,7 +1876,7 @@ export function App() {
         </button>
       )}
 
-      <footer className="composer">
+      <footer className="composer" data-part="composer">
         {docReading && (
           <p className="notice">正在读「{docReading}」…大文档要十几秒，读完会出现在她能读的文件里。</p>
         )}
@@ -1861,7 +1929,7 @@ export function App() {
         {!unconnected && (
           <div className="composerQuick">
             {!busy && blocks.length > 0 && (
-              <button className="composerRetract" onClick={() => void retract()} title="撤回上一轮">
+              <button data-part="composer-action" className="composerRetract" onClick={() => void retract()} title="撤回上一轮">
                 ↶ 撤回上一轮
               </button>
             )}
@@ -1895,15 +1963,17 @@ export function App() {
         {unconnected ? (
           <button
             type="button"
+            data-part="composer-action"
             className="composerBar"
             style={{ font: "inherit", fontSize: 13, color: "var(--muted)", textAlign: "left", cursor: "pointer" }}
-            onClick={() => setShowSettings(true)}
+            onClick={() => pages.push("settings")}
           >
             她还没接上，点这里填 Key —— 接上就能说话了
           </button>
         ) : (
         <div className="composerBar">
           <textarea
+            data-part="composer-input"
             ref={draftRef}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -1919,6 +1989,7 @@ export function App() {
             }}
           />
           <button
+            data-part="composer-action"
             className={"composerAttach composerEmoji" + (showTray ? " on" : "")}
             onClick={() => {
               setShowAttach(false);
@@ -1942,6 +2013,7 @@ export function App() {
             </svg>
           </button>
           <button
+            data-part="composer-action"
             className={"composerAttach composerFile" + (showAttach ? " on" : "")}
             onClick={() => {
               setShowTray(false);
@@ -1968,11 +2040,12 @@ export function App() {
             )}
           </button>
           {busy ? (
-            <button className="composerSend stopping" onClick={stop} aria-label="打断">
+            <button data-part="composer-action" className="composerSend stopping" onClick={stop} aria-label="打断">
               <span className="stopMark" />
             </button>
           ) : (
             <button
+              data-part="composer-action"
               className="composerSend"
               onClick={dispatch}
               disabled={!draft.trim() && !pendingImage}
