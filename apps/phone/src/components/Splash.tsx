@@ -1,20 +1,21 @@
 /**
- * 开屏动画。
+ * 开屏动画（B9）：满屏 ASCII 竖流。
  *
- * 用的是 dsh-herta 主题里那套 ASCII 半调开场（`theme/dsh-theme-herta/lib/opening`）：
- * 她的轮廓由几千个字符的明暗拼出来，白底，字符每隔半秒换一次，播完整体淡出。
+ * 播放器在 `assets/opening/vertical-flow.js`（实时算，参数取自同目录的
+ * vertical-flow.json，600 字节，不存帧）；这里只负责：给一块画布、跑
+ * requestAnimationFrame、演完把覆盖层淡出。
  *
- * 播放器与编码好的段落原样放在 `assets/opening/`（publicDir，浏览器直接当 ES 模块
- * 取），这里只负责：给一块画布、跑 requestAnimationFrame、在 dissolve 那一点开始淡出。
- * 不在 app 里重写渲染逻辑——那种"照着抄一半"的东西，迟早跟原版长得不一样。
+ * 三条不许破的线：
+ *   1) 不画角色剪影——旧那段 cropSegmentToFigure 的剪影路已经整条不用了；
+ *   2) 流完是**覆盖层淡出**，底下的主页一直在，不存在"换页"那一帧，也就不会闪白；
+ *   3) 四秒兜底：动画再卡、参数再取不到，也要让人进 App。
  *
- * 失败就退化成一次快步淡出：开屏不该挡着人进 App。
+ * 12 小时门控与"从后台切回不播"是 B1 的开关（App.tsx），这里不动。
  */
 import { useEffect, useRef, useState } from "react";
-import { cropSegmentToFigure } from "../opening/crop-segment.ts";
 
-const PLAYER_URL = "opening/opening-player.js";
-const SEGMENT_URL = "opening/segment-b-0.json";
+const PLAYER_URL = "opening/vertical-flow.js";
+const DATA_URL = "opening/vertical-flow.json";
 
 /** 开屏最短间隔：12 小时。 */
 export const SPLASH_INTERVAL_MS = 12 * 60 * 60 * 1000;
@@ -30,16 +31,24 @@ export function shouldPlaySplash(lastSplashAt: number, now = Date.now()): boolea
   return now - lastSplashAt >= SPLASH_INTERVAL_MS;
 }
 
-
-interface OpeningPlayer {
+interface VerticalFlow {
   resize(width: number, height: number, dpr: number): void;
+  setConfig?(data: unknown): void;
   frame(timeMs: number): boolean;
+  tune?(): { quality: number; fps: number; cols: number };
 }
+
+/** 覆盖层底色：与播放器两套配色一致，深色用户开屏不该先亮一张白纸。 */
+const PAPER = { light: "#fafcfd", dark: "#0d1116" };
 
 export function Splash({ onDone }: { onDone(): void }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [leaving, setLeaving] = useState(false);
   const [fadeMs, setFadeMs] = useState(600);
+  // index.html 在 React 之前就把 data-theme 打上了，冷启动读得到
+  const [dark] = useState(
+    () => typeof document !== "undefined" && document.documentElement.dataset.theme === "dark"
+  );
 
   // 淡出结束后再卸载：过渡没走完就抽掉画布会闪一下
   useEffect(() => {
@@ -51,16 +60,18 @@ export function Splash({ onDone }: { onDone(): void }) {
   useEffect(() => {
     let cancelled = false;
     let raf = 0;
-    let player: OpeningPlayer | null = null;
+    let player: VerticalFlow | null = null;
+    let leavingNow = false;
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d") ?? null;
 
     const leave = (ms = 600) => {
-      if (cancelled) return;
+      if (cancelled || leavingNow) return;
+      leavingNow = true;
       setFadeMs(ms);
       setLeaving(true);
     };
-    // 兜底：动画再怎么卡，四秒后也得让人进去
+    // 兜底：动画再怎么卡，四秒后也得让人进去。这条一直挂到卸载，不提前清。
     const bail = window.setTimeout(() => leave(500), 4000);
 
     const resize = () => {
@@ -71,28 +82,23 @@ export function Splash({ onDone }: { onDone(): void }) {
     void (async () => {
       try {
         if (!canvas || !ctx) throw new Error("没有画布");
-        const [mod, data] = await Promise.all([
-          import(/* @vite-ignore */ new URL(PLAYER_URL, document.baseURI).href),
-          fetch(SEGMENT_URL).then((r) => {
-            if (!r.ok) throw new Error("开场段落 HTTP " + r.status);
-            return r.json();
-          }),
-        ]);
+        const mod = await import(/* @vite-ignore */ new URL(PLAYER_URL, document.baseURI).href);
         if (cancelled) return;
 
-        player = mod.createOpeningPlayer(
-          canvas,
-          ctx,
-          cropSegmentToFigure(data),
-          false,
-          {
-            onDissolve: (ms: number) => leave(Math.max(300, Math.round(ms))),
-            onInstant: () => leave(400),
-          },
-          performance.now(),
-          null
-        );
+        // 默认值先跑起来：createVerticalFlow 内部有一份与 JSON 相同的常量，
+        // 数据文件没到（或没取到）就先按它流，不会白屏等文件。
+        player = mod.createVerticalFlow(canvas, ctx, null, {
+          dark,
+          onDissolve: (ms: number) => leave(Math.max(300, Math.round(ms))),
+        });
         resize();
+
+        void fetch(DATA_URL)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => {
+            if (!cancelled && player && data) player.setConfig?.(data);
+          })
+          .catch(() => undefined);
 
         const tick = (t: number) => {
           if (cancelled || !player) return;
@@ -102,8 +108,6 @@ export function Splash({ onDone }: { onDone(): void }) {
         raf = requestAnimationFrame(tick);
       } catch {
         leave(400);
-      } finally {
-        window.clearTimeout(bail);
       }
     })();
 
@@ -113,13 +117,13 @@ export function Splash({ onDone }: { onDone(): void }) {
       window.removeEventListener("resize", resize);
       window.clearTimeout(bail);
     };
-  }, []);
+  }, [dark]);
 
   return (
     <div
       data-part="splash"
       className={"opening" + (leaving ? " leaving" : "")}
-      style={{ transitionDuration: fadeMs + "ms" }}
+      style={{ transitionDuration: fadeMs + "ms", background: dark ? PAPER.dark : PAPER.light }}
       aria-hidden="true"
     >
       <canvas ref={canvasRef} />
