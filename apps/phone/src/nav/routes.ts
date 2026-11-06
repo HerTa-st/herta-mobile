@@ -20,6 +20,9 @@ export type RouteName =
   | "toolLog"
   | "backup"
   | "designSystem"
+  | "sponsors"
+  | "devs"
+  | "issues"
   | "shot";
 
 export interface RouteDef {
@@ -44,6 +47,10 @@ export const ROUTES: Record<RouteName, RouteDef> = {
   toolLog: { label: "工具调用记录", fullscreen: true },
   backup: { label: "备份与迁移", fullscreen: true },
   designSystem: { label: "设计系统", fullscreen: true },
+  // B13 关于三页：从设置的「关于」组压栈，返回键退回设置。
+  sponsors: { label: "赞助名单", fullscreen: true },
+  devs: { label: "开发人员", fullscreen: true },
+  issues: { label: "已知问题", fullscreen: true },
   shot: { label: "看图", fullscreen: true },
 };
 
