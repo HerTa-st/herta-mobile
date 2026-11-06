@@ -1,5 +1,7 @@
 import { Fragment, useState, type ReactNode } from "react";
+import { DOC_FILE_EXTENSIONS, TEXT_FILE_EXTENSIONS } from "@herta/core";
 import type { Settings } from "../settings.ts";
+import type { StickerRecord } from "../storage.ts";
 import { openNotifySettings } from "../notif.ts";
 import { A11ySheet } from "./A11ySheet.tsx";
 import "../styles/settings-suite.css";
@@ -16,6 +18,8 @@ const ALL_KEYS = [
   "cameraEnabled",
   "a11yEnabled",
   "proactiveEnabled",
+  "albumEnabled",
+  "ttsEnabled",
 ] as const;
 
 type CapKey =
@@ -30,6 +34,8 @@ type CapKey =
   | "cameraEnabled"
   | "a11yEnabled"
   | "proactiveEnabled"
+  | "albumEnabled"
+  | "ttsEnabled"
   | "proactiveDeepMemory";
 
 type CapState = "off" | "ask" | "granted";
@@ -85,10 +91,26 @@ export function CapabilitiesSheet({
   settings,
   onChange,
   onClose,
+  fileNames,
+  onFile,
+  onRemoveFile,
+  onClearFiles,
+  stickers,
+  onAddStickers,
+  onRemoveSticker,
 }: {
   settings: Settings;
   onChange(patch: Partial<Settings>): void;
   onClose(): void;
+  /** 她从设置里搬过来的：读的文件 */
+  fileNames: string[];
+  onFile(file: File): void;
+  onRemoveFile(name: string): void;
+  onClearFiles(): void;
+  /** 同上：她的表情包 */
+  stickers: StickerRecord[];
+  onAddStickers(files: File[]): void;
+  onRemoveSticker(id: string): void;
 }) {
   const [showA11y, setShowA11y] = useState(false);
 
@@ -210,6 +232,66 @@ export function CapabilitiesSheet({
           : []),
       ],
     },
+    {
+      title: "她的眼睛与嘴",
+      hint: "默认关",
+      items: [
+        {
+          key: "albumEnabled",
+          title: "翻你的相册",
+          hint: "要配视觉模型才会真看；她只在你让她看的时候读那一张。",
+        },
+        {
+          key: "ttsEnabled",
+          title: "用云端语音念出来",
+          hint: "不然只能播那 41 条录音；要填语音接口。",
+          after: settings.ttsEnabled ? (
+            <div className="ss-sub">
+              <label className="ss-subField">
+                语音接口
+                <select
+                  className="ss-select"
+                  value={settings.ttsProvider}
+                  onChange={(e) => onChange({ ttsProvider: e.target.value as Settings["ttsProvider"] })}
+                >
+                  <option value="openai">OpenAI 兼容（/audio/speech）</option>
+                  <option value="minimax">MiniMax（/t2a_v2）</option>
+                </select>
+              </label>
+              <label className="ss-subField">
+                语音 Key
+                <input
+                  className="ss-input"
+                  type="password"
+                  value={settings.ttsApiKey}
+                  onChange={(e) => onChange({ ttsApiKey: e.target.value.trim() })}
+                  placeholder="sk-..."
+                  autoComplete="off"
+                />
+              </label>
+              <label className="ss-subField">
+                语音 Base URL
+                <input className="ss-input" value={settings.ttsBaseUrl} onChange={(e) => onChange({ ttsBaseUrl: e.target.value.trim() })} />
+              </label>
+              <label className="ss-subField">
+                语音模型
+                <input className="ss-input" value={settings.ttsModel} onChange={(e) => onChange({ ttsModel: e.target.value.trim() })} />
+              </label>
+              <label className="ss-subField">
+                音色 ID
+                <input className="ss-input" value={settings.ttsVoice} onChange={(e) => onChange({ ttsVoice: e.target.value.trim() })} />
+              </label>
+              {settings.ttsProvider === "minimax" && (
+                <label className="ss-subField">
+                  GroupId
+                  <input className="ss-input" value={settings.ttsGroupId} onChange={(e) => onChange({ ttsGroupId: e.target.value.trim() })} />
+                </label>
+              )}
+            </div>
+          ) : null,
+        },
+      ],
+    },
   ];
 
   const onCount = ALL_KEYS.filter((key) => settings[key]).length;
@@ -294,6 +376,89 @@ export function CapabilitiesSheet({
             {group.items.map(row)}
           </section>
         ))}
+
+        <section className="ss-card">
+          <div className="ss-groupHead">
+            <span>她读的、她发的</span>
+            <span>本机</span>
+          </div>
+          <label className="ss-rowStack">
+            <span className="ss-rowMain">
+              <b>给她读的文件</b>
+              <small>文本 / PDF / Word / Excel / PPT</small>
+            </span>
+            <input
+              className="ss-file"
+              type="file"
+              accept={
+                TEXT_FILE_EXTENSIONS.map((ext) => "." + ext)
+                  .concat(DOC_FILE_EXTENSIONS.map((ext) => "." + ext))
+                  .join(",") + ",text/*"
+              }
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) onFile(file);
+              }}
+            />
+          </label>
+          {fileNames.length > 0 ? (
+            <div className="ss-fileList" style={{ display: "flex", flexDirection: "column", gap: 4, margin: "2px 0 6px" }}>
+              {fileNames.map((name) => (
+                <span className="ss-fileRow" key={name} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11 }}>
+                  <span className="ss-fileName" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={name}>
+                    {name}
+                  </span>
+                  <button
+                    type="button"
+                    className="ss-btnSmall ss-btnGhost"
+                    onClick={() => onRemoveFile(name)}
+                    aria-label={"删掉「" + name + "」"}
+                    title="删掉这一份"
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+              <button type="button" className="ss-btnSmall ss-btnGhost" onClick={onClearFiles}>
+                全清（{fileNames.length}）
+              </button>
+            </div>
+          ) : (
+            <p className="ss-note" data-part="empty-state">还没给她文件。回形针的「选文件」也可以加；她只能读你选的，不能自己翻手机。</p>
+          )}
+          <label className="ss-rowStack">
+            <span className="ss-rowMain">
+              <b>她的表情包（{stickers.length} 张）</b>
+              <small>加几张，她就会在合适的时候自己挑一张发出来</small>
+            </span>
+            <input
+              className="ss-file"
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={(e) => {
+                // 先取快照：把 value 清空会把 files 一起清掉
+                const picked = Array.from(e.target.files ?? []);
+                e.target.value = "";
+                if (picked.length > 0) onAddStickers(picked);
+              }}
+            />
+          </label>
+          {stickers.length > 0 ? (
+            <div className="stickerGrid">
+              {stickers.map((s) => (
+                <div key={s.id} className="stickerCell">
+                  <img src={s.data} alt={s.name} />
+                  <button onClick={() => onRemoveSticker(s.id)} aria-label="删掉">
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="ss-note">她还没有表情包。加几张，她就会在合适的时候自己挑一张发出来。</p>
+          )}
+        </section>
 
         <p className="ss-hint">
           标记「高权限」的那几项，系统会再问你一次；她在会话里只能先说「我需要」，不能自己打开。这一批到这里就齐了，再往后是 M4 双模（连 PC）——那是另一整块。

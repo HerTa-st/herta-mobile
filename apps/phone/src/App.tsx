@@ -65,10 +65,13 @@ import {
   deleteSticker,
   listSessions,
   listStickers,
+  loadPinnedSessions,
   loadSession,
   appendToolLog,
   putSession,
   putSticker,
+  renameSession,
+  savePinnedSessions,
   type SessionMeta,
   type StickerRecord,
 } from "./storage.ts";
@@ -124,6 +127,8 @@ export function App() {
   const hideSplash = useCallback(() => setSplashGone(true), []);
   const [session, setSession] = useState<Session | null>(null);
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
+  /** 置顶会话（顺序表，存在 kv 里；会话对象本身不带这个字段）。 */
+  const [pinned, setPinned] = useState<string[]>([]);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   /** 报错统一走这里：接口吐回来的 JSON 先翻成人话再上屏。 */
@@ -359,6 +364,7 @@ export function App() {
         // 之后每一条都必须是这段对话真正长出来的。
         if (alive) await refreshMemories();
         if (alive) setStickers(await listStickers());
+        if (alive) setPinned(await loadPinnedSessions());
 
         // 她能读的文件落盘在上一次运行里：重启后还在，聊天里那句「放进入口」才不是假话
         try {
@@ -433,6 +439,54 @@ export function App() {
       }
     },
     [refreshList, session?.id]
+  );
+
+  /** 重命名：只改标题；改的是当前会话就连页头一起换。 */
+  const renameSessionTitle = useCallback(
+    async (id: string, title: string) => {
+      await renameSession(id, title);
+      setSessions(await listSessions());
+      if (session?.id === id) {
+        setSession((cur) => (cur && cur.id === id ? { ...cur, title: title.trim() || cur.title } : cur));
+      }
+    },
+    [session?.id]
+  );
+
+  /** 置顶只是这张顺序表；会话本身不变，备份包也不受影响。 */
+  const togglePin = useCallback(
+    async (id: string) => {
+      const next = pinned.includes(id) ? pinned.filter((x) => x !== id) : [id, ...pinned];
+      setPinned(next);
+      await savePinnedSessions(next);
+    },
+    [pinned]
+  );
+
+  /** 多选删除：一次删干净，顺带把置顶表里已消失的 id 抹掉。 */
+  const removeSessions = useCallback(
+    async (ids: string[]) => {
+      if (ids.length === 0) return;
+      for (const id of ids) await deleteSession(id);
+      const rest = await listSessions();
+      setSessions(rest);
+      const nextPinned = pinned.filter((id) => !ids.includes(id));
+      if (nextPinned.length !== pinned.length) {
+        setPinned(nextPinned);
+        await savePinnedSessions(nextPinned);
+      }
+      if (session && ids.includes(session.id)) {
+        if (rest.length > 0) {
+          setSession(await loadSession(rest[0].id));
+        } else {
+          const fresh = createSession();
+          await putSession(fresh);
+          setSession(fresh);
+          await refreshList();
+        }
+      }
+    },
+    [pinned, refreshList, session]
   );
 
   const persist = useCallback(
@@ -1523,25 +1577,19 @@ export function App() {
       {drawer && (
         <Drawer
           sessions={sessions}
+          pinned={pinned}
           currentId={session?.id ?? null}
           filter={filter}
           onFilter={setFilter}
           memHits={memHits}
           sessHits={sessHits}
           memories={memories}
-          dreamState={dreamState}
-          voice={voiceState ? { profile: voiceState.profile, version: voiceState.version } : null}
-          maintaining={maintaining}
-          dreaming={dreaming}
-          distilling={distilling}
-          distillNote={distillNote}
           showImport={showImport}
           importText={importText}
           importNote={importNote}
           importBusy={importBusy}
           shareInput={shareInput}
           nowLine={timePhrase() + " · 她在" + presenceAt().place}
-          canDistill={(session?.blocks.length ?? 0) >= 12}
           coinPct={coinPct}
           broadcastNo={broadcast.today?.no ?? null}
           broadcastUnread={broadcast.unread}
@@ -1549,15 +1597,18 @@ export function App() {
             newSession: () => void newSession(),
             openSession: (id) => void openSession(id),
             removeSession: (id) => void removeSession(id),
+            renameSession: (id, title) => void renameSessionTitle(id, title),
+            togglePin: (id) => void togglePin(id),
+            removeSessions: (ids) => void removeSessions(ids),
             jump: (sessionId, index) => void jumpTo(sessionId, index),
-            openMemory: (record) => {
-              pages.push("memoryDetail", record);
+            openMemoryPage: () => {
               setDrawer(false);
+              pages.push("memory");
             },
-            removeMemory: (name) => void removeMemory(name),
-            showGraph: () => pages.push("memory"),
-            dream: () => void (session && dreamNow(session, true)),
-            distill: () => void (session && distillNow(session)),
+            openMemory: (record) => {
+              setDrawer(false);
+              pages.push("memoryDetail", record);
+            },
             toggleImport: () => setShowImport((v) => !v),
             setImportText,
             setShareInput,
@@ -1621,6 +1672,7 @@ export function App() {
                 onCacheItem={(issueId, itemId, digest) => broadcast.cacheDetail(issueId, itemId, digest)}
                 onConfigChange={(next) => void broadcast.updateConfig(next)}
                 onClearHistory={() => void broadcast.clearHistory()}
+                onRefresh={() => void broadcast.refresh()}
                 unconnected={unconnected}
               />
             );
@@ -1637,6 +1689,14 @@ export function App() {
                 onRewriteVoice={rewriteVoice}
                 onChangeVoiceParams={(params) => void changeVoiceParams(params)}
                 onRollbackVoice={(version) => void revertVoice(version)}
+                memories={memories}
+                onRemoveMemory={(name) => void removeMemory(name)}
+                onDream={() => void (session && dreamNow(session, true))}
+                onDistill={() => void (session && distillNow(session))}
+                canDistill={(session?.blocks.length ?? 0) >= 12}
+                dreaming={dreaming}
+                distilling={distilling}
+                distillNote={distillNote}
                 onClose={() => pages.close("memory")}
               />
             );
@@ -1664,12 +1724,7 @@ export function App() {
                 onClose={() => pages.close("settings")}
                 mood={mood}
                 fileNames={fileNames}
-                onFile={(file) => ingestReadable(file)}
-                onRemoveFile={(name) => void removeReadableFileEntry(name)}
-                onClearFiles={() => void clearReadableFilesEntry()}
                 stickers={herStickers}
-                onAddStickers={(files) => void addStickers(files, "herta")}
-                onRemoveSticker={(id) => void removeSticker(id)}
                 onOpenCapabilities={() => pages.push("capabilities")}
                 onOpenToolLog={() => pages.push("toolLog")}
                 onOpenBackup={() => pages.push("backup")}
@@ -1717,6 +1772,13 @@ export function App() {
                 key={key}
                 settings={settings}
                 onChange={(patch) => setSettings({ ...settings, ...patch })}
+                fileNames={fileNames}
+                onFile={(file) => ingestReadable(file)}
+                onRemoveFile={(name) => void removeReadableFileEntry(name)}
+                onClearFiles={() => void clearReadableFilesEntry()}
+                stickers={herStickers}
+                onAddStickers={(files) => void addStickers(files, "herta")}
+                onRemoveSticker={(id) => void removeSticker(id)}
                 onClose={() => pages.close("capabilities")}
               />
             );

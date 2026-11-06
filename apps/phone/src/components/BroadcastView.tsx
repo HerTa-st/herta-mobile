@@ -6,7 +6,7 @@
  * 这一层只管把一期画出来 + 设置面板。
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "../styles/broadcast.css";
 import {
   BROADCAST_TAG_OPTIONS,
@@ -34,6 +34,8 @@ export interface BroadcastViewProps {
   generating: boolean;
   config: BroadcastConfig;
   onClose(): void;
+  /** 下拉刷新：重新读一次今天这期（不重新生成）。 */
+  onRefresh(): void;
   onRetry(): void;
   onMarkRead(): void;
   onOpenLink(url: string): void;
@@ -190,8 +192,10 @@ function IssueBody(props: {
 }
 
 export function BroadcastView(props: BroadcastViewProps) {
-  const { issues, today, status, error, generating, config, onClose, onRetry, onMarkRead, onOpenLink, onDiscuss, onConfigChange, onClearHistory, unconnected } = props;
-  const [showSettings, setShowSettings] = useState(false);
+  const { issues, today, status, error, generating, config, onClose, onRefresh, onRetry, onMarkRead, onOpenLink, onDiscuss, onConfigChange, onClearHistory, unconnected } = props;
+  /** 下拉刷新：手指在顶部往下拉超过阈值就刷新（另有可点按钮兜底）。 */
+  const [pull, setPull] = useState(0);
+  const pullStart = useRef<{ y: number; top: number } | null>(null);
   const [permission, setPermission] = useState<Permission>("prompt");
   const [reminderNote, setReminderNote] = useState<string | null>(null);
   const [clearArmed, setClearArmed] = useState(false);
@@ -246,7 +250,7 @@ export function BroadcastView(props: BroadcastViewProps) {
 
   useEffect(() => {
     setClearArmed(false);
-  }, [showSettings]);
+  }, [issues.length]);
 
   const past = useMemo(() => issues.filter((issue) => issue.id !== today?.id), [issues, today]);
   const reminderOn = config.notify && permission === "granted";
@@ -395,19 +399,38 @@ export function BroadcastView(props: BroadcastViewProps) {
           ←
         </button>
         <span className="bcHeadTitle">星际和平播报</span>
-        <button
-          type="button"
-          className="bcGear"
-          onClick={() => setShowSettings((value) => !value)}
-          aria-label="播报设置"
-          aria-pressed={showSettings}
-        >
-          ⚙
+        <button type="button" className="bcGear" onClick={onRefresh} aria-label="刷新播报" title="刷新">
+          ⟳
         </button>
       </header>
 
-      <div className="bcScroll">
-        {showSettings && renderSettings()}
+      <div
+        className="bcScroll"
+        onTouchStart={(e) => {
+          const el = e.currentTarget;
+          pullStart.current = el.scrollTop <= 0 ? { y: e.touches[0].clientY, top: el.scrollTop } : null;
+        }}
+        onTouchMove={(e) => {
+          const start = pullStart.current;
+          if (!start) return;
+          const dy = e.touches[0].clientY - start.y;
+          setPull(dy > 0 ? Math.min(dy, 90) : 0);
+        }}
+        onTouchEnd={() => {
+          const reached = pull >= 64;
+          setPull(0);
+          pullStart.current = null;
+          if (reached) onRefresh();
+        }}
+      >
+        <div
+          className={"bcPull" + (pull > 0 ? " on" : "")}
+          aria-hidden="true"
+          style={{ height: pull > 0 ? 24 : 0, overflow: "hidden", textAlign: "center", fontSize: 11, color: "var(--muted)", lineHeight: "24px" }}
+        >
+          {pull >= 64 ? "松手刷新" : "下拉刷新"}
+        </div>
+        {renderSettings()}
         {today && status === "ready" ? (
           <IssueBody
             issue={today}

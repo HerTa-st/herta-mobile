@@ -7,6 +7,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { normalizeVoiceSchema } from "@herta/nms";
 import type { NmsSnapshot, VoiceParams, VoiceState } from "@herta/nms";
+import type { MemoryRecord } from "@herta/core";
+import { memoryTitle } from "@herta/core";
 import type { Settings } from "../settings.ts";
 import type { NmsActivationStore } from "./network/activation.ts";
 import { NetworkView } from "./network/network-view.tsx";
@@ -26,6 +28,15 @@ export interface NmsScreenProps {
   onRewriteVoice(): Promise<boolean>;
   onChangeVoiceParams(params: VoiceParams): void;
   onRollbackVoice(version: number): void;
+  /** 她记住的文件（抽屉搬过来的：删除 / 整理 / 做梦都在这页）。 */
+  memories: MemoryRecord[];
+  onRemoveMemory(name: string): void;
+  onDream(): void;
+  onDistill(): void;
+  canDistill: boolean;
+  dreaming: boolean;
+  distilling: boolean;
+  distillNote: string | null;
   onClose(): void;
 }
 
@@ -47,6 +58,14 @@ export function NmsScreen({
   onRewriteVoice,
   onChangeVoiceParams,
   onRollbackVoice,
+  memories,
+  onRemoveMemory,
+  onDream,
+  onDistill,
+  canDistill,
+  dreaming,
+  distilling,
+  distillNote,
   onClose,
 }: NmsScreenProps) {
   const [tab, setTab] = useState<Tab>("network");
@@ -208,7 +227,7 @@ export function NmsScreen({
                 </p>
               )}
               <button type="button" className="nmsCardAction" onClick={() => setTab("settings")}>
-                去「设置」重写
+                去「语气」重写
               </button>
             </div>
             <p className="nmsHint">深睡只在有 Key、有网、前台或保活时 opportunistic 跑；cap {settings.nmsNightCap}/晚。</p>
@@ -242,22 +261,62 @@ export function NmsScreen({
               );
             })}
             {filtered.length === 0 ? <p className="nmsEmpty" data-part="empty-state">还没有记忆。睡一觉之后，新的情景会出现在这里。</p> : null}
+
+            <section className="nmsTierGroup">
+              <h3>她记住的文件 · {memories.filter((m) => !m.forgotten).length}</h3>
+              {memories.filter((m) => !m.forgotten).length === 0 ? (
+                <p className="nmsEmpty">还没有。聊几轮、睡一觉，或者回聊天页点「把这段对话整理成记忆」。</p>
+              ) : (
+                [...memories]
+                  .filter((m) => !m.forgotten)
+                  .reverse()
+                  .map((m) => (
+                    <div key={m.name} className="nmsNodeCard">
+                      <div className="nmsNodeTop">
+                        <strong>{memoryTitle(m)}</strong>
+                        <button
+                          type="button"
+                          className="nmsNodeDelete"
+                          style={{ border: 0, background: "none", padding: 0, font: "inherit", fontSize: 9, color: "var(--muted)", cursor: "pointer" }}
+                          onClick={() => onRemoveMemory(m.name)}
+                          aria-label={"删掉「" + memoryTitle(m) + "」"}
+                        >
+                          删掉
+                        </button>
+                      </div>
+                      <p>{(m.body ?? "").slice(0, 80)}{(m.body ?? "").length > 80 ? "…" : ""}</p>
+                    </div>
+                  ))
+              )}
+            </section>
           </div>
         ) : null}
 
         {tab === "settings" ? (
           <>
-          <div className="nmsSettingGroup">
+          <section className="nmsSettingGroup">
+            <div className="nmsCardHead">
+              <h3>梦境</h3>
+              <span>上次 {lastSleep}</span>
+            </div>
+            <label className="nmsCheck">
+              <input
+                type="checkbox"
+                checked={settings.autoDream}
+                onChange={(e) => onSettingsChange({ autoDream: e.target.checked })}
+              />
+              <span>我走开之后她自己做梦（关掉就只有下面这几个手动按钮）</span>
+            </label>
             <label className="nmsCheck">
               <input
                 type="checkbox"
                 checked={settings.nmsDeepSleepEnabled}
                 onChange={(e) => onSettingsChange({ nmsDeepSleepEnabled: e.target.checked })}
               />
-              <span>NMS 深睡（有网 + Key 时，空闲后整理情景为语义）</span>
+              <span>深睡（有网 + Key 时，空闲后整理情景为语义；每晚会调模型）</span>
             </label>
             <label className="nmsField">
-              每晚调用上限（0 = 关，默认 8）
+              深睡每晚调用上限（0 = 关，默认 8）
               <input
                 type="number"
                 min={0}
@@ -274,8 +333,16 @@ export function NmsScreen({
               <button type="button" onClick={() => void runLight()} disabled={busy !== ""}>
                 {busy === "light" ? "浅睡中…" : "立即浅睡"}
               </button>
+              <button
+                type="button"
+                onClick={() => void onDistill()}
+                disabled={dreaming || distilling || !canDistill}
+              >
+                {distilling ? "正在整理…" : "把这段对话整理成记忆"}
+              </button>
               <button type="button" onClick={onRefresh}>刷新快照</button>
             </div>
+            {distillNote ? <p className="nmsNote">{distillNote}</p> : null}
             {note ? <p className="nmsNote">{note}</p> : null}
             <div className="nmsMeta">
               <div>节点 {stats?.nodes.total ?? 0} · 连接 {stats?.edges.total ?? 0}</div>
@@ -283,13 +350,39 @@ export function NmsScreen({
               <div>待加工轮次 {stats?.pending.unconsumed ?? 0}</div>
               <div>{voice ? "语气：自动 v" + voice.version : "语气：冻结（还没生成过）"}</div>
             </div>
-          </div>
+          </section>
 
-          <div className="nmsSettingGroup nmsVoiceGroup">
-            <div className="nmsVoiceHead">
-              <b>人格与语气</b>
+          <section className="nmsSettingGroup nmsVoiceGroup">
+            <div className="nmsCardHead">
+              <h3>语气</h3>
               <span>{voice ? "v" + voice.version + " · " + shortTime(voice.updatedAt) : "还没生成"}</span>
             </div>
+            <label className="nmsCheck">
+              <input
+                type="checkbox"
+                checked={settings.moodEnabled}
+                disabled={settings.cheapMode}
+                onChange={(e) => onSettingsChange({ moodEnabled: e.target.checked })}
+              />
+              <span>判心情（每轮一次极便宜的调用）{settings.cheapMode ? "——省 token 下不判" : ""}</span>
+            </label>
+            <label className="nmsCheck">
+              <input
+                type="checkbox"
+                checked={settings.reviewEnabled}
+                disabled={settings.cheapMode}
+                onChange={(e) => onSettingsChange({ reviewEnabled: e.target.checked })}
+              />
+              <span>说完先让她自己复核（关掉每轮省一次调用）{settings.cheapMode ? "——省 token 下不复核" : ""}</span>
+            </label>
+            <label className="nmsCheck">
+              <input
+                type="checkbox"
+                checked={settings.replyPacing}
+                onChange={(e) => onSettingsChange({ replyPacing: e.target.checked })}
+              />
+              <span>她会看时机回话（有时不接、有时慢半拍；聊得越久回得越快）</span>
+            </label>
             <p className="nmsVoiceText">
               {voice
                 ? voice.profile
@@ -366,7 +459,7 @@ export function NmsScreen({
               </details>
             ) : null}
             <p className="nmsHint">深睡跑完、这次真有新记忆时才自动重写；省 token 模式下不跑。</p>
-          </div>
+          </section>
           </>
         ) : null}
       </div>
