@@ -40,6 +40,8 @@ export interface NmsScreenProps {
   /** 小窗里的「看全图」：压到全屏记忆网络页（B5）。 */
   onOpenGraph(): void;
   onClose(): void;
+  /** 整屏页的层级：由 App 按栈序给（PAGE_Z_BASE + 下标），别在 CSS 里写死。 */
+  zIndex?: number;
 }
 
 type Tab = "network" | "list" | "settings";
@@ -70,6 +72,7 @@ export function NmsScreen({
   distillNote,
   onOpenGraph,
   onClose,
+  zIndex,
 }: NmsScreenProps) {
   const [tab, setTab] = useState<Tab>("network");
   const [query, setQuery] = useState("");
@@ -144,7 +147,11 @@ export function NmsScreen({
     : "--";
 
   return (
-    <div className="nmsPage" data-part="panel">
+    <div
+      className="nmsPage"
+      data-part="panel"
+      style={zIndex === undefined ? undefined : { zIndex }}
+    >
       <header className="nmsHead">
         <div className="nmsTitle">
           <b>记忆</b>

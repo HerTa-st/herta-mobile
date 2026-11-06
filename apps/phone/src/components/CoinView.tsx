@@ -48,6 +48,8 @@ export interface CoinViewProps {
   onClose(): void;
   /** 抽屉里那行涨跌幅要用；拿到/丢数据都通知一次。 */
   onQuoteChange?(quote: CoinDailyResponse | null): void;
+  /** 整屏页的层级：由 App 按栈序给（PAGE_Z_BASE + 下标），别在 CSS 里写死。 */
+  zIndex?: number;
 }
 
 /** 行情状态 → 徽标色调。文案直接用接口的 statusLabel。 */
@@ -489,7 +491,7 @@ function drawShareCard(data: ShareCardData): string {
   return canvas.toDataURL("image/png");
 }
 
-export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteChange }: CoinViewProps) {
+export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteChange, zIndex }: CoinViewProps) {
   const coin = useCoin({ base, active: true });
   const { quote, wallet, signin, cached, offline, loading, error, signing } = coin;
   const marketMode = identity.trim().length > 0;
@@ -1837,7 +1839,13 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
   );
 
   return (
-    <div className="coinView" data-part="panel" role="dialog" aria-label="黑塔币行情">
+    <div
+      className="coinView"
+      data-part="panel"
+      role="dialog"
+      aria-label="黑塔币行情"
+      style={zIndex === undefined ? undefined : { zIndex }}
+    >
       <header className="coinHead">
         <button className="coinBack" type="button" onClick={onClose} aria-label="返回聊天">
           ←

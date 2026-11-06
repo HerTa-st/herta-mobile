@@ -21,6 +21,21 @@ export function pushPage(stack: PageStack, name: RouteName, param?: unknown): Pa
   return [...stack, param === undefined ? { name } : { name, param }];
 }
 
+/**
+ * 换一页（侧栏一级入口用）：栈里只剩这一页。
+ *
+ * 和 pushPage 的区别是语义：push 是「叠上去」（设置 → 备份，退回来还在设置），
+ * replace 是「换频道」（记忆 ↔ 播报 ↔ 黑塔币，退回来回到对话）。
+ * 兄弟页同时挂着的时候，画面上是谁由写死的 z-index 决定——B2 之后点「黑塔币」
+ * 画出来的却是播报页，就是因为三个入口都走了 push。
+ */
+export function replacePage(stack: PageStack, name: RouteName, param?: unknown): PageStack {
+  if (name === "chat") return EMPTY_STACK;
+  // 栈底那页要是就是它，保留原样；否则整条换掉，别把兄弟页留在下面。
+  if (stack.length === 1 && stack[0].name === name) return stack;
+  return [param === undefined ? { name } : { name, param }];
+}
+
 export function popPage(stack: PageStack): PageStack {
   return stack.length > 0 ? stack.slice(0, -1) : stack;
 }

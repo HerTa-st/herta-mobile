@@ -1211,7 +1211,9 @@ body {
 .coinEntryPct.down { color: #4f9d8a; }
 
 /* 全屏页：整页一屏，头部固定、内容自己滚。
-   z-index 压在聊天、看图、星图之上；设置面板（60）是另一条线，不用管。 */
+   z-index 只是兜底：真正压在第几层由 App 按栈序给（PAGE_Z_BASE + 栈下标，内联样式），
+   所以画面顺序永远等于栈序。这里写死的数一旦和栈序打架，就会出现「点了 A 画出 B」。
+   设置面板（60）是另一条线，不用管。 */
 .coinView {
   position: fixed;
   inset: 0;
@@ -1752,7 +1754,8 @@ body {
 }
 .bcastNoticeOpen:active { opacity: 0.55; }
 
-/* 全屏页：和黑塔币同一套 z-index 逻辑，压在聊天之上。 */
+/* 全屏页：和黑塔币同一套逻辑——层级由 App 按栈序给（见 .coinView 上面的注释），
+   这里的 56 只是没有内联样式时的兜底。 */
 .broadcastView {
   position: fixed;
   inset: 0;

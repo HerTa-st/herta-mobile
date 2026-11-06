@@ -147,6 +147,12 @@ const VISION_MODEL = /flash|vision|vl|omni/i;
  */
 const LEGACY_TOOL_NOTE = /^（[^）]{1,48}：/;
 
+/**
+ * 整屏页的 z 起点。压在第几层 = PAGE_Z_BASE + 栈里的下标，
+ * 所以画面顺序永远等于栈序；设置（60）这类弹层是另一条线，不参与。
+ */
+const PAGE_Z_BASE = 40;
+
 /** 文档格式的显示名：toast 里说「从 Word 抽出 1234 字」比说 docx 好懂。 */
 const DOC_LABEL: Record<DocumentFormat, string> = { pdf: "PDF", docx: "Word", pptx: "PPT", xlsx: "Excel" };
 
@@ -940,11 +946,15 @@ export function App() {
     onPrompt: appendBroadcastPrompt,
   });
 
-  /** 侧栏四个入口：走页面栈；再点一次同一页就退回去。 */
+  /**
+   * 侧栏三个入口：换频道，不是叠楼层。
+   * 再点一次同一页就退回去；换个入口就把上一个换掉——兄弟页同时挂着的话，
+   * 画面上是谁由每个页写死的 z-index 决定，不是由栈序（B2 的回归就出在这儿）。
+   */
   const openPage = useCallback(
     (target: "memory" | "broadcast" | "coin") => {
       if (pages.isTop(target)) pages.close(target);
-      else pages.push(target);
+      else pages.replace(target);
     },
     [pages]
   );
@@ -2314,6 +2324,8 @@ export function App() {
       {/*
         整屏页：按栈的顺序渲染。压在下面的那页不卸载——
         关掉上面一层还能回到它原来的位置（设置 → 她能做什么 → 返回）。
+        叠起来的那几页谁在上面，由栈序算出的 z-index 决定（PAGE_Z_BASE + index），
+        不再让每个页面在 CSS 里写死一个数——写死的后果是栈序和画面顺序可以不一致。
       */}
       {pages.stack.map((entry, index) => {
         const key = entry.name + ":" + index;
@@ -2323,6 +2335,7 @@ export function App() {
               <CoinView
                 // base 变了就重挂：设置里改接口地址后要重新拉，不用杀 app
                 key={key + ":" + (coinBase || "coin-no-base")}
+                zIndex={PAGE_Z_BASE + index}
                 base={coinBase}
                 identity={settings.coinIdentity}
                 onIdentityChange={(next) => setSettings({ ...settings, coinIdentity: next })}
@@ -2334,6 +2347,7 @@ export function App() {
             return (
               <BroadcastView
                 key={key}
+                zIndex={PAGE_Z_BASE + index}
                 issues={broadcast.issues}
                 today={broadcast.today}
                 status={broadcast.status}
@@ -2361,6 +2375,7 @@ export function App() {
             return (
               <NmsScreen
                 key={key}
+                zIndex={PAGE_Z_BASE + index}
                 snapshot={nmsSnapshot}
                 activationStore={nmsActivation}
                 settings={settings}

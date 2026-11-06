@@ -48,6 +48,8 @@ export interface BroadcastViewProps {
   onClearHistory(): void;
   /** 未接通（没有可用 Key）：今天还没有的时候，只说「接上她才会说话」，不给生成按钮。 */
   unconnected?: boolean;
+  /** 整屏页的层级：由 App 按栈序给（PAGE_Z_BASE + 下标），别在 CSS 里写死。 */
+  zIndex?: number;
 }
 
 type Permission = "granted" | "denied" | "prompt" | "unsupported";
@@ -393,7 +395,13 @@ export function BroadcastView(props: BroadcastViewProps) {
   );
 
   return (
-    <div className="broadcastView" data-part="panel" role="dialog" aria-label="星际和平播报">
+    <div
+      className="broadcastView"
+      data-part="panel"
+      role="dialog"
+      aria-label="星际和平播报"
+      style={props.zIndex === undefined ? undefined : { zIndex: props.zIndex }}
+    >
       <header className="bcHead">
         <button type="button" className="bcBack" onClick={onClose} aria-label="返回聊天">
           ←

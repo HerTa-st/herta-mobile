@@ -6,6 +6,7 @@ import {
   isPageTop,
   popPage,
   pushPage,
+  replacePage,
   resetStack,
   topPage,
   topParam,
@@ -24,6 +25,8 @@ export interface PageStackApi {
   top: RouteName | null;
   canGoBack: boolean;
   push(name: RouteName, param?: unknown): void;
+  /** 换一页：侧栏一级入口用它，兄弟页互斥（记忆 ↔ 播报 ↔ 黑塔币）。 */
+  replace(name: RouteName, param?: unknown): void;
   /** 退一页；返回 false 表示本来就在对话页。 */
   back(): boolean;
   close(name: RouteName): void;
@@ -42,6 +45,10 @@ export function usePageStack(): PageStackApi {
 
   const push = useCallback((name: RouteName, param?: unknown) => {
     setStack((current) => pushPage(current, name, param));
+  }, []);
+
+  const replace = useCallback((name: RouteName, param?: unknown) => {
+    setStack((current) => replacePage(current, name, param));
   }, []);
 
   const pop = useCallback((): boolean => {
@@ -66,6 +73,7 @@ export function usePageStack(): PageStackApi {
     top,
     canGoBack: stack.length > 0,
     push,
+    replace,
     back: pop,
     close,
     reset,
