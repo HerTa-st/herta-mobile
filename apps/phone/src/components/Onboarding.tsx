@@ -127,7 +127,7 @@ export function Onboarding({
       <div className="onboardGlow" aria-hidden="true" />
       <div className="onboardInner">
         <div className="onboardMark" aria-hidden="true">H</div>
-        <img className="onboardAvatar" src={faceSrc(settings)} alt="她现在的样子" />
+        <img className="onboardAvatar" src={faceSrc(settings)} data-herta-user="face" alt="她现在的样子" />
         <h1>她在这里。</h1>
         <p className="onboardLede">五件事，两分钟。现在不做也行——之后都能从设置里补。</p>
 

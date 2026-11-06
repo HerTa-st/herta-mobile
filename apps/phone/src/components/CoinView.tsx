@@ -1868,7 +1868,7 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
         {renderIdentity()}
 
         {marketMode && !shared && !daily ? (
-          <div className="coinEmpty" role="alert">
+          <div className="coinEmpty" data-part="empty-state" role="alert">
             <p className="coinEmptyTitle">{api.loading ? "正在连接共享市场…" : "共享市场连不上"}</p>
             <p className="coinEmptyNote">{api.error || "检查接口地址和网络，或者换个昵称试试。"}</p>
             <button type="button" className="coinBtn" onClick={() => void api.refresh()} disabled={api.loading}>
@@ -1880,7 +1880,7 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
         ) : loading ? (
           <p className="coinLoading">正在拉行情…</p>
         ) : (
-          <div className="coinEmpty" role="alert">
+          <div className="coinEmpty" data-part="empty-state" role="alert">
             <p className="coinEmptyTitle">行情暂不可用</p>
             <p className="coinEmptyNote">
               {error || (offline ? "连不上行情接口，先看看设置里的接口地址。" : "稍后再试。")}

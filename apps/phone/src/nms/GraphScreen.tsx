@@ -74,7 +74,7 @@ export function GraphScreen({ snapshot, activationStore, onRefresh, onClose }: G
   );
 
   return (
-    <div className="nmsgraph" role="dialog" aria-label="记忆网络全屏">
+    <div className="nmsgraph" data-part="panel" role="dialog" aria-label="记忆网络全屏">
       <style>{GRAPH_CSS}</style>
       <NetworkView
         snapshot={snapshot}
