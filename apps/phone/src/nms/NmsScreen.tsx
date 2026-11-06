@@ -286,7 +286,6 @@ export function NmsScreen({
                         <button
                           type="button"
                           className="nmsNodeDelete"
-                          style={{ border: 0, background: "none", padding: 0, font: "inherit", fontSize: 9, color: "var(--muted)", cursor: "pointer" }}
                           onClick={() => onRemoveMemory(m.name)}
                           aria-label={"删掉「" + memoryTitle(m) + "」"}
                         >

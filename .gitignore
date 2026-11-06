@@ -17,3 +17,7 @@ dist-apk/
 assets/pdfjs/
 # 黑塔币 FC 测试向量生成器的临时产物（phantom-market 拷贝 / Edge profile / 日志）
 fc/coin-api/test/.tmp/
+
+# 部署产物（不进 git，部署时现打）
+coin-api-deploy.zip*
+_test.out

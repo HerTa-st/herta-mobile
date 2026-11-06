@@ -27,7 +27,9 @@
 .nmsTabs { display: flex; gap: 3px; padding: 2px; border: 1px solid var(--line); border-radius: 999px; background: rgba(17, 20, 23, 0.04); }
 .nmsTab { border: 0; background: none; border-radius: 999px; padding: 4px 8px; font: inherit; font-size: 9px; color: var(--muted); }
 .nmsTab.on { background: var(--ink); color: var(--accent-ink); }
-.nmsClose { flex: none; width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 50%; background: rgba(255, 255, 255, 0.5); color: var(--muted); font: inherit; font-size: 11px; }
+.nmsClose { flex: none; position: relative; width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 50%; background: rgba(255, 255, 255, 0.5); color: var(--muted); font: inherit; font-size: 11px; }
+/* 触控热区：28 → 44×44（页头 54；左借 7 到 tab 的间距，右借 9 进 10 的 padding） */
+.nmsClose::after { content: ""; position: absolute; inset: -8px -9px -8px -7px; min-width: 44px; min-height: 44px; }
 .nmsScroll { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px 24px; display: flex; flex-direction: column; gap: 9px; }
 
 .nmsNetCard, .nmsListCard, .nmsVoiceCard, .nmsSettingGroup {
@@ -81,6 +83,17 @@
 .nmsNodeTop strong { flex: 1; font-size: 11px; font-weight: 560; }
 .nmsNodeTop span { font-family: ui-monospace, Consolas, monospace; font-size: 8px; color: var(--muted); }
 .nmsNodeCard p { margin: 2px 0 0; font-size: 9px; color: var(--muted); line-height: 1.5; }
+/* 「她记住的文件」每张卡右上角的删掉（原来只有内联） */
+.nmsNodeDelete {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 9px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.nmsNodeDelete:active { color: #b5545f; }
 .nmsSettingGroup { display: flex; flex-direction: column; gap: 10px; }
 .nmsCheck { display: flex; align-items: flex-start; gap: 8px; font-size: 10.5px; color: var(--ink); }
 .nmsCheck input { margin-top: 2px; }

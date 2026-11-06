@@ -109,6 +109,10 @@
   cursor: pointer;
 }
 .ss-iconBtn:active { background: var(--ss-tint); }
+/* 触控热区：30 → 44×44。左边借页头 padding 6，右边借与标题/徽章之间的 8；
+   两个按钮（返回 / 关闭）在同一套间距里，一条规则都够 */
+.ss-iconBtn { position: relative; }
+.ss-iconBtn::after { content: ""; position: absolute; inset: -7px -8px -7px -6px; min-width: 44px; min-height: 44px; }
 
 .ss-title { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
 .ss-title b { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; color: var(--ink); }
@@ -287,6 +291,10 @@
 .ss-input:disabled,
 .ss-select:disabled { opacity: 0.5; }
 
+/* 「省 token」那行右侧：数字框（54 宽）与开关贴在一起 */
+.ss-tokenCtl { display: flex; align-items: center; gap: 6px; flex: none; }
+.ss-inputNum { width: 54px; }
+
 .ss-file {
   width: 100%;
   box-sizing: border-box;
@@ -401,6 +409,24 @@
   overflow-wrap: anywhere;
 }
 .ss-hint { margin: 0 3px; font-size: 9px; line-height: 1.6; color: var(--ss-faint); }
+
+/* 页脚那排二级链接：工具调用记录 · 开屏与引导 · 设计系统 */
+.ss-links {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 6px 2px 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.ss-linkBtn {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+}
 
 /* ---------------------------------------------------------------- 设置 */
 
@@ -552,6 +578,21 @@
   cursor: pointer;
 }
 .ss-linkRow span { font-size: 8.5px; color: var(--ss-faint); }
+
+/* 她读的、她发的：已选文件列表 */
+.ss-fileList { display: flex; flex-direction: column; gap: 4px; margin: 2px 0 6px; }
+.ss-fileRow { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.ss-fileName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 行内小按钮：横向补到 44（右边借进卡片 padding 12，左边只借行距 6，不盖住文件名）；
+   纵向受 4 的行距限制，只能上下各 2 —— 要 44 高得把列表行加高，见待修清单 */
+.ss-fileList .ss-btnSmall { position: relative; }
+.ss-fileList .ss-btnSmall::after {
+  content: "";
+  position: absolute;
+  inset: -2px -12px -2px -6px;
+  min-width: 44px;
+}
 
 /* ---------------------------------------------------------------- 备份 */
 

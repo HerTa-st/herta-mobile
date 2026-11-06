@@ -10,7 +10,7 @@
   /* 桌面端（<Herta-desktop-install-dir>）那套：墨更黑、灰更冷，卡面是半透明玻璃 */
   --ink: #111417;
   --ink-soft: #3b4350;
-  --muted: #717984;
+  --muted: #636c79;
   --line: rgba(17, 20, 23, 0.08);
   --card: rgba(255, 255, 255, 0.62);
   --mine: #eceef0;
@@ -290,6 +290,15 @@ body {
   color: #b9c5cd;
   padding: 8px;
   font-size: 14px;
+  position: relative; /* 给下面那层触控热区做定位 */
+}
+/* 触控热区：⋯ 大约 28×31，横向补到 44（左边借 5 进 6 的间距、右边借 11 进抽屉 12 的 padding）；
+   纵向只到行高 —— 会话列表行与行之间只有 2，再往上长就会盖住上一条的 ⋯ */
+.drawer .del::after {
+  content: "";
+  position: absolute;
+  inset: -2px -11px -2px -5px;
+  min-width: 44px;
 }
 
 /* 搜索结果 */
@@ -964,7 +973,9 @@ body {
   border-radius: 999px;
 }
 .trayHead button.on { background: #eef4f5; color: var(--ink); }
-.trayClose { margin-left: auto; width: 24px; height: 24px; padding: 0; border-radius: 50%; font-size: 11px; }
+.trayClose { margin-left: auto; position: relative; width: 24px; height: 24px; padding: 0; border-radius: 50%; font-size: 11px; }
+/* 触控热区：24 → 44×44（右边正好抵到面板 padding 10，上边抵到面板顶部；左边是 flex 空位） */
+.trayClose::after { content: ""; position: absolute; inset: -10px; min-width: 44px; min-height: 44px; }
 .trayGrid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
 .trayCell, .trayAdd {
   aspect-ratio: 1;
@@ -2568,6 +2579,21 @@ body {
   border-radius: 9px;
   font-size: 14px;
 }
+
+/* 触控热区（左轨）：轨道只有 58 宽，横向一律铺满 58；纵向按各自上下空位分摊，
+   两个圆点上下相邻，各借一半间距，热区正好相接不重叠。
+   30 → 44×44；上边借 10（padding-top 14），下边只借 4（与 .railNew 之间是 8） */
+.railMark, .railNew { position: relative; }
+/* 热区是透明的方块（不描 border-radius，圆角会切掉四个角的命中面积） */
+.railMark::after, .railNew::after {
+  content: "";
+  position: absolute;
+  min-width: 44px;
+  min-height: 44px;
+}
+.railMark::after { inset: -10px -7px -4px; }
+/* 28 → 44×44；上边借 4（接 .railMark 那 4），下边借 12（到 .railNav 还有 18） */
+.railNew::after { inset: -4px -8px -12px; }
 .railNav {
   flex: 1;
   width: 100%;
@@ -2588,6 +2614,16 @@ body {
   display: grid;
   place-items: center;
   position: relative;
+}
+/* 触控热区：38 → 58×42。一列里上下间距只有 4，两边各借 2 刚好相接；
+   要到 44 高必须把 .railNav / .railFoot 的 gap 从 4 加到 6（整列会往下多 10px），
+   这属于间距体系改动，等看过实物再定 */
+.railNav button::after,
+.railFoot button::after {
+  content: "";
+  position: absolute;
+  inset: -2px -10px;
+  min-width: 44px;
 }
 .railNav button.on,
 .railFoot button.on {
@@ -2713,6 +2749,7 @@ button.moodChip:active { background: rgba(17, 20, 23, 0.05); }
 .moodPop small { margin-top: 4px; font-size: 10px; line-height: 1.55; color: var(--muted); }
 .themeToggle {
   flex: none;
+  position: relative;
   width: 28px;
   height: 28px;
   border: 1px solid var(--line);
@@ -2726,15 +2763,34 @@ button.moodChip:active { background: rgba(17, 20, 23, 0.05); }
 }
 .topAvatarBtn {
   flex: none;
+  position: relative;
   width: 30px;
   height: 30px;
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 50%;
-  overflow: hidden;
+  /* 不能用 overflow:hidden —— 它会把下面那颗 ::after 触控热区一起剪掉。
+     头像改成图片自己裁圆，观感与原来被内圆角裁掉一致（图片本来就只占内容盒）。 */
+  overflow: visible;
   background: #fff;
 }
-.topAvatarBtn img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.topAvatarBtn img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 50%; }
+/* 触控热区（顶栏 54 高）：28 → 39×44。左边是 moodChip，7 的间距全部借掉；
+   右边只剩 4 —— 再往右就和 .topAvatarBtn 的热区撞上了，所以这一个是唯一不到 44 宽的 */
+.themeToggle::after {
+  content: "";
+  position: absolute;
+  inset: -8px -4px -8px -7px;
+  min-height: 44px;
+}
+/* 30 → 44×44：左边借 3（与 themeToggle 的 7 分账），右边借 11 进顶栏 12 的 padding */
+.topAvatarBtn::after {
+  content: "";
+  position: absolute;
+  inset: -7px -11px -7px -3px;
+  min-width: 44px;
+  min-height: 44px;
+}
 
 .chatContext {
   flex: none;

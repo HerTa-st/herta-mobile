@@ -21,7 +21,10 @@
   background: none;
   color: var(--ink-soft);
   font-size: 16px;
+  position: relative; /* 给下面那层触控热区做定位 */
 }
+/* 触控热区：30 → 44×44（页头 54；左借 7 进 8 的 padding，右借 7 到标题的间距） */
+.coinBack::after { content: ""; position: absolute; inset: -7px; min-width: 44px; min-height: 44px; }
 .coinTitle { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
 .coinBadge {
   font-size: 9px;

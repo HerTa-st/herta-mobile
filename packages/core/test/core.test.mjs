@@ -6,7 +6,13 @@ import { NodeAssetSource } from "../src/assets-node.ts";
 import { buildStaticPrefix, moodStyleNote, pickSeeds, MOBILE_NOTE, FORMAT_CONTRACT } from "../src/persona.ts";
 import { extractTagged, parseTagged, isPlaceholder, serializeRecord, parseSupervisorVerdict } from "../src/tags.ts";
 import { parseNarrative, stripStageDirections } from "../src/narrative.ts";
-import { buildReviewMessages, decideReview, vetoHints } from "../src/supervisor.ts";
+import {
+  buildReviewMessages,
+  clipToolReceipts,
+  decideReview,
+  REVIEW_RECEIPT_LIMITS,
+  vetoHints,
+} from "../src/supervisor.ts";
 import { EMPTY_TITLE, appendBlocks, createSession, deriveTitle, retractLastTurn, trimForContext } from "../src/session.ts";
 import { isUserTurn } from "../src/sticker.ts";
 import { bondLevel, daysSince, decideReply } from "../src/reply.ts";
@@ -1650,6 +1656,102 @@ test("复核消息：用桌面版原文的 buildSupervisorPrompt，成功切成 
   assert.ok(messages[0].content.length > 1000, "系统段太短，多半没读到评分标准");
   assert.ok(messages[1].content.includes("在。"), "候选台词没有进 user 段");
   assert.ok(a.hertaBio.length > 0);
+});
+
+test("复核消息：有工具回执时进提示词，并明说台词与回执矛盾就是错", () => {
+  const code = { buildSupervisorPrompt: H.buildSupervisorPrompt, USER_MESSAGE_SEPARATOR: H.USER_MESSAGE_SEPARATOR };
+  const messages = buildReviewMessages(
+    {
+      feianFewShots: [],
+      lang: "zh",
+      currentState: "默认",
+      recentRecord: [{ kind: "user", text: "现在几点", at: "2026-11-06T22:00:00Z" }],
+      currentTurnThought: "他问时间。",
+      candidateSpeech: "现在十一点半。",
+      // 中间那条全是空白：不该在提示词里占一行
+      toolReceipts: ["看了时间：2026-11-06 22:31", "   ", "算了：22:31 - 22:00 = 31 分钟"],
+    },
+    code
+  );
+
+  assert.equal(messages.length, 2);
+  const user = messages[1].content;
+  assert.ok(user.includes("### 我这轮亲手查到的记录"), "回执段没进 user 段");
+  assert.ok(user.includes("看了时间：2026-11-06 22:31"), "回执原文没进提示词");
+  assert.ok(user.includes("算了：22:31 - 22:00 = 31 分钟"), "第二条回执没进提示词");
+  assert.ok(user.includes("就是错的"), "没告诉复核者：台词与回执矛盾就是错");
+  // 空白回执被滤掉：只有两条 "- " 开头的
+  assert.equal(
+    user.split("\n").filter((line) => line.startsWith("- ")).length,
+    2,
+    "空回执不该占一行"
+  );
+  // 位置：最近的对话之后、内心想的/待审台词之前
+  const sectionAt = user.indexOf("### 我这轮亲手查到的记录");
+  assert.ok(sectionAt > user.indexOf("### 最近的对话"), "回执段跑到最近的对话前面去了");
+  assert.ok(sectionAt < user.indexOf("### 我刚才内心想的"), "回执段应该在内心想法之前");
+  assert.ok(sectionAt < user.indexOf("### 我刚才要说出口的话"), "回执段应该在待审台词之前");
+});
+
+test("复核消息：没有工具回执时与旧行为逐字一致（守住不回归）", () => {
+  const code = { buildSupervisorPrompt: H.buildSupervisorPrompt, USER_MESSAGE_SEPARATOR: H.USER_MESSAGE_SEPARATOR };
+  const params = {
+    feianFewShots: [],
+    lang: "zh",
+    currentState: "默认",
+    recentRecord: [{ kind: "user", text: "在吗", at: "2026-10-26T00:00:00Z" }],
+    currentTurnThought: "他又来了。",
+    candidateSpeech: "在。",
+  };
+
+  // 旧行为：素材原文那条 prompt 在分隔符处切开，中间一个字都不加
+  const raw = H.buildSupervisorPrompt({ ...params, sessionReceipts: [] }).prompt;
+  const at = raw.indexOf(H.USER_MESSAGE_SEPARATOR);
+  const before = [
+    { role: "system", content: raw.slice(0, at) },
+    { role: "user", content: raw.slice(at + H.USER_MESSAGE_SEPARATOR.length) },
+  ];
+
+  assert.deepEqual(buildReviewMessages({ ...params }, code), before, "没传 toolReceipts 时提示词变了");
+  assert.deepEqual(buildReviewMessages({ ...params, toolReceipts: [] }, code), before, "空数组时提示词变了");
+  assert.deepEqual(
+    buildReviewMessages({ ...params, toolReceipts: ["", "  \n "] }, code),
+    before,
+    "全是空白时提示词变了"
+  );
+});
+
+test("复核消息：超长回执被截断（单条 500 字、合计 2000 字）", () => {
+  const code = { buildSupervisorPrompt: H.buildSupervisorPrompt, USER_MESSAGE_SEPARATOR: H.USER_MESSAGE_SEPARATOR };
+  const params = {
+    feianFewShots: [],
+    lang: "zh",
+    currentState: "默认",
+    recentRecord: [{ kind: "user", text: "查一下", at: "2026-11-06T00:00:00Z" }],
+    currentTurnThought: "查完了。",
+    candidateSpeech: "查到了。",
+  };
+
+  // 单条 2000 字：只留 perItem 个字，并挂截断标记
+  const long = "长".repeat(2000);
+  const one = buildReviewMessages({ ...params, toolReceipts: [long] }, code)[1].content;
+  const oneLine = one.split("\n").find((line) => line.startsWith("- "));
+  assert.ok(oneLine, "截断后连一条回执都没留下");
+  const oneBody = oneLine.slice(2);
+  assert.equal(oneBody.length, REVIEW_RECEIPT_LIMITS.perItem, "单条没截到 500 字");
+  assert.ok(oneBody.endsWith("…（已截断）"), "截断处没有标记");
+  assert.ok(!one.includes("长".repeat(REVIEW_RECEIPT_LIMITS.perItem + 1)), "超出的部分还在提示词里");
+
+  // 多条合计：第 5 条会顶破 2000 字上限，整条丢掉（不给半条）
+  const many = Array.from({ length: 10 }, (_, i) => i + "：" + "x".repeat(400));
+  assert.equal(clipToolReceipts(many).length, 4, "合计上限算错了");
+  const ten = buildReviewMessages({ ...params, toolReceipts: many }, code)[1].content;
+  const bullets = ten.split("\n").filter((line) => line.startsWith("- "));
+  assert.equal(bullets.length, 4, "超出合计上限的回执照样进提示词了");
+  const used = bullets.reduce((sum, line) => sum + line.length, 0);
+  assert.ok(used <= REVIEW_RECEIPT_LIMITS.total, "回执合计超上限：" + used + " 字");
+  // 回执段落里的正文也不能比上限长
+  assert.deepEqual(clipToolReceipts(undefined), [], "没有回执时应返回空数组");
 });
 
 test("复核策略：最多打回两次，之后放行免得语气散掉", () => {

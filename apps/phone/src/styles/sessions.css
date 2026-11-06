@@ -14,6 +14,7 @@
   color: var(--ink);
 }
 .drawer .new {
+  position: relative;
   height: 38px;
   margin-bottom: 8px;
   border-radius: 11px;
@@ -22,6 +23,11 @@
   box-shadow: none;
   font-size: 12px;
   font-weight: 600;
+}
+.drawer .new::after {
+  content: "";
+  position: absolute;
+  inset: -3px 0; /* 38 → 44：上下各借 3，抽屉里这一块的间距是 8，不碰下一个入口 */
 }
 .drawer .coinEntry,
 .drawer .broadcastEntry {
@@ -116,6 +122,74 @@
 .drawer .impGo { background: rgba(17, 20, 23, 0.86); color: #fff; border: 0; border-radius: 9px; padding: 7px; font: inherit; font-size: 10px; }
 .drawer .impNote { font-size: 9px; color: var(--muted); }
 
+/* ---------------------------------------------------------------- 会话菜单 / 多选（原来全是内联） */
+
+/* 长按 / ⋯ 弹出来的那一排：跟抽屉其它按钮同一套圆角胶囊，不再是浏览器默认灰底；
+   比默认按钮高一点（≈31），手指按得中 */
+.sessionMenu {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 8px 6px 26px;
+}
+.sessionMenu button,
+.renameRow button,
+.multiBar button {
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 7px 11px;
+  font: inherit;
+  font-size: 10.5px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.sessionMenu button:active,
+.renameRow button:active,
+.multiBar button:active { background: var(--field); }
+.sessionMenu button.danger,
+.renameRow button.danger,
+.multiBar button.danger {
+  color: #b5545f;
+  border-color: rgba(181, 84, 95, 0.3);
+  background: rgba(181, 84, 95, 0.06);
+}
+.sessionMenu button.danger:active,
+.multiBar button.danger:active { background: rgba(181, 84, 95, 0.14); }
+.multiBar button:disabled { opacity: 0.5; cursor: default; }
+
+/* 重命名：输入框占满整行，存 / 取消 不换行 */
+.renameRow { display: flex; gap: 6px; width: 100%; }
+.renameInput {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 11px;
+}
+.renameInput:focus { outline: none; border-color: var(--accent); }
+
+/* 多选删除条：一行，右侧两个按钮 */
+.multiBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* 多选框：14×14，左边让出勾选的位置（选中后行会被压窄） */
+.pick { width: 14px; height: 14px; margin: 0 2px 0 6px; flex: none; }
+
+/* 置顶标记 ◇：只跟主题色走，不跟正文同色 */
+.drawer .pin { color: var(--accent); }
+
 :root[data-theme="dark"] .workspace > .drawer { background: rgba(8, 20, 30, 0.94); }
 :root[data-theme="dark"] .drawer li.on { background: rgba(110, 231, 255, 0.08); }
 :root[data-theme="dark"] .drawer .mgraph,
@@ -124,3 +198,10 @@
 :root[data-theme="dark"] .drawer .dream:first-of-type,
 :root[data-theme="dark"] .drawer .shareRow button,
 :root[data-theme="dark"] .drawer .impGo { background: rgba(110, 231, 255, 0.86); color: #041016; }
+:root[data-theme="dark"] .sessionMenu button.danger,
+:root[data-theme="dark"] .renameRow button.danger,
+:root[data-theme="dark"] .multiBar button.danger {
+  color: #ff8f9c;
+  border-color: rgba(255, 107, 125, 0.3);
+  background: rgba(255, 107, 125, 0.08);
+}

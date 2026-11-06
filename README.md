@@ -5,9 +5,9 @@ Herta 的手机端。**双模**：离线时她是自己（人格 / 叙述 / 记�
 外加一件事：**从 DeepSeek 官方把你说过的话搬进来**——没有官方导出接口，所以采集端在 PC 上（油猴脚本），手机只负责接收、归一、归档、消化。
 
 - **接手先读**：[`../Herta-手机端-交接.md`](../Herta-手机端-交接.md)（现状、环境、踩坑、已验证/未验证、欠债）
-- **每天开工看这个**：[docs/开工手册.md](docs/开工手册.md)（12 批，每批一段可直接粘的开工提示）
+- **每天开工看这个**：[docs/开工手册.md](docs/开工手册.md)（16 批，每批一段可直接粘的开工提示；B1–B16 已全部落地）
 - **流程重设计的全部结论**：[docs/设计-手机端流程重设计-2026-11.md](docs/设计-手机端流程重设计-2026-11.md)（19 条决策、分批表、验收清单）；领域词汇：[CONTEXT.md](CONTEXT.md)
-- 想做主题：[docs/规范-主题作者.md](docs/规范-主题作者.md)（契约 v1 · 草案）；示范主题：[themes/paper](themes/paper/)
+- 想做主题：[docs/规范-主题作者.md](docs/规范-主题作者.md)（契约 v1 · 正式，App 0.32.0 起可用）；示范主题：[themes/paper](themes/paper/)
 - 为什么这样定：[docs/adr](docs/adr/)（页面栈先于收拢 / 自建渠道 / 主题停在 CSS 层）
 - 设计决策与验收标准：[docs/设计-v1.md](docs/设计-v1.md)；黑塔币：[docs/设计-黑塔币-v1.md](docs/设计-黑塔币-v1.md)
 - 代码分五包：`protocol`（三端共用的类型与消息）/ `core`（人格、叙述、记忆、工具循环）/ `coin`（黑塔币纯逻辑）/ `apps/phone`（UI）/ `packages/gateway`（连 PC，未开工）/ `tools/userscript`（抓历史，已被分享链接取代）
@@ -17,7 +17,7 @@ Herta 的手机端。**双模**：离线时她是自己（人格 / 叙述 / 记�
 
 ```
 packages/protocol   Block / Session / ChatMessage / ToolSpec / ChatDelta
-packages/core       纯逻辑，Node 里能跑测试（133 项）
+packages/core       纯逻辑，Node 里能跑测试（137 项）
   persona 人格装配    narrative 想/说拆分   supervisor 复核
   dream 做梦          distill 消化长对话    memory 记忆库契约
   weights 权重衰减    consolidate 整理      voice 语气笔记
@@ -41,19 +41,40 @@ assets/             自传、话术、4 条 veto 原声、开屏 ASCII 段落、
 tools/              打 APK、删种子、删素材字段、油猴脚本
   prototypes/       原型生成脚本（图标 / 头像 / 开屏）；产物在 docs/prototypes-2026-11/
   launcher-icons-backup-2026-11-04/  换成 A 图标之前的原立绘图标（android/ 不进 git，这是唯一回滚路径）
-themes/paper/       官方示范主题（**设计产物，尚未接进运行时**）
+themes/paper/       官方示范主题（B10 起可装：zip 进「设置 → 主题包」，只换 CSS 不动结构）
 docs/               设计文档；docs/adr/ 是难反悔的决策；docs/prototypes-2026-11/ 是原型图
 ```
 
 ```bash
 npm install
-npm test          # 五套测试共 190 项（core 133 / coin 26 / nms 7 / 播报 24）+ FC 向量比对
+npm test          # 十套 Node 测试共 286 项 + FC 向量比对（core 140 / 播报 19 / 播报生成 5 /
+                  #   关于名单 21 / 用量 9 / 备份 5 / 更新 5 / NMS 10 / 黑塔币 39 / 市场 v2 33）
 npm run dev:phone # 浏览器里跑 UI
 ```
 
-## 现状（v0.31.0，2026-11-04）
+## 现状（v0.36.0，2026-11-06）
 
 > 0.29 → 0.31 之间落地了：NMS 记忆内核移植（Capacitor SQLite）、UI 壳按 D 选定稿重做（日常 A + 夜间 C）、星际和平播报、黑塔币共享市场、五步引导、自动语气、字体跟随系统、图标换成 A。
+>
+> 0.32 → 0.35 之间落地了：主题包（zip 装换卸 + 版本门槛）、关于三页（赞助 / 开发人员 / 已知问题，名单走远程）、今日用量账本（九条链路各自记账）、备份与迁移补齐（覆盖恢复 / 带上她能读的文件 / 恢复报告 / 恢复前自动备一份）、版本更新提示（只 GET 一份静态清单）。
+> B1–B9 与 B11/B12 当时没有单独发版（本地出包验证）；从 B10 起 `version.json` 跟着批次走。
+>
+> **0.36.0（2026-11-06 深夜）**：复核能看到本轮工具回执；界面收口——9 组内联样式搬进 CSS、
+> 触控热区补到 44×44（真机命中测试量的）、日间辅助文字对比度从 4.24 调到 5.1；
+> 补上从 B8 就漏接线的 33 项测试（`fc/coin-api/test/market-v2.test.mjs`）。
+
+### 批次进度（docs/开工手册.md）
+
+| 批次 | 内容 | 状态 |
+|---|---|---|
+| B1 首次流程 · B2 骨架与锚点 · B3 收拢入口 · B4 聊天页 · B5 记忆网络全屏 · B6 外观 · B7 黑塔币 A · B8 黑塔币 B · B9 开屏竖流 | 流程重设计的主体 | ✅ 已落地（未单独发版） |
+| B10 | 主题底座 | ✅ 0.32.0 |
+| B11 | 产品宣传页 | ✅ 站点（独立于 app 包） |
+| B12 | 收尾对账（验收清单 + 交接文档 + LICENSE） | ✅ 2026-11-06 |
+| B13 | 关于 / 赞助 / 开发人员三页 | ✅ 0.33.0 |
+| B14 | 今日用量（token 账本） | ✅ 0.33.0 |
+| B15 | 备份与迁移补齐 | ✅ 0.34.0 |
+| B16 | 版本更新提示 | ✅ 0.35.0 |
 
 | 能力 | 状态 |
 |---|---|
@@ -97,7 +118,7 @@ npm run dev:phone # 浏览器里跑 UI
 | 表情包 | ✅ 她在合适的时候自己挑一张发出来（库空的就不给她这个工具） |
 | 翻相册 | ✅ 原生 MediaStore：先列目录，再按需读单张；默认关闭，要你在设置里打开 |
 | 云端语音 | ✅ 气泡上的「▶ 念」：OpenAI 兼容 /audio/speech 或 MiniMax /t2a_v2 |
-| 黑塔币 | ✅ v1：抽屉 →「黑塔币 HTC」看行情（分钟 K / 签到 / 持仓）；接口与网页同源，FC 没部署时页面会说明。v1 不接她、不做交易 |
+| 黑塔币 | ✅ 抽屉 →「黑塔币 HTC」：分钟 K / 签到 / 持仓 / 条件单 / 做空（逐仓 3 倍、0.1%/天）/ 破产重开 / 双榜 / 持仓分享卡；接口与网页同源，FC 没部署时页面会说明。**她还不接币**（没有 `coin_quote` 工具，那在路线图里） |
 
 ### 她的工具
 
@@ -218,16 +239,16 @@ PDF.js 的中文 CID 字体要 Adobe CMaps（1.1MB），构建前由 `tools/copy
 也会拷一份到 `dist-apk/`。
 
 图标现在是「半调 H」：[tools/prototypes/gen-launcher-icons.py](tools/prototypes/gen-launcher-icons.py) 按参数生成五档密度（legacy 方/圆标 + 自适应前景层），改点阵密度或字重重跑即可。换成它之前的原立绘图标（由 `tools/make-android-art.py` 从 `design/herta.png` 生成）备份在 `tools/launcher-icons-backup-2026-11-04/`——**`android/` 不进 git，这是唯一回滚路径**。
-开屏动画用的是 dsh-herta 主题那套 ASCII 半调开场，播放器与编码好的段落原样放在 `assets/opening/`（来自 `theme/dsh-theme-herta/lib/opening`）。**改版方向已定**（满屏 ASCII 竖流、不画角色剪影、流完交叉淡入主页），见 [流程重设计](docs/设计-手机端流程重设计-2026-11.md)，尚未实现。
+开屏动画用的是 dsh-herta 主题那套 ASCII 半调开场，播放器与编码好的段落原样放在 `assets/opening/`（来自 `theme/dsh-theme-herta/lib/opening`）。**改版方向已定并落地**（满屏 ASCII 竖流、不画角色剪影、流完交叉淡入主页），见 [流程重设计](docs/设计-手机端流程重设计-2026-11.md)。
 Android 工程不进 git，换机器后跑一次脚本，图标和闪屏就都回来了（要 Pillow）。
 
 脚本会先把依赖缓存指到仓库内 `.gradle-home`，因为这个工作区的沙箱不让写
 gradle 默认的 `<gradle-home>`（构建会死在 `.lck` 打开的权限上）。
 换台机器：`-GradleHome` 指向任意一份解压好的 gradle 9.2.x。
 
-### 主题（设计已定，尚未接进运行时）
+### 主题（B10 起可装：zip 进「设置 → 主题包」）
 
-手机端现在**没有任何扩展机制**：配色只有 `apps/phone/src/styles.css` 开头那 15 个 CSS 变量，靠 `html[data-theme="light"|"dark"]` 翻转；没有主题包格式、没有动态加载样式。唯一的运行期外挂是开屏播放器（从 `assets/opening/` 动态 import）。
+主题包是 zip（`theme.css` 必需，`skin.json` 声明 id 与 `minAppVersion`），安装走 `HertaHttpPlugin` 拉取 → `fflate` 解压 → IndexedDB 存 → 运行时注入；同时只有一个生效，用户显式设置（当前的脸 / 聊天背景 / 日夜 / 字体）永远优先。L2 组件槽位只收随包代码，L3 第三方代码永不开放。
 
 主题的形态已经拍板，见 [ADR-0004](docs/adr/0004-theme-extension-stops-at-css.md)：
 
@@ -238,10 +259,10 @@ gradle 默认的 `<gradle-home>`（构建会死在 `.lck` 打开的权限上）�
 | L2 组件槽位 | 消息气泡与消息项 / 左轨+顶栏 / 输入条 / 开屏，整块替换 | **只有随包代码** |
 | L3 第三方代码 | — | **永不开放** |
 
-- 契约：[docs/规范-主题作者.md](docs/规范-主题作者.md)（v1 草案；16 个锚点等骨架那批铺进代码后转正）
+- 契约：[docs/规范-主题作者.md](docs/规范-主题作者.md)（v1 正式；锚点已铺进代码）
 - 示范主题：[themes/paper](themes/paper/)（纸面：米白暖纸 + 墨绿）
 - 分发：一期链接导入 zip（`HertaHttpPlugin` 拉 → `fflate` 解压 → IndexedDB 存），二期做 GitHub 索引
-- ⚠️ 锚点还没进代码，`themes/` 目前只有设计价值，装了不生效
+- 锚点已进代码（22 个 `data-part`），`themes/paper` 可以直接装
 
 ### 装到手机
 

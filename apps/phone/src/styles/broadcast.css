@@ -16,7 +16,21 @@
 .bcBack { width: 30px; height: 30px; border-radius: 9px; background: none; color: var(--ink-soft); font-size: 16px; }
 .bcHeadTitle { flex: 1; font-size: 15px; font-weight: 650; letter-spacing: -0.01em; color: var(--ink); }
 .bcGear { width: 30px; height: 30px; border-radius: 9px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.5); color: var(--muted); }
+/* 触控热区：30 → 44×44（页头 54 高；左右各有 7，左边是 padding 8、右边是 8 的间距，都合得上） */
+.bcBack, .bcGear { position: relative; }
+.bcBack::after, .bcGear::after { content: ""; position: absolute; inset: -7px; min-width: 44px; min-height: 44px; }
 .bcScroll { padding: 10px 12px calc(env(safe-area-inset-bottom) + 22px); display: flex; flex-direction: column; gap: 10px; }
+/* 下拉刷新指示条：原来是内联 height 硬切 0/24，现在挂 .on 让它自己长出来 */
+.bcPull {
+  height: 0;
+  overflow: hidden;
+  text-align: center;
+  font-size: 11px;
+  line-height: 24px;
+  color: var(--muted);
+  transition: height 0.18s ease;
+}
+.bcPull.on { height: 24px; }
 
 .bcMasthead {
   position: relative;

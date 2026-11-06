@@ -423,11 +423,7 @@ export function BroadcastView(props: BroadcastViewProps) {
           if (reached) onRefresh();
         }}
       >
-        <div
-          className={"bcPull" + (pull > 0 ? " on" : "")}
-          aria-hidden="true"
-          style={{ height: pull > 0 ? 24 : 0, overflow: "hidden", textAlign: "center", fontSize: 11, color: "var(--muted)", lineHeight: "24px" }}
-        >
+        <div className={"bcPull" + (pull > 0 ? " on" : "")} aria-hidden="true">
           {pull >= 64 ? "松手刷新" : "下拉刷新"}
         </div>
         {renderSettings()}
