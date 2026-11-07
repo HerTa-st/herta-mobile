@@ -7,11 +7,11 @@
  * 授权：FC 函数需要读写该 Bucket 的执行角色（RAM 角色 + OSS 读写），
  * 函数里用 context.credentials（STS）；也兼容环境变量 OSS_AK / OSS_SK / OSS_STS_TOKEN。
  *
- * 环境变量：
- *   OSS_BUCKET     默认 <bucket>
+ * 环境变量（仓库是公开的，桶名与账本键一律不给默认值）：
+ *   OSS_BUCKET     必填，缺了直接抛 MissingBucket
  *   OSS_ENDPOINT   默认 oss-cn-hongkong.aliyuncs.com
- *   STATE_KEY      默认 state/coin.json
- *   LOCK_KEY       默认 state/coin.lock
+ *   STATE_KEY      必填，缺了直接抛 MissingStateKey
+ *   LOCK_KEY       默认 <STATE_KEY>.lock
  */
 'use strict';
 
