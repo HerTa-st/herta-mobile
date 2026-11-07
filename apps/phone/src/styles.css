@@ -1627,6 +1627,46 @@ body {
 .coinBtnSell { background: #eaf6f2; border-color: #c9e5db; color: #2f7d68; }
 .coinBtnBuy:disabled, .coinBtnSell:disabled { opacity: 0.45; }
 
+/* 限价单：方向与限价一行，有效期单独一行——别让按钮把输入框挤没 */
+.coinOrderRow { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.coinOrderSide { flex: none; display: flex; gap: 6px; }
+.coinSideBtn {
+  flex: none;
+  width: 44px;
+  padding: 9px 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.2;
+  text-align: center;
+}
+.coinSideBtn.isBuy { background: #fdeef0; border-color: #f3cdd3; color: #b64a5c; font-weight: 600; }
+.coinSideBtn.isSell { background: #eaf6f2; border-color: #c9e5db; color: #2f7d68; font-weight: 600; }
+.coinTtlRow { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.coinTtlLabel { flex: none; font-size: 11.5px; color: var(--muted); margin-right: 2px; }
+.coinTtlChip {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 12px;
+  text-align: center;
+}
+.coinTtlChip.on { border-color: #b9d2d5; background: #eef7f7; color: #3f6f76; font-weight: 600; }
+
+/* 空头借币：输入框占满剩下的宽度，按钮不再把它挤成一条缝 */
+.coinShortRow { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.coinShortRow .coinTradeInput { flex: 1; min-width: 0; }
+.coinShortRow .coinTradeUnit { flex: none; }
+.coinBtnInline { flex: none; width: auto; min-width: 68px; padding: 9px 12px; }
+
 .coinLeaderList { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .coinLeaderList li { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-soft); }
 .coinLeaderList li.isMe { color: var(--ink); font-weight: 600; }
@@ -2812,7 +2852,15 @@ button.moodChip:active { background: rgba(17, 20, 23, 0.05); }
 .dayLine { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 9px; letter-spacing: 0.1em; margin: 2px 0 4px; }
 .dayLine:before, .dayLine:after { content: ""; flex: 1; height: 1px; background: var(--line); }
 
-.turn { display: flex; align-items: flex-start; gap: 8px; }
+.turn {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  /* 整行都不许 WebView 抢长按去做文字选择——长按要留给消息菜单 */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
 .turn.user { justify-content: flex-end; align-items: flex-end; }
 .turnAvatar {
   flex: none;
@@ -2825,18 +2873,19 @@ button.moodChip:active { background: rgba(17, 20, 23, 0.05); }
 }
 .userMark {
   flex: none;
-  width: 26px;
-  height: 26px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.65);
+  background: rgba(255, 255, 255, 0.5);
   display: grid;
   place-items: center;
-  color: var(--ink-soft);
-  font-size: 9px;
+  color: var(--muted);
+  font-size: 8px;
+  opacity: 0.8;
 }
-.turn .bubble { max-width: calc(100% - 36px); }
-.turn.user .bubble { max-width: 76%; }
+.turn .bubble { max-width: calc(100% - 40px); }
+.turn.user .bubble { max-width: 84%; }
 .bubble {
   border-radius: 4px 16px 16px 16px;
   padding: 10px 12px 8px;
@@ -2845,6 +2894,10 @@ button.moodChip:active { background: rgba(17, 20, 23, 0.05); }
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
   font-size: 13.5px;
   line-height: 1.65;
+  /* 长按是消息菜单的唯一入口：别让 WebView 把长按抢去做文字选择 */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 .bubble.user {
   border-radius: 15px 15px 4px 15px;

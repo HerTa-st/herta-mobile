@@ -6,7 +6,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { normalizeVoiceSchema } from "@herta/nms";
-import type { NmsSnapshot, VoiceParams, VoiceState } from "@herta/nms";
+import type { MoodRulesState, NmsSnapshot, VoiceParams, VoiceState } from "@herta/nms";
 import type { MemoryRecord } from "@herta/core";
 import { memoryTitle } from "@herta/core";
 import type { Settings } from "../settings.ts";
@@ -28,6 +28,13 @@ export interface NmsScreenProps {
   onRewriteVoice(): Promise<boolean>;
   onChangeVoiceParams(params: VoiceParams): void;
   onRollbackVoice(version: number): void;
+  /** 她改过的心情判定（NMS meta 的 mood_rules）；null / 不传 = 还是打包版。 */
+  moodRules?: MoodRulesState | null;
+  onRollbackMoodRules(version: number): void;
+  /** 她改过判定、我还没看过：入口标题旁的小红点。 */
+  moodRulesUnseen?: boolean;
+  /** 我看到了这一块（切到设置 tab 时触发，红点这时才灭）。 */
+  onMoodRulesSeen?(): void;
   /** 她记住的文件（抽屉搬过来的：删除 / 整理 / 做梦都在这页）。 */
   memories: MemoryRecord[];
   onRemoveMemory(name: string): void;
@@ -43,6 +50,18 @@ export interface NmsScreenProps {
 }
 
 type Tab = "network" | "list" | "settings";
+
+/**
+ * 三段的中文名。
+ *
+ * packages/nms 不 import @herta/core（core 靠调用方校验），所以这里按同一份契约
+ * 写死展示名；顺序就是展开后从上到下的顺序。
+ */
+const MOOD_SECTION_COLUMNS = [
+  { key: "triggers", label: "触发描述" },
+  { key: "boundaries", label: "判定边界" },
+  { key: "priority", label: "优先级" },
+] as const;
 
 function shortTime(iso: string): string {
   const date = new Date(iso);
@@ -60,6 +79,10 @@ export function NmsScreen({
   onRewriteVoice,
   onChangeVoiceParams,
   onRollbackVoice,
+  moodRules,
+  onRollbackMoodRules,
+  moodRulesUnseen = false,
+  onMoodRulesSeen,
   memories,
   onRemoveMemory,
   onDream,
@@ -103,6 +126,12 @@ export function NmsScreen({
   useEffect(() => {
     setDraftParams(null);
   }, [voice?.version]);
+
+  // 她改过的判定就在设置 tab 里：切到这儿才算「看到了」，红点这时才灭。
+  useEffect(() => {
+    if (tab !== "settings" || !moodRulesUnseen) return;
+    onMoodRulesSeen?.();
+  }, [tab, moodRulesUnseen, onMoodRulesSeen]);
 
   function changeParam(key: string, value: number | string) {
     const baseParams = draftParams ?? voice?.params;
@@ -467,6 +496,50 @@ export function NmsScreen({
               </details>
             ) : null}
             <p className="nmsHint">深睡跑完、这次真有新记忆时才自动重写；省 token 模式下不跑。</p>
+          </section>
+
+          <section className="nmsSettingGroup nmsMoodRulesGroup">
+            <div className="nmsCardHead">
+              <h3>
+                她自己改过的判定
+                {moodRulesUnseen ? <i className="nmsMoodDot" title="她刚改过判定" /> : null}
+              </h3>
+              <span>{moodRules ? "v" + moodRules.version : "打包版"}</span>
+            </div>
+            {moodRules ? (
+              <>
+                <p className="nmsMoodMeta">
+                  v{moodRules.version} · {shortTime(moodRules.updatedAt)} · {moodRules.reason}
+                </p>
+                {moodRules.evidence ? <p className="nmsHint">依据：{moodRules.evidence}</p> : null}
+                <details className="nmsMoodDetails">
+                  <summary>看现在的三段</summary>
+                  {MOOD_SECTION_COLUMNS.map((column) => (
+                    <div className="nmsMoodSection" key={column.key}>
+                      <h4>{column.label}</h4>
+                      <p>{moodRules.sections[column.key]}</p>
+                    </div>
+                  ))}
+                </details>
+                {moodRules.history.length > 0 ? (
+                  <details className="nmsVoiceHistory">
+                    <summary>最近 {moodRules.history.length} 版 · 可以回滚</summary>
+                    {moodRules.history.map((snapshotMood) => (
+                      <div className="nmsVoiceSnap" key={snapshotMood.version}>
+                        <span>
+                          v{snapshotMood.version} · {shortTime(snapshotMood.updatedAt)} · {snapshotMood.reason}
+                        </span>
+                        <button type="button" onClick={() => onRollbackMoodRules(snapshotMood.version)}>
+                          回到这版
+                        </button>
+                      </div>
+                    ))}
+                  </details>
+                ) : null}
+              </>
+            ) : (
+              <p className="nmsHint">她还没改过判定，现在用的是打包版。</p>
+            )}
           </section>
           </>
         ) : null}

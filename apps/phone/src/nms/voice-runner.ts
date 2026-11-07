@@ -19,6 +19,7 @@ import {
   rollbackVoiceState,
   writeVoiceState,
 } from "@herta/nms";
+import { shouldRecoverInitiative } from "@herta/core";
 import { collectDetailed } from "../stream.ts";
 import { recordUsageFrom } from "../usage-ledger.ts";
 import type { Settings } from "../settings.ts";
@@ -27,6 +28,17 @@ import { getNmsStore } from "./controller.ts";
 
 const transport = pickTransport();
 let voiceRunning = false;
+
+/** 主动程度最近一次真的动过（毫秒时间戳字符串）；回温只看它，不看语气整体更新时间。 */
+const INITIATIVE_MOVED_KEY = "initiative_moved_at";
+
+async function touchInitiativeMoved(store: NmsStore, now: number): Promise<void> {
+  try {
+    await store.setMeta(INITIATIVE_MOVED_KEY, String(now));
+  } catch {
+    /* 记不上只影响下次回温的起算，不该让这一版参数失败 */
+  }
+}
 
 export interface VoiceRunResult {
   ok: boolean;
@@ -112,6 +124,11 @@ export async function runVoiceGenerate(options: {
       now: options.now,
     });
     await writeVoiceState(store, next);
+    // 主动程度换了档就记一笔：回温的「七天没动」从这儿起算。
+    const beforeInitiative = Number(previous?.params.initiative ?? params.initiative);
+    if (Number(next.params.initiative) !== beforeInitiative) {
+      await touchInitiativeMoved(store, options.now ?? Date.now());
+    }
     return { ok: true, error: "", state: next };
   } catch (error) {
     return { ok: false, error: messageOf(error), state: null };
@@ -134,6 +151,9 @@ export async function saveVoiceParams(
     now: options.now,
   });
   await writeVoiceState(store, next);
+  if (Number(next.params.initiative) !== Number(previous.params.initiative)) {
+    await touchInitiativeMoved(store, options.now ?? Date.now());
+  }
   return next;
 }
 
@@ -158,4 +178,40 @@ export async function maybeAutoGenerateVoice(options: {
   const fresh = (options.stats.pendingConsumed ?? 0) > 0 || (options.stats.semanticNodesCreated ?? 0) > 0;
   if (!fresh) return { ok: false, error: "no_new_memory", state: null };
   return runVoiceGenerate({ settings: options.settings, store: options.store, reason: "auto", now: options.now });
+}
+
+/**
+ * 深睡之后：主动程度低得反常、又七天没动过，就把它往回抬 5 分（封顶 20）。
+ *
+ * 这是兜底，不是自动调参：只处理「她把自己设成静音之后就再没人叫醒她」这一种。
+ * 每次抬都算一次「动过」，所以最多七天一次。
+ */
+export async function recoverInitiative(options: {
+  settings: Settings;
+  store?: NmsStore;
+  now?: number;
+}): Promise<VoiceState | null> {
+  if (!Capacitor.isNativePlatform() || options.settings.cheapMode) return null;
+  try {
+    const store = options.store ?? (await getNmsStore());
+    const previous = await readVoiceState(store);
+    if (!previous) return null;
+    const now = options.now ?? Date.now();
+    const raw = await store.getMeta(INITIATIVE_MOVED_KEY).catch(() => null);
+    const movedAt = raw === null ? NaN : Number(raw);
+    const nextInitiative = shouldRecoverInitiative({
+      initiative: Number(previous.params.initiative ?? 40),
+      lastMovedAt: Number.isFinite(movedAt) && movedAt > 0 ? movedAt : null,
+      now,
+    });
+    if (nextInitiative === null) return null;
+    const schema = normalizeVoiceSchema();
+    const params = normalizeVoiceParams(schema, { ...previous.params, initiative: nextInitiative });
+    const state = applyVoiceParams(previous, params, { reason: "recover", now });
+    await writeVoiceState(store, state);
+    await touchInitiativeMoved(store, now);
+    return state;
+  } catch {
+    return null;
+  }
 }

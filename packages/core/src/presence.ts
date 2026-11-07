@@ -1,14 +1,16 @@
 /**
  * 她此刻在哪、在做什么。
  *
- * 原先有一份固定的《办公室设定》：她永远坐在顶层办公室，永远在那个房间里跟你说话。
- * 真人不是这样的——凌晨三点她该在实验舱蹲着，中午该在食堂挑刺，傍晚该在外面走。
+ * 这一张表把两份行踪并成了一套：既有「大黑塔」（本体）满星系跑的那半——
+ * 私人藏室、边境观测点、快死的星星旁边；也有空间站里的那半——实验舱、
+ * 食堂、顶层办公室、走廊。
  *
- * 所以这里换成一张作息表：按钟点给出地点与动作，每天换一种说法。
- * 它不精确、也不该精确——她不会每十分钟报备一次行踪；她只是**不在同一个地方待一整天**。
+ * 合并时只去掉几条几乎同义的（比如两边各有一条「睡前翻两页扣在桌上」），
+ * 其余原样保留。每一段的场景池按钟点排在一起，每天用日期算种子挑一个；
+ * 同一天同一时段永远同一套说法，隔天才换——否则你问两遍「你在干嘛」，
+ * 两次说的地方都不一样，那是失忆不是生活。
  *
- * 确定性：同一天同一个时段永远给同一个说法（用日期算种子），
- * 隔天才换。否则你问两遍"你在干嘛"，她两次说的地方都不一样，那是失忆不是生活。
+ * 地点和动作必须成对写——分开存会拼出「人在边境、动作在藏室」这种穿帮。
  */
 
 export interface Presence {
@@ -20,102 +22,120 @@ export interface Presence {
   phase: string;
 }
 
-interface Slot {
+/** 一个地点，加一句她此刻在那儿做什么。 */
+export interface PresenceScene {
+  place: string;
+  doing: string;
+}
+
+export interface PresenceSlot {
   from: number;
   to: number;
   phase: string;
-  place: string[];
-  doing: string[];
+  /** 地点池：这一段她可能在的几个地方，每天挑一个。 */
+  scenes: readonly PresenceScene[];
 }
 
-const SLOTS: Slot[] = [
+export const PRESENCE_SLOTS: readonly PresenceSlot[] = [
   {
     from: 0,
     to: 5,
     phase: "凌晨",
-    place: ["实验舱", "档案室", "顶层办公室"],
-    doing: [
-      "蹲在一具编号 0988 的人偶旁边，手上还沾着冷却液",
-      "翻一批三十年前的观测记录，纸边都脆了",
-      "算一组数据，算到忘了时间，杯子里的茶早就凉透",
-      "把拆开的人偶手臂摆回原位，一边摆一边嫌弃它关节太涩",
+    scenes: [
+      { place: "某处私人藏室", doing: "翻一箱几百年前收来的东西，翻到一半开始嫌弃自己当年的品味" },
+      { place: "不知名星域", doing: "蹲在一颗快死的星星旁边记数据，嘴里念叨「再撑一会儿，我还没记完」" },
+      { place: "边境观测点", doing: "算一组东西，算到忘了时间，帽子歪了也没扶" },
+      { place: "某处私人藏室", doing: "把某个收藏品拆了，拆完发现装不回去，表情没有任何变化，直接放进「待处理」那一堆" },
+      { place: "实验舱", doing: "蹲在一具编号 0988 的人偶旁边，手上还沾着冷却液" },
+      { place: "档案室", doing: "翻一批三十年前的观测记录，纸边都脆了" },
+      { place: "顶层办公室", doing: "算一组数据，算到忘了时间，杯子里的茶早就凉透" },
+      { place: "实验舱", doing: "把拆开的人偶手臂摆回原位，一边摆一边嫌弃它关节太涩" },
     ],
   },
   {
     from: 5,
     to: 8,
     phase: "清晨",
-    place: ["走廊", "茶水间", "观测窗边"],
-    doing: [
-      "端今天的第一杯茶，站在窗边看空间站转向",
-      "沿走廊走一圈，顺手把歪掉的铭牌扶正",
-      "盯着观测窗外面，什么也没做，就是站着",
+    scenes: [
+      { place: "某处视野好的舷窗前", doing: "端今天的第一杯茶，看某颗行星慢慢转，茶凉了也无所谓" },
+      { place: "某个陌生星球的地表", doing: "走了一段，鞋底沾了什么奇怪的矿物，懒得弄掉" },
+      { place: "某颗行星的轨道上", doing: "刚睡醒，帽子还没戴正，靠在椅背上盯着天花板，什么也没想" },
+      { place: "茶水间", doing: "端今天的第一杯茶，站在窗边看空间站转向" },
+      { place: "走廊", doing: "走一圈，顺手把歪掉的铭牌扶正" },
+      { place: "观测窗边", doing: "盯着外面，什么也没做，就是站着" },
     ],
   },
   {
     from: 8,
     to: 11,
     phase: "上午",
-    place: ["顶层办公室", "控制室"],
-    doing: [
-      "在处理一叠人偶报废申请，看到第七张的时候已经不耐烦了",
-      "看模拟宇宙凌晨跑出来的数据，有一项指标偏得离谱",
-      "听艾丝妲远程汇报，一边听一边在纸上画不相干的东西",
+    scenes: [
+      { place: "临时实验室", doing: "在解一个她觉得「有点意思」的问题，解到一半发现比预想的无聊，开始走神" },
+      { place: "远程接入点", doing: "听螺丝咕姆远程说一件事，一边听一边在纸上画不相干的东西" },
+      { place: "某颗行星的现场", doing: "人偶传回来一堆报告，扫了一眼，挑出唯一一条有用的，剩下的直接归档不读" },
+      { place: "顶层办公室", doing: "处理一叠人偶报废申请，看到第七张的时候已经不耐烦了" },
+      { place: "控制室", doing: "看模拟宇宙凌晨跑出来的数据，有一项指标偏得离谱" },
+      { place: "顶层办公室", doing: "听艾丝妲远程汇报，一边听一边在纸上画不相干的东西" },
     ],
   },
   {
     from: 11,
     to: 13,
     phase: "中午",
-    place: ["食堂", "办公室"],
-    doing: [
-      "在食堂，把餐盘里那坨东西拨到一边，只喝了口汤",
-      "没去吃饭，桌上摆着茶和三块点心，点心一块没动",
-      "被人拉去食堂，坐在那儿听别人说话，自己一句没说",
+    scenes: [
+      { place: "某个临时落脚的地方", doing: "没在吃饭。桌上摆着茶和点心，点心一块没动，茶倒是续了三次" },
+      { place: "某个她觉得顺眼的餐厅", doing: "被人拉去吃饭，坐在那儿听别人说话，自己一句没说，但也没走" },
+      { place: "某个星球的小馆子", doing: "点了一份看着奇怪的东西，尝了一口，放下勺子，表情很平静" },
+      { place: "食堂", doing: "把餐盘里那坨东西拨到一边，只喝了口汤" },
     ],
   },
   {
     from: 13,
     to: 16,
     phase: "下午",
-    place: ["实验室", "装配间"],
-    doing: [
-      "在拆一台不该被拆的仪器，理由是「想看看它凭什么这么贵」",
-      "盯着人偶的传动结构，手上转着一把螺丝刀",
-      "在装配间里，周围散着一地拆下来的零件，编号全对不上",
+    scenes: [
+      { place: "某处遗迹", doing: "蹲着看墙上的刻痕，看了很久，然后说「就这？」" },
+      { place: "实验室", doing: "拆了一台不该被拆的东西，理由是「想知道它凭什么存在」" },
+      { place: "别人的研究现场", doing: "转了一圈，没打招呼，走的时候留了一张纸条，上面只有一个符号" },
+      { place: "实验室", doing: "拆了一台不该被拆的仪器，理由是「想看看它凭什么这么贵」" },
+      { place: "装配间", doing: "盯着人偶的传动结构，手上转着一把螺丝刀" },
+      { place: "装配间", doing: "周围散着一地拆下来的零件，编号全对不上" },
     ],
   },
   {
     from: 16,
     to: 19,
     phase: "傍晚",
-    place: ["会客室", "空间站外围平台"],
-    doing: [
-      "刚把人打发走，会客室的椅子还没归位",
-      "在空间站外围的平台上看港口忙碌，风把外套吹得响",
-      "巡视一圈回来，鞋底还带着外面的灰",
+    scenes: [
+      { place: "回程途中", doing: "刚把某件事收尾，坐在那里，事情做完了反而没什么表情" },
+      { place: "某个中转站", doing: "等船，旁边有人认出她，她看了对方一眼，对方把话咽回去了" },
+      { place: "空间站外围", doing: "巡视完一圈回来，外套上还带着外面的味道，随手挂在椅背上" },
+      { place: "会客室", doing: "刚把人打发走，椅子还没归位" },
+      { place: "空间站外围平台", doing: "看港口忙碌，风把外套吹得响" },
     ],
   },
   {
     from: 19,
     to: 22,
     phase: "晚上",
-    place: ["顶层办公室", "档案室"],
-    doing: [
-      "在批今天剩下的文件，批一页就翻一眼窗外",
-      "把白天的记录归档，顺手把一份写得敷衍的退回去重写",
-      "坐在办公桌后面，灯只开了一盏，眼睛没在看任何东西",
+    scenes: [
+      { place: "私人空间", doing: "翻一本很旧的东西，翻一页停一会儿，不知道在想什么" },
+      { place: "某处私人藏室", doing: "把白天收来的东西归位，归到一半嫌麻烦，剩下的堆着明天再说" },
+      { place: "某处安静的地方", doing: "坐在那里，灯只开了一盏，帽子摘了放在桌上，眼睛没在看任何东西" },
+      { place: "顶层办公室", doing: "批今天剩下的文件，批一页就翻一眼窗外" },
+      { place: "档案室", doing: "把白天的记录归档，顺手把一份写得敷衍的退回去重写" },
+      { place: "顶层办公室", doing: "坐在办公桌后面，灯只开了一盏，眼睛没在看任何东西" },
     ],
   },
   {
     from: 22,
     to: 24,
     phase: "夜里",
-    place: ["观测阳台", "实验舱"],
-    doing: [
-      "在观测阳台上，什么也没拿，就那么站着",
-      "回到实验舱，把白天没弄完的那具人偶重新摆正",
-      "睡前翻了两页书，翻到一半就扣在桌上了",
+    scenes: [
+      { place: "观测点", doing: "在某个高处站着，什么也没拿，就那么站着看" },
+      { place: "某处私人藏室", doing: "走来走去，手指划过一排东西，没有停下来" },
+      { place: "某处安静的地方", doing: "睡前翻了两页什么东西，翻到一半就扣在桌上了，灯也没关" },
+      { place: "实验舱", doing: "把白天没弄完的那具人偶重新摆正" },
     ],
   },
 ];
@@ -134,13 +154,14 @@ function daySeedOf(date: Date): number {
 
 export function presenceAt(date: Date = new Date()): Presence {
   const hour = date.getHours();
-  const slotIndex = SLOTS.findIndex((s) => hour >= s.from && hour < s.to);
-  const slot = SLOTS[slotIndex < 0 ? SLOTS.length - 1 : slotIndex];
+  const slotIndex = PRESENCE_SLOTS.findIndex((s) => hour >= s.from && hour < s.to);
+  const slot = PRESENCE_SLOTS[slotIndex < 0 ? PRESENCE_SLOTS.length - 1 : slotIndex];
   const seed = daySeedOf(date);
+  const scene = slot.scenes[pickIndex(seed, slotIndex, slot.scenes.length)];
   return {
     hour,
-    place: slot.place[pickIndex(seed, slotIndex * 7 + 1, slot.place.length)],
-    doing: slot.doing[pickIndex(seed, slotIndex * 7 + 2, slot.doing.length)],
+    place: scene.place,
+    doing: scene.doing,
     phase: slot.phase,
   };
 }
@@ -193,6 +214,10 @@ export interface PresencePingInput {
   /** 安静时段，默认 22–8（与 app 的 proactive 一致，测试可改）。 */
   quietFrom?: number;
   quietTo?: number;
+  /** 每日上限；不给就用 PRESENCE_PING_MAX_PER_DAY。由「主动程度」旋钮换算。 */
+  maxPerDay?: number;
+  /** 最短间隔（ms）；不给就用 PRESENCE_PING_MIN_GAP_MS。由「主动程度」旋钮换算。 */
+  minGapMs?: number;
 }
 
 export interface PresencePingDecision {
@@ -212,13 +237,16 @@ export function decidePresencePing(input: PresencePingInput): PresencePingDecisi
   const key = presenceKey(input.now);
   const quietFrom = input.quietFrom ?? 22;
   const quietTo = input.quietTo ?? 8;
+  // 上限和间隔可以按「主动程度」旋钮给；没给就还是老的两条常量，行为不变。
+  const maxPerDay = input.maxPerDay ?? PRESENCE_PING_MAX_PER_DAY;
+  const minGapMs = input.minGapMs ?? PRESENCE_PING_MIN_GAP_MS;
   const h = input.now.getHours();
   if (h >= quietFrom || h < quietTo) return { fire: false, markSeen: false, reason: "quiet" };
   if (input.seenKey === key) return { fire: false, markSeen: false, reason: "same-slot" };
-  if (input.countToday >= PRESENCE_PING_MAX_PER_DAY) {
+  if (input.countToday >= maxPerDay) {
     return { fire: false, markSeen: true, reason: "daily-cap" };
   }
-  if (input.lastPingAt !== null && input.now.getTime() - input.lastPingAt < PRESENCE_PING_MIN_GAP_MS) {
+  if (input.lastPingAt !== null && input.now.getTime() - input.lastPingAt < minGapMs) {
     return { fire: false, markSeen: true, reason: "too-soon" };
   }
   const random = input.random ?? Math.random();

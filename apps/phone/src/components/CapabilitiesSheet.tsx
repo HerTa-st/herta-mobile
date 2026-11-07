@@ -219,7 +219,7 @@ export function CapabilitiesSheet({
         {
           key: "proactiveEnabled",
           title: "她自己找你",
-          hint: "通知栏会挂一条「她在后台」。一天最多三条，二十二点到早上八点不吵；省 token 模式下不发。",
+          hint: "通知栏会挂一条「她在后台」。一天几次、隔多久，由她自己那档「主动程度」决定（默认一天两次），二十二点到早上八点不吵；省 token 模式下不发。",
         },
         ...(settings.proactiveEnabled
           ? [

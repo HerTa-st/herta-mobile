@@ -35,6 +35,7 @@ import {
 } from "@herta/core";
 import { BrowserAssetSource } from "../assets-browser.ts";
 import { recallNmsPromptSeeds } from "../nms/controller.ts";
+import { recordMoodVerdict, reviseMoodRulesPartial } from "../nms/mood-runner.ts";
 import { captionImage } from "../vision.ts";
 import { buildTools } from "../devtools.ts";
 import { appendToolLog, loadMoodState, saveMoodState, type StickerRecord } from "../storage.ts";
@@ -113,8 +114,12 @@ export function useChatTurn(opts: {
   onNmsRecall?(events: Array<{ id: number; activation: number }>): void;
   /** 自动语气（NMS）；没有就回落冻结的旧语气。 */
   nmsVoice?: { profile: string; paramsLine: string } | null;
+  /** 她自己改过的判定三段；没有就吃打包素材。 */
+  nmsMoodRules?: { sections: { triggers: string; boundaries: string; priority: string } } | null;
+  /** 她真的改了一版判定（工具调成功）：外层去刷新，红点与设置页才跟得上。 */
+  onMoodRulesChanged?(): void;
 }) {
-  const { settings, session, setSession, persist, memories, dreamState, files, stickers, onKeepSticker, onError, onNeedKey, onTurnEnd, onNmsRecall, nmsVoice } = opts;
+  const { settings, session, setSession, persist, memories, dreamState, files, stickers, onKeepSticker, onError, onNeedKey, onTurnEnd, onNmsRecall, nmsVoice, nmsMoodRules, onMoodRulesChanged } = opts;
   const [busy, setBusy] = useState(false);
   /** 她在"想一下"的那几秒（或者说，在装作想一下）。 */
   const [typing, setTyping] = useState(false);
@@ -270,7 +275,9 @@ export function useChatTurn(opts: {
             const p = buildMoodPrompt(
               pack,
               serializeRecord(trimForContext(history.blocks, 12), { maxBlocks: 0 }),
-              previous?.mood ?? null
+              previous?.mood ?? null,
+              // 她改过的三段：读不到就用打包版（buildMoodPrompt 自己兜底）。
+              nmsMoodRules?.sections ?? null
             );
             const seen = await collectDetailed(
               transport.stream({
@@ -285,12 +292,15 @@ export function useChatTurn(opts: {
             spent = addUsage(spent, seen.usage);
             // B14：判心情也是独立一次请求，单独记一条链路
             recordUsageFrom("mood", seen.usage);
-            const decision = decideMood(previous, parseMoodVerdict(seen.text, pack.moods), Date.now(), {
+            const verdict = parseMoodVerdict(seen.text, pack.moods);
+            const decision = decideMood(previous, verdict, Date.now(), {
               volatile: pack.volatile,
             });
             thisMood = decision.mood;
             // 落盘不挡这一轮：写失败最多是下次少一点惯性
             void saveMoodState(decision.state).catch(() => undefined);
+            // 判定日志只给她复盘用（深睡自查读它）；写不进去不挡这一轮。
+            void recordMoodVerdict({ at: decision.state.at, mood: decision.mood, triggered: verdict.triggered }).catch(() => undefined);
             setMoodAt(decision.state.at);
           }
         } catch {
@@ -378,6 +388,14 @@ export function useChatTurn(opts: {
           media: settings.mediaEnabled,
           a11y: settings.a11yEnabled,
           proactive: settings.proactiveEnabled && !settings.cheapMode,
+          // 她自己改心情判定：只能动三段，必须带理由与依据（ADR-0006）。
+          moodRules: async (patch, reason, evidence) => {
+            const result = await reviseMoodRulesPartial({ settings, sections: patch, reason, evidence });
+            if (result.ok) onMoodRulesChanged?.();
+            return result.ok
+              ? { ok: true as const, version: result.state.version }
+              : { ok: false as const, error: result.error, errors: result.errors };
+          },
           describePhoto: settings.visionModel
             ? (dataUrl) =>
                 captionImage(

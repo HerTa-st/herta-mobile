@@ -7,6 +7,9 @@
  */
 
 import type { Lang } from "../../protocol/src/index.ts";
+// 只 import type：mood.ts 反向 import 了本文件的 MoodPack，类型导入在运行期会被抹掉，
+// 所以这里不会出现运行期循环依赖。
+import type { MoodSections } from "./mood.ts";
 
 export interface PromptAssets {
   /** 她的自传（hertaBio），约 9.5k 字。人格的本体。 */
@@ -44,6 +47,13 @@ export interface MoodPack {
    */
   volatile?: string[];
   sampleAnswer?: string;
+  /**
+   * 判定提示词拆成的三段（触发描述 / 判定边界 / 优先级），上层可以单独覆盖。
+   * 旧包没有这两块，composeMoodSystem 会直接回落到 system。
+   */
+  sections?: MoodSections;
+  /** 三段之外固定的头尾脚手架。 */
+  scaffold?: { head: string; tail: string };
 }
 
 export interface VoiceManifestEntry {
