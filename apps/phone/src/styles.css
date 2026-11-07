@@ -7,7 +7,7 @@
   /* 不打包字体文件：跟着手机自己的字体走（系统换了主题字体，她也跟着换） */
   --app-font: system-ui, -apple-system, "Segoe UI", "PingFang SC",
     "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
-  /* 桌面端（<Herta-desktop-install-dir>）那套：墨更黑、灰更冷，卡面是半透明玻璃 */
+  /* 桌面端（<Herta-桌面端安装目录>）那套：墨更黑、灰更冷，卡面是半透明玻璃 */
   --ink: #111417;
   --ink-soft: #3b4350;
   --muted: #636c79;

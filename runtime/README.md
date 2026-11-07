@@ -11,4 +11,4 @@
 而这两份只能当模块被 bundler 处理——摊进 dist 当静态文件等于白背 805KB。
 
 重新生成 `prompts-code.zh.mjs` 要跑旧仓库的 `tools/extract-code-prompts.mjs`（依赖本机的
-`<Herta-desktop-install-dir>\resources\app.asar`）。桌面版更新后要重跑，否则她的语气会停在旧版本。
+`<Herta-桌面端安装目录>\resources\app.asar`）。桌面版更新后要重跑，否则她的语气会停在旧版本。

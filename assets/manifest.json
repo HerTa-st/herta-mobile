@@ -1,7 +1,7 @@
 {
   "version": 1,
   "generatedAt": "2026-09-13T14:27:38.434Z",
-  "source": "<Herta-desktop-install-dir>",
+  "source": "herta-desktop",
   "langs": [
     "zh",
     "en"
