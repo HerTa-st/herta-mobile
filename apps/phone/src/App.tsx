@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
+import { Capacitor } from "@capacitor/core";
 import type { Block, HertaBlock, ImportBundle, Session, UserBlock } from "@herta/protocol";
 import {
   appendBlocks,
@@ -23,6 +24,7 @@ import {
   SHARE_API,
   TEXT_FILE_MAX_BYTES,
   timePhrase,
+  trimForContext,
   type MemoryRecord,
 } from "@herta/core";
 import { BrowserAssetSource } from "./assets-browser.ts";
@@ -30,6 +32,7 @@ import { Drawer } from "./components/Drawer.tsx";
 import { NmsScreen } from "./nms/NmsScreen.tsx";
 import { GraphScreen } from "./nms/GraphScreen.tsx";
 import { createActivationStore } from "./nms/network/activation.ts";
+import { recallNmsPromptSeeds } from "./nms/controller.ts";
 import { BroadcastView } from "./components/BroadcastView.tsx";
 import { BroadcastNotice } from "./components/BroadcastNotice.tsx";
 import { CoinView } from "./components/CoinView.tsx";
@@ -227,6 +230,10 @@ export function App() {
     rewriteVoice,
     changeVoiceParams,
     revertVoice,
+    moodRules,
+    moodRulesUnseen,
+    rollbackMoodRules,
+    clearMoodRulesUnseen,
   } = useMemory(settings, { onError: (m) => reportError(m) });
   /** 自动语气：有它就用它，没有就回落冻结的旧语气（useChatTurn 里判断）。 */
   const nmsVoice = useMemo(() => {
@@ -234,6 +241,24 @@ export function App() {
     const schema = normalizeVoiceSchema();
     return { profile: voiceState.profile, paramsLine: renderVoiceParamsLine(schema, voiceState.params, settings.userName) };
   }, [voiceState]);
+  /**
+   * 她主动开口前先翻一篇记忆：用最近三轮的话当线索，原生走 NMS 联想召回；
+   * 网页端 / 召回失败返回 null，writePing 那里回落「最近一篇」。
+   */
+  const pingSeed = useCallback(async () => {
+    if (!Capacitor.isNativePlatform() || !session) return null;
+    const text = trimForContext(session.blocks, 3)
+      .map((block) => ("text" in block && typeof block.text === "string" ? block.text : ""))
+      .join("\n")
+      .trim();
+    if (!text) return null;
+    try {
+      const recalled = await recallNmsPromptSeeds(text, 1);
+      return recalled.seeds[0] ?? null;
+    } catch {
+      return null;
+    }
+  }, [session]);
   const nmsActivation = useMemo(() => createActivationStore(), []);
   const nmsRecallSeq = useRef(0);
   const memorySleepEnabled = settings.autoDream || settings.nmsDeepSleepEnabled;
@@ -288,6 +313,18 @@ export function App() {
   const [showAttach, setShowAttach] = useState(false);
   /** 消息菜单：当前展开的是哪一块（块索引）。 */
   const [menuIdx, setMenuIdx] = useState<number | null>(null);
+  /**
+   * 长按 → 420ms 计时开菜单，随后系统还会补一个 contextmenu。
+   * 两个入口都对，但同一个手势不能「开完立刻关」——350ms 内的第二次切换直接忽略。
+   * 用 ref 而不是闭包变量：开菜单会触发重渲染，闭包里的标记会跟着重置。
+   */
+  const menuToggleAtRef = useRef(0);
+  const toggleMenu = useCallback((i: number) => {
+    const now = Date.now();
+    if (now - menuToggleAtRef.current < 350) return;
+    menuToggleAtRef.current = now;
+    setMenuIdx((current) => (current === i ? null : i));
+  }, []);
   /** 离开聊天页的次数：「想」靠它重新挂载，回来时恢复收起。 */
   const [chatVisit, setChatVisit] = useState(0);
   /** 她找过我：会话 id → 标点时间。只存本机 kv，不写进会话对象（同置顶）。 */
@@ -871,6 +908,9 @@ export function App() {
       nmsActivation.ingest({ seq: nmsRecallSeq.current, at: new Date().toISOString(), nodes: events });
     },
     nmsVoice,
+    nmsMoodRules: moodRules,
+    // 她真改了判定才刷新：设置页那块与红点要立刻跟上（一次快照，不常发生）。
+    onMoodRulesChanged: () => void refreshMemories(),
   });
 
   // 她说话的那几秒里不让提醒插进来（那一轮结束时会整体覆盖会话）
@@ -895,6 +935,9 @@ export function App() {
     mood,
     busy,
     onError: reportError,
+    // 她自己的「主动程度」决定多久找你一次；召回失败就只带最近一篇。
+    initiative: Number(voiceState?.params?.initiative ?? 40),
+    seedProvider: pingSeed,
   });
 
   // NMS 深睡与 proactive 共用 HertaKeeperService：引用计数，任一需要就保活。
@@ -1985,10 +2028,11 @@ export function App() {
   );
 
   /**
-   * 一条普通消息：气泡 + 长按菜单 + 常驻「⋯」按钮。
+   * 一条普通消息：气泡 + 长按菜单。
    *
-   * 长按是主入口，但读屏与手套用户到不了长按——所以每条消息都留一个点得到的
-   * 「⋯」，两个入口打开的是同一份菜单。
+   * 早先每条消息右边还挂着一个「⋯」按钮，理由是读屏与手套用户到不了长按。
+   * 但两个圆钮把气泡挤窄了一圈，长按本身又已经足够顺手——所以按钮撤掉，
+   * 消息菜单只留长按这一个入口。
    */
   const messageRow = (b: UserBlock | HertaBlock, i: number, thought: HertaBlock | null, avatar: boolean) => {
     const raw = b.text ?? "";
@@ -2003,7 +2047,7 @@ export function App() {
     // 用户发图时，长按归看图（存表情），别和消息菜单抢手势；这时菜单只走 ⋯。
     const canLongPress = !(isUser && (b.attachments?.length ?? 0) > 0);
     const press = canLongPress
-      ? longPressProps(() => setMenuIdx((current) => (current === i ? null : i)))
+      ? longPressProps(() => toggleMenu(i))
       : null;
     const menuButtonStyle = {
       font: "inherit",
@@ -2025,9 +2069,9 @@ export function App() {
           <article
             className={"bubble " + b.kind + (b.kind === "herta" ? " " + b.surface : "")}
             data-part="message-bubble"
-            // 右侧要留出常驻的「⋯」按钮：不挤这一下，气泡会把它顶出屏幕
+            // 右侧不再挂按钮：只给「你」这个小标记留一点位置
             style={{
-              maxWidth: isUser ? "min(76%, calc(100% - 72px))" : "calc(100% - 74px)",
+              maxWidth: isUser ? "min(84%, calc(100% - 28px))" : "calc(100% - 40px)",
             }}
             {...(press ? press.props : {})}
           >
@@ -2036,30 +2080,6 @@ export function App() {
             <span className="bubbleTime" data-part="message-time">{clockOf(b.at)}</span>
           </article>
           {isUser && <span className="userMark">你</span>}
-          <button
-            type="button"
-            aria-label="消息操作"
-            aria-haspopup="menu"
-            aria-expanded={isMenu}
-            onClick={() => setMenuIdx((current) => (current === i ? null : i))}
-            style={{
-              flex: "none",
-              alignSelf: isUser ? "flex-end" : "flex-start",
-              marginTop: isUser ? 0 : 4,
-              width: 30,
-              height: 30,
-              padding: 0,
-              border: "1px solid var(--line)",
-              borderRadius: 999,
-              background: "var(--card)",
-              color: "var(--muted)",
-              fontSize: 13,
-              lineHeight: 1,
-              cursor: "pointer",
-            }}
-          >
-            ⋯
-          </button>
         </div>
         {isMenu && (
           <div
@@ -2071,7 +2091,7 @@ export function App() {
               gap: 6,
               margin: "3px 0 0",
               justifyContent: isUser ? "flex-end" : "flex-start",
-              padding: isUser ? "0 34px 0 0" : "0 0 0 36px",
+              padding: isUser ? "0 4px 0 0" : "0 0 0 36px",
             }}
           >
             <button
@@ -2385,6 +2405,10 @@ export function App() {
                 onRewriteVoice={rewriteVoice}
                 onChangeVoiceParams={(params) => void changeVoiceParams(params)}
                 onRollbackVoice={(version) => void revertVoice(version)}
+                moodRules={moodRules}
+                moodRulesUnseen={moodRulesUnseen}
+                onRollbackMoodRules={(version) => void rollbackMoodRules(version)}
+                onMoodRulesSeen={() => clearMoodRulesUnseen()}
                 memories={memories}
                 onRemoveMemory={(name) => void removeMemory(name)}
                 onDream={() => void (session && dreamNow(session, true))}

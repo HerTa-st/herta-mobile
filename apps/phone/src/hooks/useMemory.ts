@@ -2,11 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import type { DreamState, MemoryRecord } from "@herta/core";
 import type { Session } from "@herta/protocol";
-import type { NmsSnapshot, VoiceParams, VoiceState } from "@herta/nms";
+import type { MoodRulesState, NmsSnapshot, VoiceParams, VoiceState } from "@herta/nms";
 import { IdbMemoryStore } from "../memory-idb.ts";
 import { archiveNmsNode, initializeNms, readNmsSnapshot, runManualLightSleep } from "../nms/controller.ts";
 import { runMobileDeepSleep } from "../nms/deep-sleep-runner.ts";
 import { readVoice, rollbackVoice, runVoiceGenerate, saveVoiceParams } from "../nms/voice-runner.ts";
+import { readMoodRulesState, rollbackMoodRulesTo } from "../nms/mood-runner.ts";
 import { snapshotToMemoryRecords } from "../nms/adapter.ts";
 import type { Settings } from "../settings.ts";
 
@@ -20,11 +21,25 @@ import type { Settings } from "../settings.ts";
  */
 const legacyStore = new IdbMemoryStore();
 
+/** 判定自修改的「看过了」时间点（本地）；设置页入口的小红点靠它算。 */
+const MOOD_RULES_SEEN_KEY = "herta.moodRules.seenAt";
+
+function readMoodRulesSeenAt(): number {
+  try {
+    const raw = Number(localStorage.getItem(MOOD_RULES_SEEN_KEY));
+    return Number.isFinite(raw) ? raw : 0;
+  } catch {
+    return 0;
+  }
+}
+
 export function useMemory(settings: Settings, opts: { onError(message: string): void }) {
   const [memories, setMemories] = useState<MemoryRecord[]>([]);
   const [dreamState, setDreamState] = useState<DreamState | null>(null);
   const [nmsSnapshot, setNmsSnapshot] = useState<NmsSnapshot | null>(null);
   const [voiceState, setVoiceState] = useState<VoiceState | null>(null);
+  const [moodRules, setMoodRules] = useState<MoodRulesState | null>(null);
+  const [moodRulesSeenAt, setMoodRulesSeenAt] = useState<number>(() => readMoodRulesSeenAt());
   const [dreaming, setDreaming] = useState(false);
   const [distilling, setDistilling] = useState(false);
   const [distillNote, setDistillNote] = useState<string | null>(null);
@@ -42,6 +57,7 @@ export function useMemory(settings: Settings, opts: { onError(message: string): 
     // 不清理手机里已有的任何记忆：新包只是不再预装，老用户的旧库原样读取/迁移。
     if (!Capacitor.isNativePlatform()) {
       // Web 开发没有原生 SQLite：保留旧库只读视图，不迁移、不报错。
+      setMoodRules(null);
       setMemories(await legacyStore.list());
       return;
     }
@@ -55,6 +71,7 @@ export function useMemory(settings: Settings, opts: { onError(message: string): 
       setNmsSnapshot(snapshot);
       setMemories(view.records);
       setVoiceState(await readVoice());
+      setMoodRules(await readMoodRulesState());
     } catch (error) {
       setError("NMS 记忆初始化失败：" + (error instanceof Error ? error.message : String(error)));
       // 迁移失败：保留旧库只读视图，不回写、不假装成功。
@@ -125,6 +142,36 @@ export function useMemory(settings: Settings, opts: { onError(message: string): 
     }
   }, []);
 
+  /** 回滚她改过的判定（设置页每版一行「回到这版」）。 */
+  const rollbackMoodRules = useCallback(async (version: number) => {
+    try {
+      const next = await rollbackMoodRulesTo(version);
+      if (!next) {
+        setError("回滚判定失败：找不到 v" + version);
+        return;
+      }
+      setMoodRules(next);
+      setDistillNote("判定回滚到 v" + version);
+    } catch (error) {
+      setError("回滚判定失败：" + reasonOf(error));
+    }
+  }, []);
+
+  /** 看过设置页的判定块，红点灭掉。 */
+  const clearMoodRulesUnseen = useCallback(() => {
+    const now = Date.now();
+    setMoodRulesSeenAt(now);
+    try {
+      localStorage.setItem(MOOD_RULES_SEEN_KEY, String(now));
+    } catch {
+      /* 存不下就只在这一次会话里灭掉 */
+    }
+  }, []);
+
+  /** 她改过判定、我还没看过 → 入口标题旁的小红点。 */
+  const moodRulesUnseen =
+    moodRules !== null && new Date(moodRules.updatedAt).getTime() > moodRulesSeenAt;
+
   const dreamNow = useCallback(async (_target: Session, _force = false) => {
     if (dreamingRef.current) return;
     dreamingRef.current = true;
@@ -192,6 +239,10 @@ export function useMemory(settings: Settings, opts: { onError(message: string): 
     dreamState,
     nmsSnapshot,
     voiceState,
+    moodRules,
+    moodRulesUnseen,
+    rollbackMoodRules,
+    clearMoodRulesUnseen,
     rewriteVoice,
     changeVoiceParams,
     revertVoice,

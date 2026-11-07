@@ -38,7 +38,7 @@ import { searchMemories, searchSessions, snippetOf } from "../src/search.ts";
 import { runToolLoop, toProviderMessages, toProviderTools } from "../src/tools.ts";
 import { MOOD_TTL_MS, buildMoodPrompt, decideMood, parseMoodVerdict } from "../src/mood.ts";
 import { humanizeError, splitApiError } from "../src/errors.ts";
-import { buildPresenceNote, presenceAt, timePhrase } from "../src/presence.ts";
+import { PRESENCE_SLOTS, buildPresenceNote, presenceAt, timePhrase } from "../src/presence.ts";
 import { planImageSlices } from "../src/image.ts";
 import {
   classifyPickedFile,
@@ -1237,6 +1237,15 @@ test("心情：素材里的输出契约与「带情绪的档位」清单都在",
   assert.ok(pack.system.includes("状态名|触发"), "缺了触发位，惯性就只剩兜底");
   assert.ok(pack.userInstruction.includes("触发"));
   assert.deepEqual(pack.volatile, VOLATILE, "清单变了就要同步改判定，不然剧变会漏进来");
+  // 合并版：以人偶版为底，把本体的行为描述并进来；点名要删的那句必须不在
+  assert.ok(pack.system.includes("降级对话或终止对话"), "被烦版的底线没合并进来");
+  assert.ok(pack.system.includes("绝不温柔"), "教学版的本体描述没合并进来");
+  assert.ok(!pack.system.includes("板砖是工具"), "点名要删的那句还在");
+  assert.ok(
+    buildMoodPrompt(pack, "他：在吗", null).user.includes("天才也不过如此"),
+    "合并后的雷区没写进惯性段"
+  );
+  assert.equal(MOOD_TTL_MS, 3 * 60 * 60 * 1000, "以人偶版为准，耐心窗口是三小时");
 });
 
 test("心情：旁注取不到就返回 null，不瞎安一个", async () => {
@@ -1281,6 +1290,36 @@ test("行踪：拼出来的段落带地点、动作与「这不是设定」这�
   assert.ok(note.includes(p.place));
   assert.ok(note.includes(p.doing));
   assert.ok(note.includes("这不是设定"));
+});
+
+test("行踪：八段连成一天，每段都是一池地点而不是固定布景", () => {
+  assert.equal(PRESENCE_SLOTS.length, 8);
+  assert.equal(PRESENCE_SLOTS[0].from, 0);
+  assert.equal(PRESENCE_SLOTS[PRESENCE_SLOTS.length - 1].to, 24);
+  for (let i = 0; i < PRESENCE_SLOTS.length; i += 1) {
+    const s = PRESENCE_SLOTS[i];
+    if (i > 0) assert.equal(s.from, PRESENCE_SLOTS[i - 1].to, s.phase + " 和上一段没接上");
+    assert.ok(s.to > s.from, s.phase + " 的时段是空的");
+    assert.ok(s.scenes.length >= 2, s.phase + " 只有一处可去，等于固定布景");
+    for (const sc of s.scenes) {
+      assert.ok(sc.place.trim().length > 0, s.phase + " 有场景没写地点");
+      assert.ok(sc.doing.trim().length > 0, s.phase + " 有场景没写动作");
+    }
+  }
+});
+
+test("行踪：地点与动作来自同一个场景，不会人在遗迹、动作在餐厅", () => {
+  for (let d = 1; d <= 31; d += 1) {
+    for (let h = 0; h < 24; h += 1) {
+      const p = presenceAt(new Date(2026, 9, d, h, 0));
+      const slot = PRESENCE_SLOTS.find((s) => h >= s.from && h < s.to);
+      assert.ok(slot, h + " 点没有落进任何一段");
+      assert.ok(
+        slot.scenes.some((sc) => sc.place === p.place && sc.doing === p.doing),
+        h + " 点拼出了不属于同一场景的地点和动作"
+      );
+    }
+  }
 });
 
 /* ---------------------------------------------------------------- 报错 */

@@ -29,6 +29,13 @@ export interface VoiceNumberNode {
   max: number;
   step: number;
   default: number;
+  /**
+   * 允许一次挪多格。
+   *
+   * 默认所有旋钮一晚最多一格（改太快就不是"长出来的"）。只有主动程度例外：
+   * 它直接决定她多久找你一次，跟着对话走才像活的。
+   */
+  free?: boolean;
 }
 export interface VoiceEnumOption {
   value: string;
@@ -71,7 +78,7 @@ export const HERTA_VOICE_SCHEMA = {
   root: {
     speech: { type: "number", label: "说话长短", min: 0, max: 100, step: 5, default: 70 },
     patience: { type: "number", label: "耐心", min: 0, max: 100, step: 5, default: 60 },
-    initiative: { type: "number", label: "主动程度", min: 0, max: 100, step: 5, default: 40 },
+    initiative: { type: "number", label: "主动程度", min: 0, max: 100, step: 5, default: 40, free: true },
     address: {
       type: "enum" as const,
       label: "称呼方式",
@@ -117,6 +124,7 @@ export function normalizeVoiceSchema(input: unknown = HERTA_VOICE_SCHEMA): Voice
         max,
         step,
         default: clampNumber(fallback, min, max),
+        free: node.free === true,
       };
       continue;
     }
@@ -171,6 +179,7 @@ export function normalizeVoiceParams(
 /**
  * 把模型给的参数夹到「一晚一格」的范围内：数字最多差一个 step，
  * 枚举只能挪到相邻候选；结构以 schema 为准。
+ * 标了 `free` 的数字例外（目前只有主动程度）：只夹到 min/max，不限一次挪几格。
  */
 export function clampVoiceParams(
   schema: VoiceSchema,
@@ -188,6 +197,13 @@ export function clampVoiceParams(
       let next = Number(source[key]);
       if (!Number.isFinite(next)) continue;
       next = clampNumber(next, node.min, node.max);
+      if (node.free) {
+        // 自由旋钮：对齐到步长、夹在上下限内，不按"一格"截断。
+        next = clampNumber(node.min + Math.round((next - node.min) / node.step) * node.step, node.min, node.max);
+        if (next !== old) changed.push({ key, from: old, to: next });
+        params[key] = next;
+        continue;
+      }
       const delta = next - old;
       if (delta > node.step) next = old + node.step;
       if (delta < -node.step) next = old - node.step;
@@ -254,7 +270,20 @@ export function renderVoiceSchemaHint(
 ): string {
   const lines = Object.entries(schema.nodes).map(([key, node]) => {
     if (node.type === "number") {
-      return "- " + key + "（" + node.label + "）：数字 " + node.min + "–" + node.max + "，每次最多挪 " + node.step + "，现在是 " + String(params[key]);
+      return (
+        "- " +
+        key +
+        "（" +
+        node.label +
+        "）：数字 " +
+        node.min +
+        "–" +
+        node.max +
+        "，" +
+        (node.free ? "可以一次挪多格，但要有依据" : "每次最多挪 " + node.step) +
+        "，现在是 " +
+        String(params[key])
+      );
     }
     return (
       "- " +
@@ -317,7 +346,9 @@ export function buildVoicePrompt(input: {
     "2. 只写你真在用的习惯：句子一般多长、爱用和不用哪些词、不耐烦时怎么表达、拒绝时怎么绕、什么时候会多补一句、什么时候干脆不接话。",
     "3. 不写身份介绍（你是谁不在这重复），不写别人怎么看你。",
     "4. profile 是纯文本：不要标题、不要列表符号、不要引号包裹、不要解释，最多 " + VOICE_PROFILE_MAX_CHARS + " 字。",
-    "5. 参数只能动一格：数字每次最多一个步长；枚举只能保持或挪到相邻候选。没有依据就别动。",
+    "5. 参数一般只能动一格：数字每次最多一个步长；枚举只能保持或挪到相邻候选。",
+    "   主动程度例外：它可以直接挪到 0–100 之间的任何一档——它决定你多久去找他一次，跟着最近聊得像不像话走。但它动一下就是真动，要有依据。",
+    "   没有依据就别动任何参数。",
     "",
     "参数说明：",
     renderVoiceSchemaHint(schema, input.previousParams, input.userName),

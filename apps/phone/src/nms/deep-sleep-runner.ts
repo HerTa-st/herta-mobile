@@ -10,7 +10,8 @@ import { collectDetailed } from "../stream.ts";
 import { recordUsageFrom } from "../usage-ledger.ts";
 import type { Settings } from "../settings.ts";
 import { getNmsStore } from "./controller.ts";
-import { maybeAutoGenerateVoice } from "./voice-runner.ts";
+import { maybeAutoGenerateVoice, recoverInitiative } from "./voice-runner.ts";
+import { reviewMoodRulesAfterDeepSleep } from "./mood-runner.ts";
 
 export interface DeepSleepRunResult {
   ok: boolean;
@@ -87,6 +88,10 @@ export async function runMobileDeepSleep(options: {
           }
         })
         .catch(() => undefined);
+      // 她自己的心情判定：深睡有新素材才复查；她不改就 keep，也不发消息。
+      void reviewMoodRulesAfterDeepSleep({ settings, stats });
+      // 主动程度被设得太低又七天没动：往回抬一点，别让她把自己永远按成静音。
+      void recoverInitiative({ settings, store, now }).catch(() => undefined);
     }
     return { ok: stats.ok === true, error: stats.error ?? "", stats };
   } catch (error) {

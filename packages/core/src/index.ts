@@ -13,6 +13,7 @@ export * from "./search.ts";
 export * from "./tools.ts";
 export * from "./mood.ts";
 export * from "./presence.ts";
+export * from "./proactive.ts";
 export * from "./errors.ts";
 export * from "./image.ts";
 export * from "./files.ts";

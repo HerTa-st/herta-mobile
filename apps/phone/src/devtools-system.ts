@@ -45,6 +45,17 @@ export interface SystemToolsContext {
   a11y: boolean;
   /** 她能不能自己排下一次主动找你（常驻服务开着才有意义）。 */
   proactive: boolean;
+  /**
+   * 她自己改心情判定（只动三段：触发描述 / 判定边界 / 优先级）。
+   *
+   * 不传就不注册这条工具——省 token 档、网页开发态、还没接上记忆库时都不该出现。
+   * 校验与落盘在 mood-runner；这里只负责把话说清楚。
+   */
+  moodRules?(
+    patch: { triggers?: string; boundaries?: string; priority?: string },
+    reason: string,
+    evidence: string
+  ): Promise<{ ok: boolean; error?: string; errors?: string[]; version?: number }>;
   /** 把一张图变成文字描述（相机用；没配视觉模型就别给这个回调）。 */
   describePhoto?(dataUrl: string): Promise<string>;
 }
@@ -441,6 +452,54 @@ export function buildSystemTools(ctx: SystemToolsContext, opts: { cheap: boolean
     });
   }
 
+  if (ctx.moodRules) {
+    out.push({
+      spec: {
+        kind: "write",
+        name: "revise_mood_rules",
+        description:
+          "改你自己的心情判定规则。只能动三段：触发描述（什么算雷区/好感区）、判定边界（一句话像多个状态时怎么归）、优先级。" +
+          "八种状态名、输出格式、数值阈值由代码锁死，改不动。必须给理由和一条依据（引用具体一句对话或一条记忆）；" +
+          "只有真的判错了才调，闲聊时不要顺手改。",
+        parameters: {
+          type: "object",
+          properties: {
+            triggers: { type: "string", description: "新的触发描述，整段替换；不改就省略" },
+            boundaries: { type: "string", description: "新的判定边界，整段替换；不改就省略" },
+            priority: { type: "string", description: "新的优先级，整段替换；不改就省略" },
+            reason: { type: "string", description: "为什么改，一句话说清是哪一种情况判错了" },
+            evidence: { type: "string", description: "依据：引用具体的一句对话或一条记忆" },
+          },
+          required: ["reason", "evidence"],
+        },
+      },
+      async run(args) {
+        const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+        const reason = text(args.reason);
+        const evidence = text(args.evidence);
+        if (!reason) return "要改判定得先说清楚为什么：哪一句让你觉得判错了。";
+        if (!evidence) return "还差一条依据：把具体那句对话或那条记忆引出来，再改。";
+        const patch = { triggers: text(args.triggers), boundaries: text(args.boundaries), priority: text(args.priority) };
+        if (!patch.triggers && !patch.boundaries && !patch.priority) return "三段都没给新内容，等于没改。";
+        const result = await ctx.moodRules!(patch, reason, evidence);
+        if (!result.ok) {
+          const why =
+            result.error === "cheap_mode"
+              ? "现在是省 token 模式，不改判定。"
+              : result.error === "web_platform"
+                ? "这个环境没有本地记忆库，改不了判定。"
+                : result.error === "no_key"
+                  ? "还没接上模型，改不了判定。"
+                  : result.errors && result.errors.length > 0
+                    ? result.errors.join(" ")
+                    : result.error || "没写成。";
+          return "没改成：" + why;
+        }
+        return "改好了，现在是第 " + String(result.version ?? 1) + " 版；他能看、也能回滚。";
+      },
+    });
+  }
+
   if (ctx.proactive) {
     out.push({
       spec: {
@@ -448,7 +507,7 @@ export function buildSystemTools(ctx: SystemToolsContext, opts: { cheap: boolean
         name: "plan_ping",
         description:
           "决定下一次你自己想起来找他是多久之后。聊到一半想晚点再说话、或者他刚说要睡的时候用。" +
-          "不给这条就按 2~5 小时随机。",
+          "不给这条就按你「主动程度」那档的间隔来（默认四小时左右）。",
         parameters: {
           type: "object",
           properties: {

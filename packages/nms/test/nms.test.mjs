@@ -207,6 +207,20 @@ test("自动语气：参数一晚一格、越界夹回、枚举只挪相邻", ()
   assert.equal("nope" in unknown.params, false);
 });
 
+test("自动语气：主动程度可以一次挪多格，其它数字仍然一晚一格", () => {
+  const schema = normalizeVoiceSchema();
+  const base = defaultVoiceParams(schema);
+  assert.equal(base.initiative, 40);
+  const out = clampVoiceParams(schema, base, { initiative: 100, patience: 100 });
+  assert.equal(out.params.initiative, 100, "主动程度不受一格限制");
+  assert.equal(out.params.patience, 65, "耐心仍然是一晚一格");
+  assert.equal(out.rejected.length, 0, "主动程度不该被记成越界");
+  const down = clampVoiceParams(schema, base, { initiative: 0 });
+  assert.equal(down.params.initiative, 0);
+  const odd = clampVoiceParams(schema, base, { initiative: 43 });
+  assert.equal(odd.params.initiative, 45, "对齐到 5 的格子");
+});
+
 test("自动语气：解析模型输出；坏 JSON / 空 profile 保留旧版", () => {
   const schema = normalizeVoiceSchema();
   const base = defaultVoiceParams(schema);
