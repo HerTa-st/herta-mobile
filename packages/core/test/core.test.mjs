@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
 
 import { NodeAssetSource } from "../src/assets-node.ts";
 import { buildStaticPrefix, moodStyleNote, pickSeeds, MOBILE_NOTE, FORMAT_CONTRACT } from "../src/persona.ts";
@@ -52,8 +53,24 @@ import { decodeXmlEntities, docxXmlToText, pptxXmlToText, xlsxXmlToText } from "
 import { addUsage, emptyUsage, formatTokens, usageTotal } from "../src/usage.ts";
 import { budgetFor } from "../src/budget.ts";
 
-/** 桌面版原文抽出来的 196 个函数：复核提示词与分隔符从它注入，不在 core 里重写。 */
-import * as H from "../../../runtime/prompts-code.zh.mjs";
+/**
+ * 桌面版原文抽出来的 196 个函数：复核提示词与分隔符从它注入，不在 core 里重写。
+ *
+ * 正文（824KB，且夹着私聊原文）不进仓库，clone 下来默认没有这个文件——
+ * 所以改成运行期按需 import：没有文件时下面 5 条用例打印 SKIP，不算失败；
+ * 有文件时照旧真跑。生成方法见 runtime/README.md。
+ */
+const PROMPTS_URL = new URL("../../../runtime/prompts-code.zh.mjs", import.meta.url);
+const HAS_PROMPTS = existsSync(PROMPTS_URL);
+const H = HAS_PROMPTS ? await import(PROMPTS_URL.href) : {};
+
+/** 缺原文时把这条用例标成 skip，并在输出里留一行显眼的 SKIP。 */
+const promptsTest = (name, fn) =>
+  test(name, HAS_PROMPTS ? {} : { skip: "SKIP runtime/prompts-code.zh.mjs 未生成（见 runtime/README.md）" }, fn);
+
+if (!HAS_PROMPTS) {
+  console.log("[SKIP] runtime/prompts-code.zh.mjs 未生成 → 跳过 5 条「桌面版原文」用例（生成方法见 runtime/README.md）");
+}
 
 const ASSETS = fileURLToPath(new URL("../../../assets/", import.meta.url));
 const src = new NodeAssetSource(ASSETS, "zh");
@@ -363,7 +380,7 @@ test("做梦：建造函数只给字符串时也能发（兼容两种返回形�
   assert.equal(h.calls[0], "\n只有一段");
 });
 
-test("做梦：真实建造函数的返回形状是两条消息（422 那次的根因）", async () => {
+promptsTest("做梦：真实建造函数的返回形状是两条消息（422 那次的根因）", async () => {
   const a = await src.promptAssets();
   const env = "### 你此刻在哪\n\n现在是下午2点。你在实验室。";
   const worth = H.buildWorthinessPrompt("开拓者：在吗\n我：在。", [{ title: "旧记忆", tag: "日常" }], env, "zh");
@@ -1675,7 +1692,7 @@ test("复核判定：BLOCK 取出类别与理由；没写 BLOCK 就放行", () =
   assert.equal(parseSupervisorVerdict("1. 接话 OK\n2. 声音 OK\n3. 设定 OK\n4. 意图 OK\nOK").ok, true);
 });
 
-test("复核消息：用桌面版原文的 buildSupervisorPrompt，成功切成 system + user 两条", async () => {
+promptsTest("复核消息：用桌面版原文的 buildSupervisorPrompt，成功切成 system + user 两条", async () => {
   const a = await src.promptAssets();
   const messages = buildReviewMessages(
     {
@@ -1697,7 +1714,7 @@ test("复核消息：用桌面版原文的 buildSupervisorPrompt，成功切成 
   assert.ok(a.hertaBio.length > 0);
 });
 
-test("复核消息：有工具回执时进提示词，并明说台词与回执矛盾就是错", () => {
+promptsTest("复核消息：有工具回执时进提示词，并明说台词与回执矛盾就是错", () => {
   const code = { buildSupervisorPrompt: H.buildSupervisorPrompt, USER_MESSAGE_SEPARATOR: H.USER_MESSAGE_SEPARATOR };
   const messages = buildReviewMessages(
     {
@@ -1732,7 +1749,7 @@ test("复核消息：有工具回执时进提示词，并明说台词与回执�
   assert.ok(sectionAt < user.indexOf("### 我刚才要说出口的话"), "回执段应该在待审台词之前");
 });
 
-test("复核消息：没有工具回执时与旧行为逐字一致（守住不回归）", () => {
+promptsTest("复核消息：没有工具回执时与旧行为逐字一致（守住不回归）", () => {
   const code = { buildSupervisorPrompt: H.buildSupervisorPrompt, USER_MESSAGE_SEPARATOR: H.USER_MESSAGE_SEPARATOR };
   const params = {
     feianFewShots: [],
@@ -1760,7 +1777,7 @@ test("复核消息：没有工具回执时与旧行为逐字一致（守住不�
   );
 });
 
-test("复核消息：超长回执被截断（单条 500 字、合计 2000 字）", () => {
+promptsTest("复核消息：超长回执被截断（单条 500 字、合计 2000 字）", () => {
   const code = { buildSupervisorPrompt: H.buildSupervisorPrompt, USER_MESSAGE_SEPARATOR: H.USER_MESSAGE_SEPARATOR };
   const params = {
     feianFewShots: [],

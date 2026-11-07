@@ -27,3 +27,7 @@ _test.out
 site/data/QQ_*.png
 _tracked.txt
 _untracked.txt
+
+# 桌面版原文的提示词函数（824KB，从 app.asar 按 AST 切出，含第三方实现原文）：
+# 生成物不入库，发布前本地跑 tools/extract-code-prompts.mjs 重新生成，见 runtime/README.md
+runtime/prompts-code.zh.mjs

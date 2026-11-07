@@ -22,6 +22,14 @@ $ErrorActionPreference = 'Stop'
 $root = Resolve-Path "$PSScriptRoot\.."
 $app = Join-Path $root 'apps\phone'
 
+# runtime/prompts-code.zh.mjs 的正文不进仓库（824KB，且夹着私聊原文；见 runtime/README.md）。
+# 它缺失时 tsc 与 vite 都不会报错——打出来的包会在复核/做梦那一刻才抛「缺 prompts-code.zh.mjs」。
+# 所以打包前先拦一道，不让「静默少一块」的包发出去。
+$promptsCode = Join-Path $root 'runtime\prompts-code.zh.mjs'
+if (-not (Test-Path $promptsCode)) {
+  throw "缺 runtime\prompts-code.zh.mjs：它的正文不进仓库。打包前先按 runtime/README.md 生成（跑旧仓库的 tools/extract-code-prompts.mjs，需要本机桌面版 app.asar）。"
+}
+
 # 黑塔币接口：构建时注入到 VITE_COIN_API_BASE。mock 只用于开发调试，不能进发布包。
 if ($CoinMock) {
   $lan = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
