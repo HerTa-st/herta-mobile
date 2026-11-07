@@ -45,10 +45,20 @@ class OssError extends Error {
 class OssStateStore {
   constructor(options) {
     options = options || {};
-    this.bucket = options.bucket || process.env.OSS_BUCKET || '<bucket>';
+    // 桶名与账本键不写死在仓库里：公开仓库里写死「桶 + 公共读 + 账本键」等于
+    // 公开一份「去哪匿名下载全服账本」的说明书。三样都从环境变量来。
+    this.bucket = options.bucket || process.env.OSS_BUCKET || '';
+    if (!this.bucket) {
+      throw new OssError(500, 'MissingBucket',
+        'FC 未配置 OSS_BUCKET：桶名不再有默认值，部署时用环境变量给');
+    }
     this.endpoint = options.endpoint || process.env.OSS_ENDPOINT || 'oss-cn-hongkong.aliyuncs.com';
-    this.stateKey = options.stateKey || process.env.STATE_KEY || 'state/coin.json';
-    this.lockKey = options.lockKey || process.env.LOCK_KEY || 'state/coin.lock';
+    this.stateKey = options.stateKey || process.env.STATE_KEY || '';
+    if (!this.stateKey) {
+      throw new OssError(500, 'MissingStateKey',
+        'FC 未配置 STATE_KEY：账本对象键不再有默认值，部署时用环境变量给');
+    }
+    this.lockKey = options.lockKey || process.env.LOCK_KEY || (this.stateKey + '.lock');
     this.credentialProvider = options.credentialProvider;
   }
 
