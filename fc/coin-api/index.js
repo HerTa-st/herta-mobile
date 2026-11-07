@@ -34,6 +34,9 @@ const {
   publicUser
 } = require('./market-v2');
 const { OssStateStore, credentialsFromContext } = require('./oss-state');
+const auth = require('./auth');
+const ratelimit = require('./ratelimit');
+const crypto = require('crypto');
 
 const API_PATH = '/api/daily';
 
@@ -45,13 +48,53 @@ const RESPONSE_HEADERS = {
   'Access-Control-Allow-Headers': 'Content-Type, Accept'
 };
 
-function jsonResponse(statusCode, payload) {
+/**
+ * 公开只读接口的响应头：允许浏览器/CDN 短暂缓存（秒级）。
+ * 只给「同一秒内所有人看到都一样」的数据用；带 user 的响应仍然 no-store。
+ */
+function publicHeaders(maxAge) {
+  const max = Math.max(0, Math.floor(Number(maxAge) || 0));
+  if (!max) return RESPONSE_HEADERS;
+  return Object.assign({}, RESPONSE_HEADERS, { 'Cache-Control': 'public, max-age=' + max });
+}
+
+function jsonResponse(statusCode, payload, options) {
+  const opts = options || {};
   return {
     statusCode: statusCode,
-    headers: RESPONSE_HEADERS,
+    headers: opts.cache ? publicHeaders(opts.cache) : RESPONSE_HEADERS,
     body: JSON.stringify(payload),
     isBase64Encoded: false
   };
+}
+
+/** 大小写不敏感地取请求头（FC 3.0 event.headers）。 */
+function readHeader(ev, name) {
+  const h = ev && ev.headers;
+  if (!h || typeof h !== 'object') return '';
+  const want = String(name).toLowerCase();
+  const keys = Object.keys(h);
+  for (let i = 0; i < keys.length; i++) {
+    if (String(keys[i]).toLowerCase() === want) return String(h[keys[i]] == null ? '' : h[keys[i]]);
+  }
+  return '';
+}
+
+/**
+ * 可选鉴权：只有环境变量 API_TOKEN 设了值才生效。
+ * 不设 → 行为与以前一模一样（不破坏现有客户端）。
+ * 设了 → 必须带 ?k=<token> 或请求头 x-api-key: <token>。
+ */
+function tokenOk(ev, info) {
+  const expected = String(process.env.API_TOKEN || '').trim();
+  if (!expected) return true;
+  const given = String((info.query && (info.query.k || info.query.token)) || readHeader(ev, 'x-api-key') || '').trim();
+  if (given.length !== expected.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(given), Buffer.from(expected));
+  } catch (e) {
+    return false;
+  }
 }
 
 /* 兼容 FC 3.0（rawPath/requestContext）与 FC 2.0（httpMethod/path）两种 event 形态 */
@@ -177,6 +220,17 @@ function requestInfo(event) {
   return { method: String(method).toUpperCase(), path: normalizePath(path), query: query };
 }
 
+/**
+ * 身份类接口的判定：返回 null 表示放行，返回响应表示直接打回。
+ * 只有账本里已经有这个号、并且这个号绑过钥匙，才可能被拦。
+ */
+function identityGate(state, name, key) {
+  const user = state && state.users ? state.users[name] : null;
+  const verdict = auth.checkIdentity(user, key);
+  if (verdict.ok) return null;
+  return jsonResponse(verdict.status, { error: verdict.code, message: verdict.message });
+}
+
 function parseBody(event) {
   let body = event.body;
   if (body == null || body === '') return {};
@@ -215,9 +269,14 @@ function createHandler(options) {
    * 缺的密钥当场生成并落盘——同一日期只生成一次，价格历史才稳得住。
    * @returns {Promise<{daily: object, getSecret: Function, seeds: object}>}
    */
-  async function loadDaily(nowMs, store) {
+  async function loadDaily(nowMs, store, options) {
+    const opts = options || {};
+    // needState：调用方本来就要账本，就先读一次，喂给 ensureSeeds 复用，
+    // 免得「算行情读一次 + 取状态又读一次」白跑一趟 OSS。
+    const state = opts.needState ? await store.read() : undefined;
     const seedInfo = await ensureSeeds(store, {
       nowMs: nowMs,
+      state: state,
       // 空账本要建就建成正常账本（和 /api/state 第一次建号同一个形状）
       sessionDate: getSession(nowMs).sessionDate,
       createEmptyState: function (sessionDate) { return createState(sessionDate); }
@@ -226,7 +285,8 @@ function createHandler(options) {
     return {
       daily: buildDailyResponse(nowMs, getSecret),
       getSecret: getSecret,
-      seeds: seedInfo.seeds
+      seeds: seedInfo.seeds,
+      state: state
     };
   }
 
@@ -236,8 +296,113 @@ function createHandler(options) {
       const ev = normalizeEvent(event);
       info = requestInfo(ev);
 
+      /*
+       * 兼容「把令牌写进接口地址」的用法：/t/<token>/api/xxx
+       *
+       * 客户端所有 URL 都是 stripBase(base) + "/api/…" 拼出来的，
+       * 所以只要支持路径前缀，用户把设置里的「黑塔币接口地址」改成
+       * https://<域名>/t/<token> 就行——不用改代码、不用重打 APK。
+       * 前缀里的令牌等价于 ?k=，别的什么都不改。
+       */
+      if (info.path.indexOf('/t/') === 0) {
+        const seg = info.path.slice(3);
+        const cut = seg.indexOf('/');
+        const tok = cut < 0 ? seg : seg.slice(0, cut);
+        info.path = cut < 0 ? '/' : (seg.slice(cut) || '/');
+        if (tok && !info.query.k) info.query.k = tok;
+      }
+
       if (info.method === 'OPTIONS') {
         return { statusCode: 204, headers: RESPONSE_HEADERS, body: '' };
+      }
+
+      // 用户自己的那把钥匙（谁在操作这个号），和接口令牌是两回事
+      const userKey = auth.readKey(ev, info.query);
+
+      // 限流放在最前面：连令牌都不用验，直接按来源掐掉
+      const limited = ratelimit.check({
+        ip: ratelimit.clientIp(ev),
+        user: info.query.user || '',
+        key: userKey
+      });
+      if (!limited.ok) {
+        return {
+          statusCode: 429,
+          headers: Object.assign({}, RESPONSE_HEADERS, { 'Retry-After': String(limited.retryAfter || 1) }),
+          body: JSON.stringify({
+            error: 'rate_limited',
+            message: '请求太频繁，' + (limited.retryAfter || 1) + ' 秒后再试',
+            scope: limited.scope
+          }),
+          isBase64Encoded: false
+        };
+      }
+
+      // 设了 API_TOKEN 才校验；没设就是老行为
+      if (!tokenOk(ev, info)) {
+        return jsonResponse(401, { error: 'unauthorized', message: '缺少或错误的访问令牌' });
+      }
+
+      /* ---------- 绑定 / 换发用户密钥 ---------- */
+      if (info.path === '/api/bind' || info.path === '/api/bind/reset') {
+        if (info.method !== 'POST') {
+          return jsonResponse(405, { error: 'method_not_allowed', message: '只支持 POST 请求' });
+        }
+        const mode = auth.authMode();
+        if (mode === 'off') {
+          return jsonResponse(409, {
+            error: 'auth_disabled',
+            message: '服务端没开用户鉴权（AUTH_MODE=off），不需要绑定'
+          });
+        }
+        const body = parseBody(ev);
+        const name = normalizeName(body.user);
+        const nowMs = nowFn();
+        const store = storeFactory(context);
+        const loaded = await loadDaily(nowMs, store);
+        const daily = loaded.daily;
+
+        // 换发是管理操作：要 ADMIN_KEY，不能给客户端留后门
+        if (info.path === '/api/bind/reset') {
+          const admin = String(process.env.ADMIN_KEY || '').trim();
+          const given = String(body.adminKey || auth.readKey(ev, { key: '' }) || '').trim();
+          const ok = admin && given.length === admin.length && (function () {
+            try {
+              return crypto.timingSafeEqual(Buffer.from(given), Buffer.from(admin));
+            } catch (e) { return false; }
+          })();
+          if (!ok) {
+            return jsonResponse(403, { error: 'forbidden', message: '换发密钥需要正确的 ADMIN_KEY' });
+          }
+        }
+
+        const out = await store.withLock(async function () {
+          let state = await store.read();
+          if (!state) state = createState(daily.market.sessionDate);
+          buildStatePayload(daily, state, name, nowMs);   // 没有这个号就顺手建出来
+          const user = state.users[name];
+          const already = auth.binding(user);
+          if (already && info.path !== '/api/bind/reset') {
+            // 已绑定：只有拿得出正确钥匙的人才能重取（防冒名顶掉别人的号）
+            if (!auth.verify(user, userKey)) {
+              return { denied: { status: 409, error: 'already_bound', message: '这个昵称已经绑过密钥了' } };
+            }
+            return { secret: null, user: publicUser(user, effectivePrice(daily, state).price) };
+          }
+          const plain = auth.bind(user, body.secret);
+          applySeeds(state, loaded.seeds);
+          await store.write(state);
+          return { secret: plain, user: publicUser(user, effectivePrice(daily, state).price) };
+        });
+
+        if (out.denied) return jsonResponse(out.denied.status, { error: out.denied.error, message: out.denied.message });
+        return jsonResponse(200, {
+          ok: true,
+          serverTime: daily.serverTime,
+          user: out.user,
+          secret: out.secret,          // 明文只在这里出现这一次
+          mode: auth.authMode()
+        }, { cache: 0 });
       }
 
       /* ---------- 每日价格密钥（客户端拿它本地算 K 线） ---------- */
@@ -253,7 +418,7 @@ function createHandler(options) {
           sessionDate: getSession(nowMs).sessionDate,
           createEmptyState: function (sessionDate) { return createState(sessionDate); }
         });
-        return jsonResponse(200, seedInfo);
+        return jsonResponse(200, seedInfo, { cache: 3 });
       }
 
       /* ---------- 行情（v1 兼容） ---------- */
@@ -266,7 +431,7 @@ function createHandler(options) {
         const loaded = await loadDaily(nowMs, store);
         const daily = loaded.daily;
         // 快讯只加在 HTTP 外壳上：coin-core 的纯算法与测试向量保持原样
-        return jsonResponse(200, Object.assign({}, daily, { news: buildNews(daily, loaded.getSecret) }));
+        return jsonResponse(200, Object.assign({}, daily, { news: buildNews(daily, loaded.getSecret) }), { cache: 3 });
       }
 
       /* ---------- 共享市场状态 ---------- */
@@ -277,25 +442,30 @@ function createHandler(options) {
         const nowMs = nowFn();
         const name = normalizeName(info.query.user);
         const store = storeFactory(context);
-        const loaded = await loadDaily(nowMs, store);
+        const loaded = await loadDaily(nowMs, store, { needState: true });
         const daily = loaded.daily;
 
         // 快路径：状态已存在且不需要建号 / 换场，就不动锁
-        const existing = await store.read();
+        const existing = loaded.state;
         if (existing) {
+          const denied = identityGate(existing, name, userKey);
+          if (denied) return denied;
           const built = buildStatePayload(daily, existing, name, nowMs);
           if (!built.dirty) return jsonResponse(200, built.payload);
         }
 
-        const payload = await store.withLock(async function () {
+        const out = await store.withLock(async function () {
           let state = await store.read();
           if (!state) state = createState(daily.market.sessionDate);
+          const bad = identityGate(state, name, userKey);
+          if (bad) return { __denied: bad };
           const built = buildStatePayload(daily, state, name, nowMs);
           applySeeds(state, loaded.seeds);
           await store.write(state);
-          return built.payload;
+          return { payload: built.payload };
         });
-        return jsonResponse(200, payload);
+        if (out.__denied) return out.__denied;
+        return jsonResponse(200, out.payload);
       }
 
       /* ---------- 交易 ---------- */
@@ -313,6 +483,8 @@ function createHandler(options) {
         const result = await store.withLock(async function () {
           let state = await store.read();
           if (!state) state = createState(daily.market.sessionDate);
+          const bad = identityGate(state, name, userKey);
+          if (bad) return { __denied: bad };
           const actionBody = info.path === '/api/restart'
             ? Object.assign({}, body, { action: 'restart' })
             : body;
@@ -322,6 +494,7 @@ function createHandler(options) {
           return r;
         });
 
+        if (result && result.__denied) return result.__denied;
         return jsonResponse(200, Object.assign({ ok: true, serverTime: daily.serverTime }, result));
       }
 
@@ -340,6 +513,8 @@ function createHandler(options) {
         const result = await store.withLock(async function () {
           let state = await store.read();
           if (!state) state = createState(daily.market.sessionDate);
+          const bad = identityGate(state, name, userKey);
+          if (bad) return { __denied: bad };
           const r = signIn(daily, state, name, nowMs);
           applySeeds(state, loaded.seeds);
           await store.write(state);
@@ -353,6 +528,7 @@ function createHandler(options) {
             serverTime: daily.serverTime
           };
         });
+        if (result && result.__denied) return result.__denied;
         return jsonResponse(200, result);
       }
 
@@ -371,6 +547,8 @@ function createHandler(options) {
         const result = await store.withLock(async function () {
           let state = await store.read();
           if (!state) state = createState(daily.market.sessionDate);
+          const bad = identityGate(state, name, userKey);
+          if (bad) return { __denied: bad };
           const r = claimLocalWallet(daily, state, name, body.amount, nowMs);
           applySeeds(state, loaded.seeds);
           await store.write(state);
@@ -382,6 +560,7 @@ function createHandler(options) {
             serverTime: daily.serverTime
           };
         });
+        if (result && result.__denied) return result.__denied;
         return jsonResponse(200, result);
       }
 
@@ -392,9 +571,9 @@ function createHandler(options) {
         }
         const nowMs = nowFn();
         const store = storeFactory(context);
-        const loaded = await loadDaily(nowMs, store);
+        const loaded = await loadDaily(nowMs, store, { needState: true });
         const daily = loaded.daily;
-        const state = await store.read();
+        const state = loaded.state;
         const price = state ? effectivePrice(daily, state).price : daily.market.close;
         const board = state ? buildLeaderboard(state, price, 20) : [];
         return jsonResponse(200, {
@@ -402,12 +581,12 @@ function createHandler(options) {
           serverTime: daily.serverTime,
           price: Math.round(price * 100) / 100,
           leaderboard: board
-        });
+        }, { cache: 2 });
       }
 
       return jsonResponse(404, {
         error: 'not_found',
-        message: '没有这个接口；行情 /api/daily、密钥 /api/seeds、状态 /api/state、交易 /api/trade、排行 /api/leaderboard'
+        message: '没有这个接口；行情 /api/daily、密钥 /api/seeds、状态 /api/state、交易 /api/trade、排行 /api/leaderboard、绑定 /api/bind'
       });
     } catch (err) {
       const status = (err && err.status && err.status >= 400 && err.status < 600) ? err.status : 500;

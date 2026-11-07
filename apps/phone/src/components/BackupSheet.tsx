@@ -5,6 +5,7 @@ import type { Settings } from "../settings.ts";
 import { listSessions, listStickers, loadSession } from "../storage.ts";
 import { IdbMemoryStore } from "../memory-idb.ts";
 import { loadCoinWallet } from "../coin/coin-storage.ts";
+import { listCoinKeyNames } from "../coin/userkey.ts";
 import { listBroadcastIssues } from "../broadcast/storage.ts";
 import {
   backupFilename,
@@ -71,7 +72,7 @@ export function BackupSheet({
   onClose(): void;
   onRestored(): void;
 }) {
-  const [counts, setCounts] = useState({ sessions: 0, memories: 0, stickers: 0, broadcast: 0, files: 0, wallet: false });
+  const [counts, setCounts] = useState({ sessions: 0, memories: 0, stickers: 0, broadcast: 0, files: 0, wallet: false, keys: 0 });
   const [withStickers, setWithStickers] = useState(true);
   const [withSettings, setWithSettings] = useState(false);
   const [withFiles, setWithFiles] = useState(true);
@@ -110,6 +111,8 @@ export function BackupSheet({
       broadcast: broadcast.length,
       files: files.length,
       wallet: wallet !== null,
+      // 黑塔币的用户密钥：打包时默认带上，这里只是如实显示有几把
+      keys: listCoinKeyNames().length,
     });
   }, []);
 
@@ -328,6 +331,11 @@ export function BackupSheet({
             <span>钱包</span>
             <b>{counts.wallet ? "有" : "无"}</b>
             <small>合并时不覆盖</small>
+          </div>
+          <div className="bk-manifestRow">
+            <span>密钥</span>
+            <b>{counts.keys > 0 ? counts.keys + " 把" : "无"}</b>
+            <small>{counts.keys > 0 ? "默认带上，等于账号" : "还没进过共享市场"}</small>
           </div>
           <div className="bk-manifestRow">
             <span>设置</span>

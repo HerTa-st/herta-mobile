@@ -75,6 +75,14 @@ export interface BackupBundle {
   nms?: unknown;
   /** v3：她能读的文件（可选；不带就还是老样子）。 */
   files?: BackupFile[];
+  /**
+   * 黑塔币的用户密钥：昵称 → 48 位 hex。
+   *
+   * 这是一个**例外**——包里其它地方一律不带凭据（settings 里的 apiKey 被剥掉了），
+   * 但 2026-11 之后服务端是一号一钥，密钥丢了账号就找不回来（换手机 / 清数据 / 重装都会丢）。
+   * 所以换机打包时默认带上，恢复时写回本机。代价是：这个包等于账号，别乱发。
+   */
+  coinKeys?: Record<string, string>;
 }
 
 export interface BackupStats {
@@ -99,6 +107,8 @@ export interface BuildBackupInput {
   broadcast?: readonly BroadcastIssue[];
   nms?: unknown;
   files?: readonly BackupFile[];
+  /** 昵称 → 密钥。见 BackupBundle.coinKeys 的说明：默认带上。 */
+  coinKeys?: Record<string, string>;
   from?: string;
   now?: Date;
 }
@@ -143,6 +153,7 @@ export function buildBackupBundle(input: BuildBackupInput): { bundle: BackupBund
       : {}),
     ...(input.nms !== undefined ? { nms: input.nms } : {}),
     ...(input.files && input.files.length > 0 ? { files: dedupeFiles(input.files) } : {}),
+    ...(input.coinKeys && Object.keys(input.coinKeys).length > 0 ? { coinKeys: { ...input.coinKeys } } : {}),
   };
   const bytes = byteLength(JSON.stringify(bundle));
   return {
@@ -429,6 +440,16 @@ export function parseBackupBundle(raw: string): ParseBackupResult {
     }
   }
 
+  // 用户密钥：只认 48 位 hex，名字不能空。脏数据直接扔掉，不猜。
+  const coinKeys: Record<string, string> = {};
+  if (isRecord(parsed.coinKeys)) {
+    for (const [key, value] of Object.entries(parsed.coinKeys)) {
+      const name = String(key).trim();
+      if (!name || typeof value !== "string") continue;
+      if (/^[0-9a-f]{48}$/.test(value)) coinKeys[name] = value;
+    }
+  }
+
   if (sessions.length === 0 && memories.length === 0 && broadcast.length === 0 && files.length === 0 && !coin) {
     return { ok: false, error: "包里没有能用的会话或记忆" };
   }
@@ -446,6 +467,7 @@ export function parseBackupBundle(raw: string): ParseBackupResult {
     ...(broadcast.length > 0 ? { broadcast } : {}),
     ...(isRecord(parsed.nms) ? { nms: parsed.nms } : {}),
     ...(files.length > 0 ? { files } : {}),
+    ...(Object.keys(coinKeys).length > 0 ? { coinKeys } : {}),
   };
   return {
     ok: true,
@@ -482,6 +504,8 @@ export interface RestoreExisting {
   wallet?: boolean;
   /** 本机已有的「她能读的文件」名字（v3）。 */
   fileNames?: ReadonlySet<string>;
+  /** 本机已经有密钥的昵称（合并时不动它们，覆盖时以包里那份为准）。 */
+  coinKeyNames?: ReadonlySet<string>;
 }
 
 export interface RestorePlan {
@@ -491,6 +515,8 @@ export interface RestorePlan {
   broadcast: BroadcastIssue[];
   files: BackupFile[];
   coin?: BackupCoinWallet;
+  /** 要写回本机的用户密钥（昵称 → 48 位 hex）。 */
+  coinKeys: Record<string, string>;
   /** 因为本机已有而**没有写**的条数（覆盖模式下恒为 0）。 */
   skipped: { sessions: number; memories: number; stickers: number; broadcast: number; files: number };
   /** 本机已有、这次被**覆盖**掉的条数（合并模式下恒为 0）。 */
@@ -576,12 +602,21 @@ export function planRestore(
 
   const takeWallet = !!bundle.coin && (overwrite || !existing.wallet);
 
+  // 用户密钥：合并时本机已有的不动（本机那把很可能就是能用的那把），覆盖时以包为准
+  const localKeyNames = existing.coinKeyNames ?? new Set<string>();
+  const coinKeys: Record<string, string> = {};
+  for (const [name, key] of Object.entries(bundle.coinKeys ?? {})) {
+    if (localKeyNames.has(name) && !overwrite) continue;
+    coinKeys[name] = key;
+  }
+
   return {
     sessions,
     memories,
     stickers,
     broadcast,
     files,
+    coinKeys,
     ...(takeWallet ? { coin: { ...bundle.coin! } } : {}),
     skipped: { sessions: skipS, memories: skipM, stickers: skipK, broadcast: skipB, files: skipF },
     overwritten: { sessions: overS, memories: overM, stickers: overK, broadcast: overB, files: overF },

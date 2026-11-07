@@ -34,8 +34,8 @@ export interface ChatTransport {
   stream(req: ChatRequest): AsyncGenerator<ChatDelta>;
   /** DeepSeek 官方搜索：POST /v1/tools/search。 */
   search(query: string, opts: { apiKey: string; baseUrl: string; count?: number }): Promise<SearchHit[]>;
-  /** 一次性 GET，整段文本返回（分享页的数据接口用）。 */
-  getText(url: string): Promise<string>;
+  /** 一次性 GET，整段文本返回（分享页的数据接口、黑塔币接口都用它）。 */
+  getText(url: string, headers?: Record<string, string>): Promise<string>;
   /** 一次性 POST，拿二进制（语音合成）。返回 base64 与 mime。 */
   postBinary(url: string, opts: { headers: Record<string, string>; body: string }): Promise<{ base64: string; mediaType: string }>;
   /** 一次性 POST，拿 JSON 文本（MiniMax 那种"音频装在 JSON 里"的接口）。 */
@@ -132,8 +132,10 @@ export const browserTransport: ChatTransport = {
       for (const d of parseSseChunk(ready)) yield d;
     }
   },
-  async getText(url) {
-    const res = await fetch(url, { headers: { Accept: "application/json" } });
+  async getText(url, headers) {
+    const res = await fetch(url, {
+      headers: { Accept: "application/json", ...(headers ?? {}) },
+    });
     if (!res.ok) throw new Error("接口 " + res.status);
     return res.text();
   },
@@ -177,7 +179,7 @@ interface HertaHttpPlugin {
     headers: Record<string, string>;
     body: string;
   }): Promise<{ status: number }>;
-  get(options: { url: string }): Promise<{ status: number; body: string }>;
+  get(options: { url: string; headers?: Record<string, string> }): Promise<{ status: number; body: string }>;
   post(options: { url: string; headers: Record<string, string>; body: string }): Promise<{ status: number; body: string }>;
   postBinary(options: {
     url: string;
@@ -240,8 +242,8 @@ export const nativeTransport: ChatTransport = {
       await HertaHttp.cancel({ requestId }).catch(() => undefined);
     }
   },
-  async getText(url) {
-    const { status, body } = await HertaHttp.get({ url });
+  async getText(url, headers) {
+    const { status, body } = await HertaHttp.get({ url, headers: headers ?? {} });
     if (status < 200 || status >= 300) throw new Error("接口 " + status + "：" + String(body ?? "").slice(0, 200));
     return body;
   },

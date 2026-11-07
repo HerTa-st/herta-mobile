@@ -96,6 +96,7 @@ function pick(dates) {
  *   options.nowMs            测试用时钟（默认 Date.now()）
  *   options.from             起始日期，默认 CUTOVER；早于 CUTOVER 按 CUTOVER
  *   options.sessionDate      需要在空状态上建账本时用的场次日期（默认今天）
+ *   options.state            调用方已经读到的账本；给了就不再重复读一次 OSS
  *   options.createEmptyState (sessionDate) => 新账本；给了就按账本建，没给就只写 seeds
  * @returns {Promise<{version:number, cutover:string, seeds:Record<string,string>}>}
  */
@@ -108,6 +109,28 @@ async function ensureSeeds(store, options) {
 
   const first = pick(dates);
   if (!first.missing.length) return payload(first.want);
+
+  /*
+   * 冷实例快路径（只读，不抢锁）：
+   * 新实例的 memo 是空的，若直接走下面「抢锁 + 读 + 写 + 释放」那条路，
+   * 每个请求都要 5~6 次串行 OSS 往返。而密钥一旦落盘就不再变，
+   * 所以先用一次 GET 探测盘上有没有——有就填进 memo 直接返回。
+   * 只有真的缺密钥（每天第一次 / 跨天）才会进锁。
+   */
+  const probed = opts.state !== undefined ? opts.state : await store.read();
+  if (probed) {
+    const diskSeeds = stateSeeds(probed);
+    let allHit = true;
+    for (let i = 0; i < first.missing.length; i++) {
+      const date = first.missing[i];
+      if (isSeedStr(diskSeeds[date])) memo.set(date, diskSeeds[date]);
+      else allHit = false;
+    }
+    if (allHit) {
+      const again = pick(dates);
+      if (!again.missing.length) return payload(again.want);
+    }
+  }
 
   // 缺的当场生成：锁外先摇好候选值，锁里再以「别人已经写进去的」为准
   const candidates = {};

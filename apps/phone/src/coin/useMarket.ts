@@ -20,6 +20,7 @@ import {
 } from "@herta/coin";
 import type { CoinMarketState, CoinOrderSide, CoinOrderTtl } from "@herta/coin";
 import { pickTransport } from "../transport.ts";
+import { clearCoinKey, coinKeyHeaders, ensureCoinKey } from "./userkey.ts";
 
 const REFRESH_MS = 30_000;
 
@@ -68,14 +69,19 @@ export function useMarket(opts: UseMarketOptions): UseMarketResult {
     if (!b || !u) return;
     setLoading(true);
     try {
-      const text = await pickTransport().getText(coinStateUrl(b, u));
+      // 身份类请求要带密钥：本机没有就现领一把（服务端没开鉴权时返回空串）
+      const key = await ensureCoinKey(b, u, (url, opts) => pickTransport().post(url, opts));
+      const text = await pickTransport().getText(coinStateUrl(b, u), coinKeyHeaders(key));
       const next = parseCoinState(text);
       setState(next);
       setOffline(false);
       setError(null);
     } catch (e) {
+      const msg = messageOf(e);
+      // 401/403 = 本机这把钥匙废了（换发过、或号被别人绑了），清掉好重新领
+      if (/\b(401|403)\b/.test(msg)) clearCoinKey(u);
       setOffline(true);
-      setError(messageOf(e));
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -127,10 +133,19 @@ export function useMarket(opts: UseMarketOptions): UseMarketResult {
   }, [active, refresh]);
 
   const call = useCallback(async (url: string, body: unknown): Promise<Record<string, unknown>> => {
+    const u = identityRef.current.trim();
+    const key = await ensureCoinKey(baseRef.current.trim(), u, (target, opts) =>
+      pickTransport().post(target, opts)
+    );
     const res = await pickTransport().post(url, {
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        ...coinKeyHeaders(key),
+      },
       body: JSON.stringify(body),
     });
+    if ((res.status === 401 || res.status === 403) && u) clearCoinKey(u);
     let json: Record<string, unknown> | null = null;
     try {
       json = JSON.parse(res.body) as Record<string, unknown>;

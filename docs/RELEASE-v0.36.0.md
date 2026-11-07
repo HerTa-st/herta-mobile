@@ -43,4 +43,4 @@ SHA256  d7f47fd6449712ae00b5866732aa6ee5d3341004c3581d7c172d58b32f6b0976
 
 扫描件 PDF 抽不出字（没做 OCR）、老版 .doc/.xls/.ppt 与压缩包读不了、旧 WebView 上 PDF 抽字会失败、
 开屏不能跳过 / 不能重播、没有 iOS 版、黑塔币页的 K 线图例（MA5 / MA20 / 昨收）对比度偏低。
-完整清单与反馈入口在站点：
+完整清单与反馈入口：[www.herta-st-gp.top/issues.html](https://www.herta-st-gp.top/issues.html)

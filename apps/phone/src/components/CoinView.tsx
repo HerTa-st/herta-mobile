@@ -1501,23 +1501,25 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
           <p className="coinCardNote" style={{ marginTop: 4 }}>
             双向：买单价 ≤ 限价、卖单价 ≥ 限价时触发，由系统按当时市价成交。没有对手方，也不是订单簿。
           </p>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10 }}>
-            <button
-              type="button"
-              className={"coinBtn " + (orderSide === "buy" ? "coinBtnBuy" : "coinBtnSell")}
-              onClick={() => setOrderSide("buy")}
-              aria-pressed={orderSide === "buy"}
-            >
-              买
-            </button>
-            <button
-              type="button"
-              className={"coinBtn " + (orderSide === "sell" ? "coinBtnSell" : "coinBtnBuy")}
-              onClick={() => setOrderSide("sell")}
-              aria-pressed={orderSide === "sell"}
-            >
-              卖
-            </button>
+          <div className="coinOrderRow">
+            <div className="coinOrderSide" role="group" aria-label="买卖方向">
+              <button
+                type="button"
+                className={"coinSideBtn" + (orderSide === "buy" ? " isBuy" : "")}
+                onClick={() => setOrderSide("buy")}
+                aria-pressed={orderSide === "buy"}
+              >
+                买
+              </button>
+              <button
+                type="button"
+                className={"coinSideBtn" + (orderSide === "sell" ? " isSell" : "")}
+                onClick={() => setOrderSide("sell")}
+                aria-pressed={orderSide === "sell"}
+              >
+                卖
+              </button>
+            </div>
             <input
               className="coinTradeInput"
               type="number"
@@ -1528,21 +1530,22 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
               value={orderLimit}
               onChange={(e) => setOrderLimit(e.target.value.replace(/[^0-9.]/g, ""))}
               aria-label="限价"
-              style={{ flex: 1, minWidth: 0 }}
             />
-            <select
-              className="coinTradeInput"
-              value={orderTtl}
-              onChange={(e) => setOrderTtl(e.target.value as CoinOrderTtl)}
-              aria-label="有效期"
-              style={{ width: 92 }}
-            >
-              {limits.orderTtls.map((ttl) => (
-                <option key={ttl} value={ttl}>
-                  {ORDER_TTL_LABELS[ttl]}
-                </option>
-              ))}
-            </select>
+          </div>
+          <div className="coinTtlRow" role="radiogroup" aria-label="有效期">
+            <span className="coinTtlLabel">有效期</span>
+            {limits.orderTtls.map((ttl) => (
+              <button
+                key={ttl}
+                type="button"
+                role="radio"
+                aria-checked={orderTtl === ttl}
+                className={"coinTtlChip" + (orderTtl === ttl ? " on" : "")}
+                onClick={() => setOrderTtl(ttl)}
+              >
+                {ORDER_TTL_LABELS[ttl]}
+              </button>
+            ))}
           </div>
           <button
             type="button"
@@ -1654,7 +1657,7 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
               借币日息 {(shared.limits.interestRateDaily * 100).toFixed(1)}% · 按开仓名义价值算 · 只计整天，零头保留。
               平空按市价买回，信用点可能被扣成负数。
             </p>
-            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <div className="coinShortRow">
               <input
                 className="coinTradeInput"
                 type="number"
@@ -1662,13 +1665,14 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
                 min={1}
                 max={short.amount}
                 value={shortAmount}
+                placeholder="数量"
                 onChange={(e) => setShortAmount(e.target.value.replace(/[^0-9]/g, ""))}
                 aria-label="平空数量"
-                style={{ flex: 1, minWidth: 0 }}
               />
+              <span className="coinTradeUnit">HTC</span>
               <button
                 type="button"
-                className="coinBtn coinBtnBuy"
+                className="coinBtn coinBtnBuy coinBtnInline"
                 onClick={() => handleCloseShort(amount)}
                 disabled={api.busy || api.offline || !amountOk || amount > short.amount}
               >
@@ -1676,7 +1680,7 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
               </button>
               <button
                 type="button"
-                className="coinBtn"
+                className="coinBtn coinBtnInline"
                 onClick={() => handleCloseShort(short.amount)}
                 disabled={api.busy || api.offline}
               >
@@ -1690,7 +1694,7 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
               借 HTC 卖出，等价格跌了再买回。开仓上限 = 净资产 × {shared.limits.shortMaxLeverage}；
               净资产为负时只能平仓，不能开新仓。
             </p>
-            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <div className="coinShortRow">
               <input
                 className="coinTradeInput"
                 type="number"
@@ -1698,13 +1702,14 @@ export function CoinView({ base, identity, onIdentityChange, onClose, onQuoteCha
                 min={1}
                 max={shared.limits.maxOrder}
                 value={shortAmount}
+                placeholder="数量"
                 onChange={(e) => setShortAmount(e.target.value.replace(/[^0-9]/g, ""))}
                 aria-label="开空数量"
-                style={{ flex: 1, minWidth: 0 }}
               />
+              <span className="coinTradeUnit">HTC</span>
               <button
                 type="button"
-                className="coinBtn coinBtnSell"
+                className="coinBtn coinBtnSell coinBtnInline"
                 onClick={handleOpenShort}
                 disabled={!canOpen || !amountOk}
               >

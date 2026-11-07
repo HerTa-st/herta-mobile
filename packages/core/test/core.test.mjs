@@ -2207,6 +2207,39 @@ test("备份：播报期随包走；同一期不重复写", () => {
   assert.equal(fresh.broadcast[0].items[0].comment, "评");
 });
 
+test("备份：用户密钥默认跟着走，恢复写回，合并模式不覆盖本机已有的那把", () => {
+  const KEY_A = "a".repeat(48);
+  const KEY_B = "b".repeat(48);
+  const { bundle } = buildBackupBundle({
+    sessions: [],
+    memories: [{ name: "m1", body: "记忆", createdAt: "2026-11-08T00:00:00.000Z" }],
+    // 故意混进两个脏的：格式不对的、昵称为空的
+    coinKeys: { 源梦: KEY_A, 坏名字: "not-a-key", "": KEY_B },
+  });
+  assert.equal(bundle.coinKeys["源梦"], KEY_A, "打包时默认带上密钥");
+
+  const parsed = parseBackupBundle(JSON.stringify(bundle));
+  assert.equal(parsed.ok, true, parsed.ok ? "" : parsed.error);
+  assert.equal(parsed.bundle.coinKeys["源梦"], KEY_A);
+  assert.equal("坏名字" in parsed.bundle.coinKeys, false, "不是 48 位 hex 的要丢掉");
+  assert.equal("" in parsed.bundle.coinKeys, false, "空昵称要丢掉");
+
+  const empty = { sessionIds: new Set(), memoryNames: new Set(), stickerIds: new Set() };
+  assert.equal(planRestore(parsed.bundle, empty).coinKeys["源梦"], KEY_A, "新机恢复要写回");
+
+  const merge = planRestore(parsed.bundle, { ...empty, coinKeyNames: new Set(["源梦"]) });
+  assert.equal("源梦" in merge.coinKeys, false, "合并时本机已有的钥匙不动");
+
+  const over = planRestore(parsed.bundle, { ...empty, coinKeyNames: new Set(["源梦"]) }, "overwrite");
+  assert.equal(over.coinKeys["源梦"], KEY_A, "覆盖时以包里为准");
+
+  // 不带密钥的老包照旧：没有这一块，恢复计划里就是空表
+  const legacy = buildBackupBundle({ sessions: [], memories: [{ name: "m2", body: "x", createdAt: "2026-11-08T00:00:00.000Z" }] });
+  assert.equal(legacy.bundle.coinKeys, undefined, "没密钥就不写这一块");
+  assert.deepEqual(planRestore(legacy.bundle, empty).coinKeys, {});
+});
+
+
 test("行踪开口：新的一段、掷骰子过了，才开口", () => {
   const now = new Date(2026, 10, 4, 10, 0, 0);
   const d = decidePresencePing({ now, seenKey: null, countToday: 0, lastPingAt: null, random: 0.1 });

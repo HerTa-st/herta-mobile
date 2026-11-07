@@ -21,6 +21,7 @@ import { IdbMemoryStore } from "./memory-idb.ts";
 import { exportNmsBackup, restoreNmsBackup, type NmsRestoreOutcome } from "./nms/controller.ts";
 import { loadReadableFiles, replaceReadableFiles, saveReadableFile } from "./readable-files.ts";
 import { loadCoinWallet, saveCoinWallet } from "./coin/coin-storage.ts";
+import { exportCoinKeys, importCoinKeys, listCoinKeyNames } from "./coin/userkey.ts";
 import { listBroadcastIssues, saveBroadcastIssue } from "./broadcast/storage.ts";
 import type { Settings } from "./settings.ts";
 import { listSessions, listStickers, loadSession, putSession, putSticker } from "./storage.ts";
@@ -73,6 +74,7 @@ export async function buildLocalBackup(
   const coin = await loadCoinWallet();
   const broadcast = await listBroadcastIssues();
   const nms = await exportNmsBackup();
+  const keys = exportCoinKeys();
   // v3：她能读的文件。不带就是老样子（v1/v2 的包也没有这块）
   const files: BackupFile[] = opts.withFiles
     ? (await loadReadableFiles()).map((file) => ({ name: file.name, text: file.text, at: file.at }))
@@ -100,6 +102,9 @@ export async function buildLocalBackup(
     ...(broadcast.length > 0 ? { broadcast } : {}),
     ...(nms ? { nms } : {}),
     ...(files.length > 0 ? { files } : {}),
+    // 用户密钥默认带上：服务端一号一钥，丢了就再也进不去自己的号。
+    // 代价是这个包等于账号，界面上必须说清楚。
+    ...(Object.keys(keys).length > 0 ? { coinKeys: keys } : {}),
     from: "Herta 手机端",
   });
   return { json: JSON.stringify(bundle), filename: backupFilename(), stats };
@@ -156,6 +161,8 @@ export interface RestoreReport {
   overwritten: { sessions: number; memories: number; stickers: number; broadcast: number; files: number };
   skipped: { sessions: number; memories: number; stickers: number; broadcast: number; files: number };
   wallet: "written" | "kept" | "absent";
+  /** 写回本机的用户密钥条数（0 = 包里没带或本机已经都有）。 */
+  keys: number;
   /** 记忆网络：写没写、为什么没写。 */
   nms: NmsRestoreOutcome | { wrote: false; nodes: 0; edges: 0; reason: "not_in_bundle" };
   /** 包里有没有带文件（区分「一个文件都没带」和「带了 0 个」）。 */
@@ -194,6 +201,7 @@ export async function restoreLocalBackup(text: string, mode: RestoreMode = "merg
       broadcastIds: new Set(issues.map((i) => i.id)),
       wallet: existingWallet !== null,
       fileNames: new Set(localFiles.map((f) => f.name)),
+      coinKeyNames: new Set(listCoinKeyNames()),
     },
     mode
   );
@@ -224,6 +232,9 @@ export async function restoreLocalBackup(text: string, mode: RestoreMode = "merg
   const wallet: RestoreReport["wallet"] = plan.coin ? "written" : existingWallet !== null ? "kept" : "absent";
   if (plan.coin) await saveCoinWallet(plan.coin);
 
+  // 用户密钥：不写回去，换机之后照样进不了自己的号
+  const keys = importCoinKeys(plan.coinKeys);
+
   // 记忆网络：v2 起才带快照。没带的包不动它，报告里如实说「包里没有」。
   const nms: RestoreReport["nms"] =
     parsed.bundle.nms !== undefined
@@ -244,6 +255,7 @@ export async function restoreLocalBackup(text: string, mode: RestoreMode = "merg
     overwritten: plan.overwritten,
     skipped: plan.skipped,
     wallet,
+    keys,
     nms,
     hasFiles: parsed.bundle.files !== undefined,
   };

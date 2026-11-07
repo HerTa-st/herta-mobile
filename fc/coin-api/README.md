@@ -238,7 +238,7 @@ RAM 先建一个自定义策略 `coin-state-rw`（最小权限）：
     {
       "Effect": "Allow",
       "Action": ["oss:GetObject", "oss:PutObject", "oss:DeleteObject"],
-      "Resource": ["acs:oss:*:*:<bucket>/state/*"]
+      "Resource": ["acs:oss:*:*:<bucket>/*"]
     }
   ]
 }
@@ -255,14 +255,32 @@ RAM 先建一个自定义策略 `coin-state-rw`（最小权限）：
 
 上传 `herta-mobile/coin-api-deploy.zip`（根目录含 `index.js`、`coin-core.js`、`seeds.js`、`news-pool.js`、`market-v2.js`、`oss-state.js`、`package.json`），函数入口仍是 `index.handler`。
 
-### 4. 环境变量（都有默认值，可不填）
+### 4. 环境变量
 
 ```
 OSS_BUCKET=<bucket>
-OSS_ENDPOINT=oss-cn-hongkong.aliyuncs.com
+OSS_ENDPOINT=oss-cn-hangzhou.aliyuncs.com
 STATE_KEY=state/coin.json
 LOCK_KEY=state/coin.lock
 ```
+
+**这两个桶变量不是可选的**（2026-11-08 迁的，见下）。代码里的默认值还是香港的
+`<bucket>` ——那只是本地开发和兜底用的，线上**必须**用环境变量指到杭州的桶。
+
+#### 为什么在杭州
+
+函数跑在 cn-hangzhou。此前账本存在 cn-hongkong 的 `<bucket>`，每次读写都是
+跨境往返（单程 ~180 ms），`/api/state` 要 0.8–2 秒。换成同地域的
+`<bucket>`（私有，只存 `state/coin.json` 和锁）后，单程降到 ~10 ms，
+接口耗时 40–60 ms。
+
+香港那个桶**没有删**，里面还有网站 `index.html`。它的 `state/coin.json` 已经
+过期（2026-11-08 切换时的快照），**不要**再拿它当账本用。
+
+#### 回滚
+
+把上面两个环境变量删掉（或改回香港那组），函数立刻回到旧桶。旧桶数据只到
+2026-11-08 01:21，回滚会丢掉之后的交易，非必要不要回滚。
 
 ### 5. 验证
 
@@ -314,3 +332,78 @@ curl "https://<fc域名>/api/seeds?from=2026-11-07"
 > 上线注意①：HTTP 触发器的路径要覆盖 `/api/*`（不是只挂 `/api/daily`），否则 `/api/seeds` 到不了函数。
 > 上线注意②：切换日前把新代码部署到**所有实例**。旧版本函数不知道 `seeds`，写盘时会把它抹掉，
 > 抹掉后不同实例可能各摇一把、算出两条价格线——这是唯一需要留心的滚动窗口。
+
+---
+
+## 安全：用户密钥（2026-11 起）
+
+### 为什么有这一层
+
+在这之前，`/api/trade` 和 `/api/state` **完全信任请求里的 `user` 字段**：
+
+```bash
+# 任何人，无凭据，就能读别人的持仓
+curl "https://<fc域名>/api/state?user=源梦"
+
+# 任何人，无凭据，就能替别人下单
+curl -X POST "https://<fc域名>/api/trade" -d '{"user":"源梦","side":"sell","amount":99999}'
+```
+
+这不是理论问题，是当时线上的实际状态。`auth.js` 补的就是这一块：
+**一把钥匙只开一个号。**
+
+### 怎么工作
+
+| 环节 | 说明 |
+|---|---|
+| 密钥 | 24 字节随机数的 48 位 hex，绑定时返回**一次** |
+| 存储 | 服务端只存 `sha256(salt + secret)`，账本泄露也还原不出钥匙 |
+| 传输 | 请求头 `X-Herta-Key`（首选）；`Authorization: Bearer` 也认；`?key=` 只给改不了原生层的客户端兜底 |
+| 校验 | `timingSafeEqual`，长度或格式不对一律当失败 |
+
+**接口：**
+
+```bash
+# 领取（没绑过就绑，绑过的必须出示原钥匙才放行）
+curl -X POST "https://<fc域名>/api/bind" -d '{"user":"源梦"}'
+# → { "ok": true, "secret": "<48 hex>", ... }   明文只出现这一次
+
+# 换发（掉设备、怀疑泄露）：要 ADMIN_KEY，这个变量永远不进 APK
+curl -X POST "https://<fc域名>/api/bind/reset" -d '{"user":"源梦","adminKey":"<ADMIN_KEY>"}'
+```
+
+### 三档开关 AUTH_MODE
+
+| 值 | 行为 | 用在什么时候 |
+|---|---|---|
+| `off`（默认） | 完全不校验，和老版本一样 | 还没发新版客户端时 |
+| `lenient` | 已绑定的必须带钥匙；没绑定的放行 | 希望用户慢慢升级时 |
+| `strict` | 没绑定一律 403 `not_bound` | 新版客户端铺开之后 |
+
+哪些接口要钥匙：`/api/state`、`/api/trade`、`/api/restart`、`/api/signin`、`/api/claim`。
+`/api/daily`、`/api/seeds`、`/api/leaderboard` 仍然公开。
+
+> ⚠️ `strict` **只在客户端已经会带钥匙之后**再开。老客户端不会调 `/api/bind`，
+> 一开就再也读不到共享市场（行情不受影响，它是本地算的）。
+
+### 限流
+
+`ratelimit.js`，三层，默认开着：
+
+| 变量 | 默认 | 含义 |
+|---|---|---|
+| `RATE_LIMIT` | `on` | `off` 关掉全部限流 |
+| `RATE_GLOBAL_PER_MIN` | 2400 | 单实例每分钟总量，**钱包的最后一道闸** |
+| `RATE_IP_PER_MIN` | 180 | 单 IP 每分钟 |
+| `RATE_USER_PER_MIN` | 120 | 单昵称/单钥匙每分钟 |
+
+超了回 `429` + `Retry-After`。计数器在进程内存里，**每个实例各算各的**——
+真要做跨实例精确计数得上 Redis，为这个量级的接口不值得；防的是「被打爆」，不是「精确到个位」。
+
+### 还没解决的
+
+- **密钥丢了等于账号丢了**：换手机 / 清数据 / 重装都会丢，只能管理员 `/api/bind/reset` 换发。
+  客户端应该把这句话写在界面上——目前只是文档里记着。
+- **令牌/密钥都能被反编译拿到**：APK 里没有真正的秘密。这一层挡的是「随手 curl」，
+  不是「铁了心逆向的人」。真防得住的是限流和预算告警。
+
