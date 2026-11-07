@@ -259,9 +259,9 @@ RAM 先建一个自定义策略 `coin-state-rw`（最小权限）：
 
 ```
 OSS_BUCKET=<bucket>
-OSS_ENDPOINT=oss-cn-hangzhou.aliyuncs.com
-STATE_KEY=state/coin.json
-LOCK_KEY=state/coin.lock
+OSS_ENDPOINT=<region>.aliyuncs.com
+STATE_KEY=<state-key>
+LOCK_KEY=<state-key>.lock
 ```
 
 **`OSS_BUCKET` 与 `STATE_KEY` 不是可选的**（2026-11-08 迁的，见下）。代码里**没有**默认桶名和默认账本键——
@@ -269,13 +269,12 @@ LOCK_KEY=state/coin.lock
 
 #### 为什么在杭州
 
-函数跑在 cn-hangzhou。此前账本存在 cn-hongkong 的 `<bucket>`，每次读写都是
-跨境往返（单程 ~180 ms），`/api/state` 要 0.8–2 秒。换成同地域的
-`<bucket>`（私有，只存 `state/coin.json` 和锁）后，单程降到 ~10 ms，
-接口耗时 40–60 ms。
+函数跑在 cn-hangzhou。此前账本存在境外一个桶里，每次读写都要跨境往返
+（单程 ~180 ms），`/api/state` 要 0.8–2 秒。换成同地域的私有桶（只存
+`<state-key>` 和锁）后，单程降到 ~10 ms，接口耗时 40–60 ms。
 
-香港那个桶**没有删**，里面还有网站 `index.html`。它的 `state/coin.json` 已经
-过期（2026-11-08 切换时的快照），**不要**再拿它当账本用。
+网址用的那个桶**没有删**，里面还有网站 `index.html`。它的账本对象已经过期
+（2026-11-08 切换时的快照），**不要**再拿它当账本用。
 
 #### 回滚
 
@@ -286,7 +285,7 @@ LOCK_KEY=state/coin.lock
 
 ```bash
 curl "https://<fc域名>/api/state?user=%E6%A2%A6%E6%BA%90"
-curl -X POST "https://<fc域名>/api/trade" -H "Content-Type: application/json" -d '{"user":"梦源","side":"buy","amount":100}'
+curl -X POST "https://<fc域名>/api/trade" -H "Content-Type: application/json" -d '{"user":"player","side":"buy","amount":100}'
 curl "https://<fc域名>/api/leaderboard"
 ```
 
