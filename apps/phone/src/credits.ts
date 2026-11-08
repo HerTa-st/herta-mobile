@@ -19,7 +19,7 @@
 export const CREDITS_URL = "https://www.herta-st-gp.top/data/credits.json";
 
 /**
- * 反馈表单。与网站同一行：site/assets/config.js 的 feedback。
+ * 反馈表单。与线上站点同源：config.js 的 feedback。
  * 只在「关于」组里当外部表单打开，App 不发任何数据。
  */
 export const FEEDBACK_FORM_URL =

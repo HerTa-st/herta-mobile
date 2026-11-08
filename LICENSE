@@ -31,7 +31,7 @@ SOFTWARE.
 
 - **角色**：黑塔（Herta）及《崩坏：星穹铁道》相关的名称、形象、立绘、配色基调与
   相关设定文本。代码里出现它们，是因为这个 App 是给她做的，不代表获得了授权。
-- **美术与音频素材**：`assets/`、`site/assets/`、`docs/prototypes-2026-11/`、
+- **美术与音频素材**：`assets/`、`docs/prototypes-2026-11/`、
   `tools/launcher-icons-backup-2026-11-04/` 下的图、图标、截图、开屏字符段落。
 - **人格与文案**：`apps/phone/src/prompts/`、`runtime/` 里的提示词与台词，
   以及站点上的介绍文案。

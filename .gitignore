@@ -23,8 +23,7 @@ coin-api-deploy.zip*
 coin-api-deploy.bak-*.zip
 _test.out
 
-# 本机抓的站点截图、一次性临时清单（机器本地产物，不进 git）
-site/data/QQ_*.png
+# 本机一次性临时清单（机器本地产物，不进 git）
 _tracked.txt
 _untracked.txt
 

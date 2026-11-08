@@ -446,7 +446,7 @@ export function App() {
 
   /**
    * B13「关于」组里的反馈：打开第三方表单（飞书），App 不收集、不经手提交内容。
-   * 链接与网站同一行（site/assets/config.js 的 feedback）；万一以后被留空，
+   * 链接与线上站点同一处（config.js 的 feedback）；万一以后被留空，
    * 退回「已知问题」页，不给死链（设计文档 §16.3）。
    */
   const openFeedback = useCallback(() => {
